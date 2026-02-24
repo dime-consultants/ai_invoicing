@@ -1,0 +1,11 @@
+*# Ignore Windows user profile junk
+/AppData/
+/Documents/
+/Downloads/
+/Desktop/
+/Music/
+/Pictures/
+/Videos/
+*.DAT
+*.LOG*
+*.ini
