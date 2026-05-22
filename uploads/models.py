@@ -1,3 +1,155 @@
+# uploads/models.py
+import os
 from django.db import models
+from django.utils import timezone
 
-# Create your models here.
+
+def _batch_upload_path(instance, filename):
+    """Store files under  media/uploads/<year>/<month>/<batch_id>/<filename>"""
+    now = timezone.now()
+    return os.path.join(
+        "uploads",
+        str(now.year),
+        f"{now.month:02d}",
+        str(instance.batch.id) if instance.batch_id else "unassigned",
+        filename,
+    )
+
+
+class UploadBatch(models.Model):
+    """
+    A logical grouping of one or more uploaded files submitted together
+    for a single processing run.
+
+    The 'label' is a free-form human name (e.g. "April 2026 URA receipts").
+    Source type is intentionally left open — the AI will inspect the files
+    and decide how to process them.
+    """
+
+    STATUS_CHOICES = [
+        ("pending",    "Pending"),       # files uploaded, no processing started
+        ("processing", "Processing"),    # AI jobs running
+        ("completed",  "Completed"),     # all jobs finished successfully
+        ("partial",    "Partial"),       # some jobs failed
+        ("failed",     "Failed"),        # all jobs failed
+    ]
+
+    label = models.CharField(
+        max_length=200,
+        help_text="Human-readable name for this batch, e.g. 'April 2026 URA Receipts'.",
+    )
+    description = models.TextField(
+        blank=True,
+        help_text="Optional notes about what this batch contains or why it was uploaded.",
+    )
+    status = models.CharField(
+        max_length=15,
+        choices=STATUS_CHOICES,
+        default="pending",
+    )
+    uploaded_by = models.ForeignKey(
+        "users.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="batches",
+    )
+
+    # Denormalised counters — updated by signals / service layer
+    file_count     = models.PositiveIntegerField(default=0)
+    processed_count = models.PositiveIntegerField(default=0)
+    error_count    = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name        = "Upload Batch"
+        verbose_name_plural = "Upload Batches"
+        ordering            = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Batch #{self.pk} — {self.label} [{self.status}]"
+
+    @property
+    def is_complete(self) -> bool:
+        return self.status == "completed"
+
+
+class UploadedFile(models.Model):
+    """
+    A single file belonging to an UploadBatch.
+
+    parse_status tracks where this specific file is in the pipeline.
+    detected_type is populated by the AI after it inspects the file content,
+    e.g. 'ura_fiscal_receipt', 'safaricom_bill', 'acon_export', 'unknown'.
+    """
+
+    PARSE_STATUS_CHOICES = [
+        ("pending",     "Pending"),
+        ("parsing",     "Parsing"),
+        ("parsed",      "Parsed"),
+        ("parse_error", "Parse Error"),
+        ("skipped",     "Skipped"),
+    ]
+
+    batch = models.ForeignKey(
+        UploadBatch,
+        on_delete=models.CASCADE,
+        related_name="files",
+    )
+    file = models.FileField(upload_to=_batch_upload_path)
+    original_filename = models.CharField(max_length=255)
+    file_size_bytes   = models.PositiveBigIntegerField(default=0)
+    mime_type         = models.CharField(max_length=100, blank=True)
+    extension         = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text="Lowercased extension without dot, e.g. 'txt', 'pdf', 'xlsx'.",
+    )
+
+    # Set by the AI after inspecting file content
+    detected_type = models.CharField(
+        max_length=60,
+        blank=True,
+        help_text=(
+            "AI-assigned document type, e.g. 'ura_fiscal_receipt', "
+            "'safaricom_bill', 'acon_export', 'unknown'."
+        ),
+    )
+    detection_confidence = models.CharField(
+        max_length=10,
+        blank=True,
+        help_text="'high', 'medium', or 'low'.",
+    )
+
+    parse_status  = models.CharField(
+        max_length=15,
+        choices=PARSE_STATUS_CHOICES,
+        default="pending",
+    )
+    parse_error   = models.TextField(blank=True)
+    parsed_at     = models.DateTimeField(null=True, blank=True)
+
+    # Raw text extracted from the file (stored for AI context window injection)
+    extracted_text = models.TextField(
+        blank=True,
+        help_text="Plain-text representation of the file content used by the AI.",
+    )
+
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name        = "Uploaded File"
+        verbose_name_plural = "Uploaded Files"
+        ordering            = ["batch", "uploaded_at"]
+
+    def __str__(self) -> str:
+        return f"{self.original_filename} ({self.extension}) — {self.parse_status}"
+
+    @property
+    def filename(self) -> str:
+        return self.original_filename
+
+    @property
+    def is_parsed(self) -> bool:
+        return self.parse_status == "parsed"

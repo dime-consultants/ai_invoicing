@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>Invoice Processing — Chat</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f5f7fa; color: #333; height: 100vh; overflow: hidden; }
+        .container { display: flex; height: 100vh; }
+
+        /* ── Sidebar ── */
+        .sidebar { width: 260px; background: linear-gradient(160deg, #1a2332 0%, #2c3e50 100%); border-right: 1px solid #111; display: flex; flex-direction: column; color: white; flex-shrink: 0; }
+        .sidebar-header { padding: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+        .sidebar-header h2 { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #a0b4c8; }
+        .sidebar-content { flex: 1; overflow-y: auto; padding: 8px 0; }
+        .conv-item { padding: 10px 16px; border-left: 3px solid transparent; cursor: pointer; font-size: 13px; color: #c8d6e0; transition: all 0.15s; }
+        .conv-item:hover { background: rgba(255,255,255,0.07); border-left-color: #4a9eda; }
+        .conv-item.active { background: rgba(74,158,218,0.18); border-left-color: #4a9eda; color: #fff; font-weight: 600; }
+        .conv-meta { font-size: 11px; color: #7a9ab0; margin-top: 2px; }
+        .sidebar-footer { padding: 12px; border-top: 1px solid rgba(255,255,255,0.08); }
+        .btn-new { width: 100%; padding: 9px; background: #2980b9; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; }
+        .btn-new:hover { background: #3498db; }
+
+        /* ── Main ── */
+        .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+        .header { padding: 14px 20px; background: white; border-bottom: 1px solid #e4e8ed; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 17px; color: #2c3e50; font-weight: 600; }
+        .content { flex: 1; display: flex; gap: 0; overflow: hidden; }
+
+        /* ── Chat ── */
+        .chat-section { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #e4e8ed; min-width: 0; }
+        .chat-messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; background: #f8fafc; }
+        .message { display: flex; }
+        .message.user { justify-content: flex-end; }
+        .message.assistant { justify-content: flex-start; }
+        .msg-bubble { max-width: 72%; padding: 11px 15px; border-radius: 10px; font-size: 13.5px; line-height: 1.55; }
+        .message.user .msg-bubble { background: #2980b9; color: white; border-bottom-right-radius: 3px; }
+        .message.assistant .msg-bubble { background: white; color: #2c3e50; border: 1px solid #dde3ea; border-bottom-left-radius: 3px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+        .msg-time { font-size: 11px; color: #a0aab4; margin-top: 4px; }
+        .message.user .msg-time { text-align: right; }
+
+        /* Attachment chips */
+        .attach-chip { display: inline-flex; align-items: center; gap: 5px; background: rgba(0,0,0,0.08); border-radius: 4px; padding: 4px 8px; font-size: 12px; margin-top: 6px; margin-right: 4px; text-decoration: none; color: inherit; border: 1px solid rgba(0,0,0,0.1); cursor: pointer; }
+        .message.assistant .attach-chip { background: #eaf4fb; border-color: #b3d9f0; color: #1a6a9a; }
+        .attach-chip:hover { opacity: 0.8; }
+
+        /* Thinking indicator */
+        .thinking { display: flex; gap: 4px; align-items: center; padding: 12px 15px; }
+        .dot { width: 7px; height: 7px; background: #a0aab4; border-radius: 50%; animation: bounce 1.2s infinite; }
+        .dot:nth-child(2) { animation-delay: 0.2s; }
+        .dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
+
+        /* ── Input ── */
+        .input-area { padding: 12px 16px; border-top: 1px solid #e4e8ed; background: white; }
+        .file-preview-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+        .file-pill { display: inline-flex; align-items: center; gap: 5px; background: #eaf4fb; border: 1px solid #b3d9f0; border-radius: 20px; padding: 3px 10px; font-size: 12px; color: #1a6a9a; }
+        .file-pill button { background: none; border: none; color: #e74c3c; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 0 0 3px; }
+        .input-row { display: flex; gap: 8px; align-items: flex-end; }
+        .chat-input { flex: 1; padding: 9px 12px; border: 1px solid #d0d7e0; border-radius: 6px; font-size: 13.5px; font-family: inherit; resize: none; line-height: 1.4; max-height: 120px; }
+        .chat-input:focus { outline: none; border-color: #2980b9; box-shadow: 0 0 0 3px rgba(41,128,185,0.1); }
+        .btn-attach { padding: 9px 12px; background: #f0f4f8; border: 1px solid #d0d7e0; border-radius: 6px; cursor: pointer; font-size: 16px; color: #5a7090; }
+        .btn-attach:hover { background: #e0e8f0; }
+        .btn-send { padding: 9px 18px; background: #27ae60; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; }
+        .btn-send:hover { background: #229954; }
+        .btn-send:disabled { background: #b0c8b8; cursor: not-allowed; }
+
+        /* ── Right panel ── */
+        .right-panel { width: 280px; display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0; background: white; }
+        .panel { border-bottom: 1px solid #e4e8ed; }
+        .panel-hdr { padding: 12px 14px; background: #f4f7fa; font-weight: 600; font-size: 13px; color: #2c3e50; border-bottom: 1px solid #e4e8ed; display: flex; justify-content: space-between; align-items: center; }
+        .panel-body { padding: 12px 14px; }
+
+        /* Workflow list */
+        .wf-option { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid #dde3ea; border-radius: 6px; margin-bottom: 6px; cursor: pointer; transition: all 0.15s; }
+        .wf-option:hover { border-color: #2980b9; background: #f0f7ff; }
+        .wf-option.selected { border-color: #2980b9; background: #eaf4fb; }
+        .wf-option input[type=radio] { margin-top: 2px; accent-color: #2980b9; flex-shrink: 0; }
+        .wf-name { font-size: 13px; font-weight: 600; color: #2c3e50; }
+        .wf-desc { font-size: 11px; color: #7a8fa0; margin-top: 2px; }
+        .wf-none { font-size: 12px; color: #a0aab4; padding: 6px 0; }
+
+        /* Upload drop zone */
+        .drop-zone { border: 2px dashed #b3d9f0; border-radius: 6px; padding: 18px; text-align: center; cursor: pointer; transition: all 0.2s; background: #f5fbff; }
+        .drop-zone:hover, .drop-zone.dragover { background: #e0f0fa; border-color: #2980b9; }
+        .drop-icon { font-size: 26px; margin-bottom: 6px; }
+        .drop-text { font-size: 12px; color: #5a7090; }
+        #hiddenFileInput { display: none; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-thumb { background: #c0cad4; border-radius: 3px; }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <!-- Left sidebar: conversation list -->
+    <div class="sidebar">
+        <div class="sidebar-header"><h2>📊 AI Invoices</h2></div>
+        <div class="sidebar-content" id="convList"></div>
+        <div class="sidebar-footer">
+            <button class="btn-new" onclick="newConversation()">+ New Chat</button>
+        </div>
+    </div>
+
+    <!-- Main -->
+    <div class="main">
+        <div class="header">
+            <h1 id="convTitle">Invoice & Bill Processing</h1>
+        </div>
+        <div class="content">
+
+            <!-- Chat column -->
+            <div class="chat-section">
+                <div class="chat-messages" id="chatMessages">
+                    <div style="text-align:center;color:#a0aab4;padding:60px 20px;font-size:13px;">
+                        Select or start a conversation
+                    </div>
+                </div>
+                <div class="input-area">
+                    <div class="file-preview-bar" id="filePills"></div>
+                    <div class="input-row">
+                        <button class="btn-attach" title="Attach file" onclick="document.getElementById('hiddenFileInput').click()">📎</button>
+                        <input type="file" id="hiddenFileInput" multiple accept=".txt,.pdf,.xlsx,.xls,.csv" onchange="handleFileSelect(event)">
+                        <textarea class="chat-input" id="msgInput" rows="1"
+                            placeholder="Ask about invoices, or attach a file to extract data…"></textarea>
+                        <button class="btn-send" id="sendBtn" onclick="sendMessage()">Send</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right panel: workflows + upload zone -->
+            <div class="right-panel">
+
+                <!-- Workflow selector -->
+                <div class="panel">
+                    <div class="panel-hdr">
+                        ✅ Workflow
+                        <span style="font-size:11px;color:#a0aab4;font-weight:400;" id="wfSelected">none selected</span>
+                    </div>
+                    <div class="panel-body" id="workflowList">
+                        <div class="wf-none">Loading workflows…</div>
+                    </div>
+                </div>
+
+                <!-- Drop zone -->
+                <div class="panel">
+                    <div class="panel-hdr">📤 Drop Files</div>
+                    <div class="panel-body">
+                        <div class="drop-zone" id="dropZone"
+                             onclick="document.getElementById('hiddenFileInput').click()">
+                            <div class="drop-icon">📄</div>
+                            <div class="drop-text">Drop files here or click to browse<br>
+                                <span style="color:#a0aab4">.txt · .pdf · .xlsx · .csv</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const API = '/api/chat';
+let currentConvId = null;
+let pendingFiles  = [];   // {file: File, name: str}
+let selectedWfId  = null;
+let authToken     = null; // set from login if needed; falls back to cookie/session
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    loadConversations();
+    loadWorkflows();
+    setupDrop();
+    setupInput();
+
+    // Pull JWT from localStorage if the frontend stored it after login
+    authToken = localStorage.getItem('access_token') || null;
+});
+
+// ── Auth headers (JWT preferred, CSRF fallback) ───────────────────────────────
+function authHeaders(extra = {}) {
+    const h = { ...extra };
+    if (authToken) {
+        h['Authorization'] = `Bearer ${authToken}`;
+    }
+    // Always include CSRF for session-authenticated views
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content
+               || getCookie('csrftoken') || '';
+    if (csrf) h['X-CSRFToken'] = csrf;
+    return h;
+}
+
+function getCookie(name) {
+    return document.cookie.split(';').map(c => c.trim())
+        .find(c => c.startsWith(name + '='))
+        ?.split('=')[1] || '';
+}
+
+// ── Conversations ─────────────────────────────────────────────────────────────
+async function loadConversations() {
+    try {
+        const r = await fetch(`${API}/conversations/`, { headers: authHeaders(), credentials: 'include' });
+        const data = await r.json();
+        renderConvList(Array.isArray(data) ? data : (data.results || []));
+    } catch(e) { console.error('loadConversations', e); }
+}
+
+function renderConvList(convs) {
+    const el = document.getElementById('convList');
+    if (!convs.length) {
+        el.innerHTML = '<div style="padding:16px;text-align:center;color:#7a9ab0;font-size:12px;">No conversations yet</div>';
+        return;
+    }
+    el.innerHTML = convs.map(c => `
+        <div class="conv-item ${c.id === currentConvId ? 'active' : ''}"
+             onclick="selectConv(${c.id}, ${JSON.stringify(c.title)})">
+            ${esc(c.title)}
+            <div class="conv-meta">${c.message_count} messages</div>
+        </div>`).join('');
+}
+
+async function selectConv(id, title) {
+    currentConvId = id;
+    document.getElementById('convTitle').textContent = title;
+    document.querySelectorAll('.conv-item').forEach(el => {
+        el.classList.toggle('active', Number(el.dataset.id) === id);
+    });
+    await loadMessages(id);
+}
+
+async function newConversation() {
+    const title = prompt('Conversation title:', 'New Invoice Chat');
+    if (!title) return;
+    const r = await fetch(`${API}/conversations/`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: authHeaders({'Content-Type': 'application/json'}),
+        body: JSON.stringify({ title }),
+    });
+    const data = await r.json();
+    await loadConversations();
+    await selectConv(data.id, data.title);
+}
+
+// ── Messages ──────────────────────────────────────────────────────────────────
+async function loadMessages(convId) {
+    const r = await fetch(`${API}/conversations/${convId}/messages/`, { headers: authHeaders(), credentials: 'include' });
+    const msgs = await r.json();
+    const list = Array.isArray(msgs) ? msgs : (msgs.results || []);
+    renderMessages(list);
+}
+
+function renderMessages(msgs) {
+    const box = document.getElementById('chatMessages');
+    if (!msgs.length) {
+        box.innerHTML = '<div style="text-align:center;color:#a0aab4;padding:60px 20px;font-size:13px;">Start the conversation</div>';
+        return;
+    }
+    box.innerHTML = msgs.map(m => buildMsgHtml(m)).join('');
+    box.scrollTop = box.scrollHeight;
+}
+
+function buildMsgHtml(m) {
+    const time = m.created_at ? new Date(m.created_at).toLocaleTimeString() : '';
+    const atts  = (m.attachments || []).map(a => attachChip(a, m.role)).join('');
+    return `
+        <div class="message ${m.role}">
+            <div>
+                <div class="msg-bubble">${esc(m.content)}${atts}</div>
+                <div class="msg-time">${time}</div>
+            </div>
+        </div>`;
+}
+
+function attachChip(att, role) {
+    const icon = att.attachment_type === 'ai_output' ? '📥' : '📎';
+    const label = esc(att.filename);
+    const sizeKb = att.file_size_bytes ? `(${(att.file_size_bytes/1024).toFixed(0)} KB)` : '';
+    const url = `/api/chat/attachments/${att.id}/download/`;
+    return `<br><a class="attach-chip" href="${url}" download="${label}" target="_blank">
+                ${icon} ${label} ${sizeKb}
+            </a>`;
+}
+
+function appendMsg(role, content, attachments = []) {
+    const box = document.getElementById('chatMessages');
+    const div = document.createElement('div');
+    div.className = `message ${role}`;
+    const atts = attachments.map(a => attachChip(a, role)).join('');
+    div.innerHTML = `
+        <div>
+            <div class="msg-bubble">${esc(content)}${atts}</div>
+            <div class="msg-time">${new Date().toLocaleTimeString()}</div>
+        </div>`;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+    return div;
+}
+
+function appendThinking() {
+    const box = document.getElementById('chatMessages');
+    const div = document.createElement('div');
+    div.className = 'message assistant';
+    div.id = 'thinking-indicator';
+    div.innerHTML = `<div class="msg-bubble thinking"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>`;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+}
+
+function removeThinking() {
+    document.getElementById('thinking-indicator')?.remove();
+}
+
+// ── Send ──────────────────────────────────────────────────────────────────────
+async function sendMessage() {
+    if (!currentConvId) { alert('Select or create a conversation first.'); return; }
+    const input = document.getElementById('msgInput');
+    const msg = input.value.trim();
+    if (!msg && !pendingFiles.length) return;
+
+    const sendBtn = document.getElementById('sendBtn');
+    sendBtn.disabled = true;
+
+    // Optimistic user message
+    const displayMsg = msg || `(${pendingFiles.length} file${pendingFiles.length > 1 ? 's' : ''} attached)`;
+    appendMsg('user', displayMsg);
+    input.value = '';
+    input.style.height = 'auto';
+
+    // Build FormData
+    const fd = new FormData();
+    fd.append('message', msg || 'Please extract all data from the attached file and create an Excel file.');
+    pendingFiles.forEach(f => fd.append('files', f.file));
+    if (selectedWfId) fd.append('workflow_id', selectedWfId);
+
+    // Clear pending files
+    pendingFiles = [];
+    renderFilePills();
+
+    appendThinking();
+
+    try {
+        const r = await fetch(`${API}/conversations/${currentConvId}/send/`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: authHeaders(),  // no Content-Type — let browser set multipart boundary
+            body: fd,
+        });
+
+        removeThinking();
+
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            appendMsg('assistant', `Error: ${err.error || r.statusText}`);
+            return;
+        }
+
+        const data = await r.json();
+        const assistantMsg = data.assistant_message;
+        const outputAtts   = data.output_attachments || [];
+
+        appendMsg('assistant', assistantMsg.content, outputAtts);
+        await loadConversations();   // refresh title in sidebar
+
+    } catch(e) {
+        removeThinking();
+        appendMsg('assistant', 'Network error — please try again.');
+        console.error('sendMessage', e);
+    } finally {
+        sendBtn.disabled = false;
+    }
+}
+
+// ── File handling ─────────────────────────────────────────────────────────────
+function handleFileSelect(e) {
+    Array.from(e.target.files).forEach(f => pendingFiles.push({ file: f, name: f.name }));
+    e.target.value = '';  // reset so same file can be re-selected
+    renderFilePills();
+}
+
+function removeFile(idx) {
+    pendingFiles.splice(idx, 1);
+    renderFilePills();
+}
+
+function renderFilePills() {
+    const bar = document.getElementById('filePills');
+    bar.innerHTML = pendingFiles.map((f, i) => `
+        <div class="file-pill">
+            📎 ${esc(f.name)}
+            <button onclick="removeFile(${i})" title="Remove">×</button>
+        </div>`).join('');
+}
+
+// ── Drag & drop ───────────────────────────────────────────────────────────────
+function setupDrop() {
+    const zone = document.getElementById('dropZone');
+    ['dragenter','dragover'].forEach(e => zone.addEventListener(e, ev => { ev.preventDefault(); zone.classList.add('dragover'); }));
+    ['dragleave','drop'].forEach(e => zone.addEventListener(e, ev => { ev.preventDefault(); zone.classList.remove('dragover'); }));
+    zone.addEventListener('drop', ev => {
+        Array.from(ev.dataTransfer.files).forEach(f => pendingFiles.push({ file: f, name: f.name }));
+        renderFilePills();
+    });
+}
+
+// ── Workflows ─────────────────────────────────────────────────────────────────
+async function loadWorkflows() {
+    try {
+        const r = await fetch(`${API}/workflows/`, { headers: authHeaders(), credentials: 'include' });
+        if (!r.ok) { renderWorkflows([]); return; }
+        const data = await r.json();
+        const wfs = Array.isArray(data) ? data : (data.results || []);
+        renderWorkflows(wfs);
+    } catch(e) { renderWorkflows([]); }
+}
+
+function renderWorkflows(wfs) {
+    const el = document.getElementById('workflowList');
+    const fullPipeline = {
+        id: 'full_pipeline',
+        name: 'Full processing pipeline',
+        description: 'Run one complete start-to-finish process on attached files.',
+    };
+
+    const allOptions = [fullPipeline, ...wfs];
+    if (!allOptions.length) {
+        el.innerHTML = '<div class="wf-none">No workflows available.</div>';
+        return;
+    }
+
+    el.innerHTML = allOptions.map(w => `
+        <div class="wf-option ${String(selectedWfId) === String(w.id) ? 'selected' : ''}"
+             id="wf-${w.id}"
+             data-id="${w.id}"
+             onclick="selectWorkflow('${w.id}', ${JSON.stringify(w.name)})">
+            <input type="radio" name="workflow" value="${w.id}"
+                   ${String(selectedWfId) === String(w.id) ? 'checked' : ''}>
+            <div>
+                <div class="wf-name">${esc(w.name)}</div>
+                <div class="wf-desc">${esc(w.description || '')}</div>
+            </div>
+        </div>`).join('');
+}
+
+function selectWorkflow(id, name) {
+    if (selectedWfId === id) {
+        selectedWfId = null;
+        document.getElementById('wfSelected').textContent = 'none selected';
+    } else {
+        selectedWfId = id;
+        document.getElementById('wfSelected').textContent = name;
+    }
+    document.querySelectorAll('.wf-option').forEach(el => {
+        const elId = el.dataset.id;
+        const selected = String(elId) === String(selectedWfId);
+        el.classList.toggle('selected', selected);
+        const radio = el.querySelector('input[type=radio]');
+        if (radio) radio.checked = selected;
+    });
+}
+
+// ── Auto-resize textarea ──────────────────────────────────────────────────────
+function setupInput() {
+    const inp = document.getElementById('msgInput');
+    inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+    inp.addEventListener('input', () => {
+        inp.style.height = 'auto';
+        inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
+    });
+}
+
+// ── Util ──────────────────────────────────────────────────────────────────────
+function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+}
+</script>
+</body>
+</html>

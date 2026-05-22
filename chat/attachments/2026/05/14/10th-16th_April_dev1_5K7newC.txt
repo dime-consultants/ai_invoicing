@@ -1,0 +1,3651 @@
+        KUEHNE & NAGEL LIMITED        
+            P.O BOX 69979             
+               NAIROBI                
+- - - - - - - - - - - - - - - - - - - 
+           PIN: P000613672W           
+- - - - - - - - - - - - - - - - - - - 
+         *PERIODICAL REPORT*          
+FROM                        10-04-2026
+TO                          16-04-2026
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140342
+10-04-2026                    03:58:13
+TOTAL:                    4 862 563,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140343
+10-04-2026                    04:05:32
+TOTAL:                       52 027,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140344
+10-04-2026                    08:02:46
+TOTAL:                      157 672,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140345
+10-04-2026                    08:12:41
+TOTAL:                      142 985,60
+TAXES:                        3 081,60
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140346
+10-04-2026                    08:35:49
+TOTAL:                       55 630,20
+TAXES:                        2 687,20
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140347
+10-04-2026                    08:39:19
+TOTAL:                      535 816,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140348
+10-04-2026                    09:01:27
+TOTAL:                      762 333,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140349
+10-04-2026                    09:45:33
+TOTAL:                       82 927,44
+TAXES:                        4 069,44
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140350
+10-04-2026                    09:56:17
+TOTAL:                    1 093 506,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140351
+10-04-2026                    10:01:47
+TOTAL:                       44 309,68
+TAXES:                        6 111,68
+CREDIT NOTE                           
+CU INVOICE NUMBER: 0040083410000140352
+10-04-2026                    10:10:39
+TOTAL:                      960 438,40
+TAXES:                        3 382,40
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140353
+10-04-2026                    10:21:03
+TOTAL:                      883 867,00
+TAXES:                            0,00
+CREDIT NOTE                           
+CU INVOICE NUMBER: 0040083410000140354
+10-04-2026                    10:23:05
+TOTAL:                      960 438,40
+TAXES:                        3 382,40
+CREDIT NOTE                           
+CU INVOICE NUMBER: 0040083410000140355
+10-04-2026                    10:33:55
+TOTAL:                      960 438,40
+TAXES:                        3 382,40
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140356
+10-04-2026                    10:47:25
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140357
+10-04-2026                    10:50:26
+TOTAL:                    1 391 000,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140358
+10-04-2026                    11:03:22
+TOTAL:                      850 831,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140359
+10-04-2026                    11:06:20
+TOTAL:                      762 333,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140360
+10-04-2026                    11:33:09
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140361
+10-04-2026                    11:38:47
+TOTAL:                    4 276 937,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140362
+10-04-2026                    11:39:03
+TOTAL:                       11 400,48
+TAXES:                        1 572,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140363
+10-04-2026                    11:41:26
+TOTAL:                          966,00
+TAXES:                            0,00
+CREDIT NOTE                           
+CU INVOICE NUMBER: 0040083410000140364
+10-04-2026                    11:41:45
+TOTAL:                    1 117 082,28
+TAXES:                        3 817,28
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140365
+10-04-2026                    11:42:36
+TOTAL:                        1 829,32
+TAXES:                          252,32
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140366
+10-04-2026                    11:46:42
+TOTAL:                      225 738,88
+TAXES:                        2 802,88
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140367
+10-04-2026                    11:48:19
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140368
+10-04-2026                    11:50:00
+TOTAL:                      774 132,16
+TAXES:                        3 408,16
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140369
+10-04-2026                    11:51:39
+TOTAL:                      561 351,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140370
+10-04-2026                    11:55:35
+TOTAL:                      774 132,16
+TAXES:                        3 408,16
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140371
+10-04-2026                    11:57:47
+TOTAL:                      261 018,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140372
+10-04-2026                    12:00:18
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140373
+10-04-2026                    12:02:55
+TOTAL:                      108 816,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140374
+10-04-2026                    12:04:11
+TOTAL:                    2 275 495,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140375
+10-04-2026                    12:06:40
+TOTAL:                      274 804,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140376
+10-04-2026                    12:07:31
+TOTAL:                    2 818 524,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140377
+10-04-2026                    12:16:26
+TOTAL:                   13 790 807,72
+TAXES:                       19 106,72
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140378
+10-04-2026                    12:17:04
+TOTAL:                    1 161 063,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140379
+10-04-2026                    12:17:12
+TOTAL:                       17 980,00
+TAXES:                        2 480,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140380
+10-04-2026                    12:23:10
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140381
+10-04-2026                    12:27:21
+TOTAL:                    2 931 206,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140382
+10-04-2026                    12:28:30
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140383
+10-04-2026                    12:32:15
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140384
+10-04-2026                    12:34:21
+TOTAL:                      360 162,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140385
+10-04-2026                    12:35:16
+TOTAL:                    1 479 391,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140386
+10-04-2026                    12:39:21
+TOTAL:                    1 608 567,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140387
+10-04-2026                    12:39:52
+TOTAL:                       34 978,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140388
+10-04-2026                    12:40:22
+TOTAL:                      314 615,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140389
+10-04-2026                    12:40:28
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140390
+10-04-2026                    12:41:44
+TOTAL:                    3 344 504,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140391
+10-04-2026                    12:42:51
+TOTAL:                    1 080 063,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140392
+10-04-2026                    12:44:04
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140393
+10-04-2026                    12:44:45
+TOTAL:                    2 744 825,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140394
+10-04-2026                    12:47:44
+TOTAL:                       57 074,52
+TAXES:                        2 699,52
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140395
+10-04-2026                    12:50:55
+TOTAL:                    3 075 066,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140396
+10-04-2026                    12:53:20
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140397
+10-04-2026                    12:54:22
+TOTAL:                    1 768 882,08
+TAXES:                        9 642,08
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140398
+10-04-2026                    12:55:59
+TOTAL:                      820 236,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140399
+10-04-2026                    13:00:30
+TOTAL:                      269 285,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140400
+10-04-2026                    13:04:05
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140401
+10-04-2026                    13:06:58
+TOTAL:                      828 343,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140402
+10-04-2026                    13:08:04
+TOTAL:                      472 174,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140403
+10-04-2026                    13:08:07
+TOTAL:                    9 785 896,80
+TAXES:                       52 172,80
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140404
+10-04-2026                    13:13:07
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140405
+10-04-2026                    13:15:15
+TOTAL:                       11 143,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140406
+10-04-2026                    13:16:49
+TOTAL:                    2 158 272,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140407
+10-04-2026                    13:17:12
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140408
+10-04-2026                    13:20:09
+TOTAL:                        7 889,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140409
+10-04-2026                    13:20:43
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140410
+10-04-2026                    13:21:22
+TOTAL:                    2 761 988,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140411
+10-04-2026                    13:21:55
+TOTAL:                    1 113 379,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140412
+10-04-2026                    13:22:25
+TOTAL:                      106 016,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140413
+10-04-2026                    13:23:09
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140414
+10-04-2026                    13:25:16
+TOTAL:                      932 228,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140415
+10-04-2026                    13:26:02
+TOTAL:                    1 660 560,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140416
+10-04-2026                    13:28:43
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140417
+10-04-2026                    13:29:26
+TOTAL:                    1 070 139,40
+TAXES:                        3 098,40
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140418
+10-04-2026                    13:32:22
+TOTAL:                    2 341 002,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140419
+10-04-2026                    13:32:59
+TOTAL:                      599 513,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140420
+10-04-2026                    13:34:22
+TOTAL:                      142 143,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140421
+10-04-2026                    13:40:37
+TOTAL:                          981,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140422
+10-04-2026                    13:52:59
+TOTAL:                       11 948,00
+TAXES:                        1 648,00
+CREDIT NOTE                           
+CU INVOICE NUMBER: 0040083410000140423
+10-04-2026                    14:27:54
+TOTAL:                    2 494 013,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140424
+10-04-2026                    14:29:41
+TOTAL:                    7 052 946,24
+TAXES:                       37 674,24
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140425
+10-04-2026                    14:34:23
+TOTAL:                    2 738 788,52
+TAXES:                       14 787,52
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140426
+10-04-2026                    14:42:31
+TOTAL:                    2 523 342,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140427
+10-04-2026                    14:46:38
+TOTAL:                       29 833,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140428
+10-04-2026                    14:52:16
+TOTAL:                      233 684,56
+TAXES:                        1 594,56
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140429
+10-04-2026                    14:58:32
+TOTAL:                    4 279 633,56
+TAXES:                       19 734,56
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140430
+10-04-2026                    14:59:28
+TOTAL:                    2 262 876,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140431
+10-04-2026                    15:02:37
+TOTAL:                       69 869,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140432
+10-04-2026                    15:03:03
+TOTAL:                    3 340 902,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140433
+10-04-2026                    15:04:13
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140434
+10-04-2026                    15:05:48
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140435
+10-04-2026                    15:06:10
+TOTAL:                    2 876 047,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140436
+10-04-2026                    15:09:18
+TOTAL:                      494 368,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140437
+10-04-2026                    15:09:31
+TOTAL:                    1 093 983,48
+TAXES:                        6 060,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140438
+10-04-2026                    15:11:12
+TOTAL:                    1 054 075,32
+TAXES:                        6 496,32
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140439
+10-04-2026                    15:13:20
+TOTAL:                    2 101 269,16
+TAXES:                       11 404,16
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140440
+10-04-2026                    15:14:01
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140441
+10-04-2026                    15:15:16
+TOTAL:                       98 890,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140442
+10-04-2026                    15:19:03
+TOTAL:                       23 983,00
+TAXES:                        3 308,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140443
+10-04-2026                    15:20:35
+TOTAL:                    1 645 173,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140444
+10-04-2026                    15:24:07
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140445
+10-04-2026                    15:29:32
+TOTAL:                    3 710 890,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140446
+10-04-2026                    15:31:00
+TOTAL:                    2 120 527,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140447
+10-04-2026                    15:31:31
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140448
+10-04-2026                    15:34:23
+TOTAL:                      549 453,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140449
+10-04-2026                    15:35:07
+TOTAL:                      654 796,52
+TAXES:                        1 355,52
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140450
+10-04-2026                    15:43:57
+TOTAL:                      432 175,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140451
+10-04-2026                    15:44:33
+TOTAL:                    4 836 632,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140452
+10-04-2026                    15:47:45
+TOTAL:                       22 040,00
+TAXES:                        3 040,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140453
+10-04-2026                    15:53:09
+TOTAL:                      130 152,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140454
+10-04-2026                    15:56:20
+TOTAL:                      158 323,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140455
+10-04-2026                    15:58:22
+TOTAL:                        9 385,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140456
+10-04-2026                    16:05:24
+TOTAL:                      367 691,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140457
+10-04-2026                    16:30:51
+TOTAL:                       48 825,12
+TAXES:                        5 577,12
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140458
+10-04-2026                    16:38:08
+TOTAL:                      930 967,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140459
+10-04-2026                    16:47:12
+TOTAL:                      160 074,20
+TAXES:                       22 079,20
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140460
+10-04-2026                    16:50:29
+TOTAL:                    1 445 684,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140461
+10-04-2026                    16:59:30
+TOTAL:                      870 726,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140462
+10-04-2026                    17:11:44
+TOTAL:                      682 315,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140463
+10-04-2026                    17:19:53
+TOTAL:                    1 601 118,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140464
+10-04-2026                    17:29:46
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140465
+10-04-2026                    18:01:52
+TOTAL:                       44 309,68
+TAXES:                        6 111,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140466
+10-04-2026                    18:04:30
+TOTAL:                      581 386,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140467
+10-04-2026                    18:12:35
+TOTAL:                    1 303 684,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140468
+10-04-2026                    18:23:47
+TOTAL:                      163 745,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140469
+10-04-2026                    18:31:51
+TOTAL:                    1 530 845,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140470
+10-04-2026                    19:01:49
+TOTAL:                       11 400,48
+TAXES:                        1 572,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140471
+11-04-2026                    08:09:13
+TOTAL:                          416,44
+TAXES:                           57,44
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140472
+11-04-2026                    08:44:11
+TOTAL:                    1 343 286,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140473
+11-04-2026                    08:48:12
+TOTAL:                      313 567,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140474
+11-04-2026                    09:36:59
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140475
+11-04-2026                    09:37:17
+TOTAL:                      391 130,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140476
+11-04-2026                    09:40:11
+TOTAL:                    4 764 449,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140477
+11-04-2026                    09:40:28
+TOTAL:                       19 819,76
+TAXES:                        2 733,76
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140478
+11-04-2026                    10:08:27
+TOTAL:                      335 208,00
+TAXES:                            0,00
+CREDIT NOTE                           
+CU INVOICE NUMBER: 0040083410000140479
+11-04-2026                    10:09:04
+TOTAL:                    1 389 422,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140480
+11-04-2026                    10:11:47
+TOTAL:                    1 353 870,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140481
+11-04-2026                    10:13:29
+TOTAL:                    1 305 249,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140482
+11-04-2026                    10:18:07
+TOTAL:                    1 308 967,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140483
+11-04-2026                    10:20:13
+TOTAL:                    1 122 263,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140484
+11-04-2026                    10:33:16
+TOTAL:                    2 526 004,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140485
+11-04-2026                    10:38:21
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140486
+11-04-2026                    10:39:16
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140487
+11-04-2026                    10:43:23
+TOTAL:                      940 462,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140488
+11-04-2026                    10:45:56
+TOTAL:                      940 648,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140489
+11-04-2026                    10:50:17
+TOTAL:                      217 388,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140490
+11-04-2026                    10:54:18
+TOTAL:                      149 095,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140491
+11-04-2026                    10:54:23
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140492
+11-04-2026                    10:55:01
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140493
+11-04-2026                    10:56:58
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140494
+11-04-2026                    11:04:27
+TOTAL:                       93 355,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140495
+11-04-2026                    11:20:14
+TOTAL:                    1 085 521,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140496
+11-04-2026                    11:48:10
+TOTAL:                    1 334 824,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140497
+11-04-2026                    11:57:27
+TOTAL:                      429 179,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140498
+11-04-2026                    12:09:46
+TOTAL:                    1 903 435,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140499
+11-04-2026                    12:11:57
+TOTAL:                       12 850,48
+TAXES:                        1 772,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140500
+11-04-2026                    12:15:46
+TOTAL:                      562 244,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140501
+11-04-2026                    12:26:48
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140502
+11-04-2026                    12:32:50
+TOTAL:                      128 580,00
+TAXES:                        2 712,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140503
+11-04-2026                    12:34:25
+TOTAL:                    2 727 663,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140504
+11-04-2026                    12:34:29
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140505
+11-04-2026                    12:36:00
+TOTAL:                    1 976 128,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140506
+11-04-2026                    12:37:32
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140507
+11-04-2026                    12:38:27
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140508
+11-04-2026                    12:39:03
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140509
+11-04-2026                    12:40:56
+TOTAL:                      564 683,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140510
+11-04-2026                    12:42:32
+TOTAL:                    1 538 739,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140511
+11-04-2026                    12:43:28
+TOTAL:                    1 842 280,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140512
+11-04-2026                    12:45:13
+TOTAL:                    2 477 095,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140513
+11-04-2026                    12:45:52
+TOTAL:                    3 241 643,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140514
+11-04-2026                    12:46:42
+TOTAL:                      191 091,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140515
+11-04-2026                    12:47:05
+TOTAL:                       14 927,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140516
+11-04-2026                    12:47:45
+TOTAL:                    1 921 644,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140517
+11-04-2026                    12:48:24
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140518
+11-04-2026                    12:48:59
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140519
+11-04-2026                    12:49:24
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140520
+11-04-2026                    12:50:03
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140521
+11-04-2026                    12:50:49
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140522
+11-04-2026                    12:50:53
+TOTAL:                      794 034,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140523
+11-04-2026                    12:51:22
+TOTAL:                      484 067,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140524
+11-04-2026                    12:53:34
+TOTAL:                    1 278 839,28
+TAXES:                        3 437,28
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140525
+11-04-2026                    12:53:46
+TOTAL:                      869 065,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140526
+11-04-2026                    12:54:21
+TOTAL:                    1 649 964,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140527
+11-04-2026                    12:54:43
+TOTAL:                      781 182,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140528
+11-04-2026                    12:57:05
+TOTAL:                    2 765 017,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140529
+11-04-2026                    12:57:59
+TOTAL:                      139 181,56
+TAXES:                        2 730,56
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140530
+11-04-2026                    13:01:23
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140531
+11-04-2026                    13:04:26
+TOTAL:                       55 630,20
+TAXES:                        2 687,20
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140532
+11-04-2026                    13:05:12
+TOTAL:                    1 258 755,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140533
+11-04-2026                    13:05:17
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140534
+11-04-2026                    13:08:12
+TOTAL:                    1 438 117,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140535
+11-04-2026                    13:09:12
+TOTAL:                    1 973 468,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140536
+11-04-2026                    13:11:23
+TOTAL:                    1 512 211,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140537
+11-04-2026                    13:11:50
+TOTAL:                      437 777,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140538
+11-04-2026                    13:11:58
+TOTAL:                      139 590,84
+TAXES:                        2 707,84
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140539
+11-04-2026                    13:14:09
+TOTAL:                      233 474,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140540
+11-04-2026                    13:16:28
+TOTAL:                       49 316,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140541
+11-04-2026                    13:20:14
+TOTAL:                    1 938 188,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140542
+11-04-2026                    13:20:26
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140543
+11-04-2026                    13:20:30
+TOTAL:                    1 368 133,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140544
+11-04-2026                    13:22:45
+TOTAL:                      606 745,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140545
+11-04-2026                    13:24:21
+TOTAL:                      211 956,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140546
+11-04-2026                    13:24:28
+TOTAL:                    1 413 770,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140547
+11-04-2026                    13:24:51
+TOTAL:                       27 404,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140548
+11-04-2026                    13:25:41
+TOTAL:                      496 740,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140549
+11-04-2026                    13:28:10
+TOTAL:                      238 653,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140550
+11-04-2026                    13:30:18
+TOTAL:                      567 533,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140551
+11-04-2026                    13:30:21
+TOTAL:                    1 254 663,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140552
+11-04-2026                    13:33:12
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140553
+11-04-2026                    13:34:29
+TOTAL:                      182 830,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140554
+11-04-2026                    13:37:08
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140555
+11-04-2026                    13:39:13
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140556
+11-04-2026                    13:39:30
+TOTAL:                      442 024,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140557
+11-04-2026                    13:42:37
+TOTAL:                      673 982,80
+TAXES:                        1 032,80
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140558
+11-04-2026                    13:43:14
+TOTAL:                      265 773,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140559
+11-04-2026                    13:46:25
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140560
+11-04-2026                    13:46:52
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140561
+11-04-2026                    13:47:06
+TOTAL:                      616 425,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140562
+11-04-2026                    13:47:19
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140563
+11-04-2026                    13:47:49
+TOTAL:                      823 785,28
+TAXES:                        2 685,28
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140564
+11-04-2026                    13:49:02
+TOTAL:                       67 452,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140565
+11-04-2026                    13:49:27
+TOTAL:                      267 003,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140566
+11-04-2026                    13:49:44
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140567
+11-04-2026                    13:50:43
+TOTAL:                      176 645,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140568
+11-04-2026                    13:58:11
+TOTAL:                      487 138,60
+TAXES:                        2 065,60
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140569
+11-04-2026                    13:58:26
+TOTAL:                    1 313 271,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140570
+11-04-2026                    14:17:14
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140571
+11-04-2026                    14:21:19
+TOTAL:                    1 415 368,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140572
+11-04-2026                    14:21:53
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140573
+11-04-2026                    14:23:45
+TOTAL:                    2 427 824,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140574
+11-04-2026                    14:24:02
+TOTAL:                       92 560,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140575
+11-04-2026                    14:25:11
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140576
+11-04-2026                    14:33:01
+TOTAL:                      281 662,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140577
+11-04-2026                    14:42:55
+TOTAL:                       47 950,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140578
+11-04-2026                    14:53:20
+TOTAL:                    1 033 675,16
+TAXES:                        2 272,16
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140579
+11-04-2026                    14:58:13
+TOTAL:                    1 055 983,04
+TAXES:                        1 859,04
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140580
+11-04-2026                    15:01:39
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140581
+11-04-2026                    16:22:13
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140582
+11-04-2026                    16:23:45
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140583
+11-04-2026                    16:29:38
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140584
+11-04-2026                    16:32:06
+TOTAL:                      587 338,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140585
+11-04-2026                    17:00:45
+TOTAL:                    1 152 539,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140586
+11-04-2026                    17:27:04
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140587
+11-04-2026                    17:31:12
+TOTAL:                    1 263 046,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140588
+11-04-2026                    17:37:29
+TOTAL:                    6 953 677,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140589
+11-04-2026                    17:56:29
+TOTAL:                    1 349 215,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140590
+11-04-2026                    18:01:14
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140591
+12-04-2026                    10:53:31
+TOTAL:                      232 379,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140592
+12-04-2026                    12:23:15
+TOTAL:                    1 494 408,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140593
+12-04-2026                    14:56:29
+TOTAL:                    1 515 071,80
+TAXES:                        1 032,80
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140594
+12-04-2026                    15:33:49
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140595
+12-04-2026                    15:34:59
+TOTAL:                    1 655 758,80
+TAXES:                        1 032,80
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140596
+12-04-2026                    15:52:24
+TOTAL:                      709 428,24
+TAXES:                          826,24
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140597
+12-04-2026                    16:22:01
+TOTAL:                      256 296,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140598
+12-04-2026                    16:23:29
+TOTAL:                      339 225,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140599
+12-04-2026                    16:25:58
+TOTAL:                      587 324,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140600
+13-04-2026                    08:40:59
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140601
+13-04-2026                    08:46:29
+TOTAL:                      558 701,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140602
+13-04-2026                    08:47:11
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140603
+13-04-2026                    08:47:54
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140604
+13-04-2026                    08:55:24
+TOTAL:                    1 837 082,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140605
+13-04-2026                    08:58:52
+TOTAL:                    1 176 497,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140606
+13-04-2026                    09:04:25
+TOTAL:                    1 179 255,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140607
+13-04-2026                    09:05:45
+TOTAL:                      595 568,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140608
+13-04-2026                    09:07:35
+TOTAL:                      375 955,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140609
+13-04-2026                    09:08:44
+TOTAL:                    1 375 778,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140610
+13-04-2026                    09:10:14
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140611
+13-04-2026                    09:12:22
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140612
+13-04-2026                    09:14:43
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140613
+13-04-2026                    09:18:53
+TOTAL:                    3 137 462,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140614
+13-04-2026                    09:24:11
+TOTAL:                    1 219 887,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140615
+13-04-2026                    09:26:35
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140616
+13-04-2026                    09:27:12
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140617
+13-04-2026                    09:29:26
+TOTAL:                      975 574,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140618
+13-04-2026                    09:32:01
+TOTAL:                    4 705 389,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140619
+13-04-2026                    09:33:40
+TOTAL:                       99 504,00
+TAXES:                        2 712,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140620
+13-04-2026                    09:38:41
+TOTAL:                    5 834 012,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140621
+13-04-2026                    09:39:54
+TOTAL:                      886 174,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140622
+13-04-2026                    09:40:56
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140623
+13-04-2026                    09:41:24
+TOTAL:                    4 151 489,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140624
+13-04-2026                    09:43:18
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140625
+13-04-2026                    09:43:32
+TOTAL:                    1 206 914,96
+TAXES:                        1 860,96
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140626
+13-04-2026                    09:48:06
+TOTAL:                    5 480 730,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140627
+13-04-2026                    09:52:28
+TOTAL:                    3 079 449,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140628
+13-04-2026                    09:54:16
+TOTAL:                    4 269 260,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140629
+13-04-2026                    09:54:49
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140630
+13-04-2026                    09:55:32
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140631
+13-04-2026                    09:58:02
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140632
+13-04-2026                    10:00:18
+TOTAL:                    3 388 328,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140633
+13-04-2026                    10:01:14
+TOTAL:                      143 603,56
+TAXES:                        2 730,56
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140634
+13-04-2026                    10:02:17
+TOTAL:                      350 707,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140635
+13-04-2026                    10:02:20
+TOTAL:                    1 042 204,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140636
+13-04-2026                    10:05:33
+TOTAL:                      477 731,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140637
+13-04-2026                    10:06:34
+TOTAL:                      923 212,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140638
+13-04-2026                    10:08:05
+TOTAL:                    1 425 104,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140639
+13-04-2026                    10:08:25
+TOTAL:                      846 506,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140640
+13-04-2026                    10:09:00
+TOTAL:                      679 679,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140641
+13-04-2026                    10:09:36
+TOTAL:                      870 909,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140642
+13-04-2026                    10:09:40
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140643
+13-04-2026                    10:10:21
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140644
+13-04-2026                    10:11:34
+TOTAL:                      423 272,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140645
+13-04-2026                    10:13:09
+TOTAL:                    1 836 463,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140646
+13-04-2026                    10:16:08
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140647
+13-04-2026                    10:17:31
+TOTAL:                    1 423 089,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140648
+13-04-2026                    10:21:06
+TOTAL:                      445 295,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140649
+13-04-2026                    10:21:26
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140650
+13-04-2026                    10:22:09
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140651
+13-04-2026                    10:22:16
+TOTAL:                      819 609,60
+TAXES:                        1 717,60
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140652
+13-04-2026                    10:24:31
+TOTAL:                      233 474,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140653
+13-04-2026                    10:27:15
+TOTAL:                      517 710,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140654
+13-04-2026                    10:30:59
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140655
+13-04-2026                    10:45:06
+TOTAL:                      149 601,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140656
+13-04-2026                    10:48:27
+TOTAL:                       62 344,20
+TAXES:                        8 599,20
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140657
+13-04-2026                    10:49:31
+TOTAL:                      993 268,52
+TAXES:                        5 527,52
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140658
+13-04-2026                    10:49:56
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140659
+13-04-2026                    10:50:16
+TOTAL:                      100 202,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140660
+13-04-2026                    10:50:39
+TOTAL:                      178 137,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140661
+13-04-2026                    10:51:08
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140662
+13-04-2026                    10:51:27
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140663
+13-04-2026                    10:52:28
+TOTAL:                    2 345 946,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140664
+13-04-2026                    10:57:25
+TOTAL:                       14 023,24
+TAXES:                        1 934,24
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140665
+13-04-2026                    10:58:59
+TOTAL:                    1 532 283,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140666
+13-04-2026                    11:00:15
+TOTAL:                      290 795,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140667
+13-04-2026                    11:00:27
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140668
+13-04-2026                    11:01:14
+TOTAL:                    1 244 907,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140669
+13-04-2026                    11:05:07
+TOTAL:                      465 481,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140670
+13-04-2026                    11:07:13
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140671
+13-04-2026                    11:07:16
+TOTAL:                    3 679 741,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140672
+13-04-2026                    11:09:40
+TOTAL:                       84 858,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140673
+13-04-2026                    11:10:08
+TOTAL:                      572 303,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140674
+13-04-2026                    11:10:33
+TOTAL:                      427 133,16
+TAXES:                        2 524,16
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140675
+13-04-2026                    11:11:57
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140676
+13-04-2026                    11:12:08
+TOTAL:                       56 663,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140677
+13-04-2026                    11:14:04
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140678
+13-04-2026                    11:16:03
+TOTAL:                      198 250,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140679
+13-04-2026                    11:17:36
+TOTAL:                       29 204,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140680
+13-04-2026                    11:21:26
+TOTAL:                       18 192,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140681
+13-04-2026                    11:23:01
+TOTAL:                        8 302,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140682
+13-04-2026                    11:25:33
+TOTAL:                      122 578,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140683
+13-04-2026                    11:28:07
+TOTAL:                      164 979,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140684
+13-04-2026                    11:30:18
+TOTAL:                      272 272,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140685
+13-04-2026                    11:31:41
+TOTAL:                    2 106 785,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140686
+13-04-2026                    11:31:54
+TOTAL:                    2 739 778,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140687
+13-04-2026                    11:37:01
+TOTAL:                    1 098 961,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140688
+13-04-2026                    11:39:59
+TOTAL:                      545 544,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140689
+13-04-2026                    11:43:50
+TOTAL:                       12 850,48
+TAXES:                        1 772,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140690
+13-04-2026                    11:45:19
+TOTAL:                      722 250,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140691
+13-04-2026                    11:48:00
+TOTAL:                    1 340 882,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140692
+13-04-2026                    11:48:58
+TOTAL:                    1 096 959,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140693
+13-04-2026                    11:55:40
+TOTAL:                       12 850,48
+TAXES:                        1 772,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140694
+13-04-2026                    11:58:30
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140695
+13-04-2026                    12:02:28
+TOTAL:                    7 210 352,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140696
+13-04-2026                    12:02:31
+TOTAL:                    2 440 404,20
+TAXES:                       13 203,20
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140697
+13-04-2026                    12:02:47
+TOTAL:                      905 070,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140698
+13-04-2026                    12:03:55
+TOTAL:                    1 791 802,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140699
+13-04-2026                    12:05:55
+TOTAL:                      690 211,40
+TAXES:                        3 918,40
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140700
+13-04-2026                    12:06:48
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140701
+13-04-2026                    12:07:58
+TOTAL:                       12 850,48
+TAXES:                        1 772,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140702
+13-04-2026                    12:08:57
+TOTAL:                      101 601,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140703
+13-04-2026                    12:10:44
+TOTAL:                       49 316,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140704
+13-04-2026                    12:11:50
+TOTAL:                    2 714 539,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140705
+13-04-2026                    12:13:30
+TOTAL:                      389 752,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140706
+13-04-2026                    12:20:14
+TOTAL:                    2 255 860,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140707
+13-04-2026                    12:20:30
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140708
+13-04-2026                    12:28:15
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140709
+13-04-2026                    12:30:42
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140710
+13-04-2026                    12:37:51
+TOTAL:                    1 929 102,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140711
+13-04-2026                    12:41:06
+TOTAL:                    2 769 055,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140712
+13-04-2026                    12:41:37
+TOTAL:                    2 765 017,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140713
+13-04-2026                    12:48:37
+TOTAL:                    1 061 891,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140714
+13-04-2026                    12:48:53
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140715
+13-04-2026                    12:51:43
+TOTAL:                      329 589,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140716
+13-04-2026                    12:55:21
+TOTAL:                    2 696 872,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140717
+13-04-2026                    13:03:16
+TOTAL:                      469 560,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140718
+13-04-2026                    13:05:14
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140719
+13-04-2026                    13:05:34
+TOTAL:                      616 425,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140720
+13-04-2026                    13:07:18
+TOTAL:                    2 991 777,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140721
+13-04-2026                    13:10:36
+TOTAL:                       49 209,32
+TAXES:                        3 100,32
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140722
+13-04-2026                    13:14:42
+TOTAL:                    3 100 897,48
+TAXES:                       16 708,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140723
+13-04-2026                    13:17:25
+TOTAL:                      323 480,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140724
+13-04-2026                    13:20:59
+TOTAL:                    1 687 202,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140725
+13-04-2026                    13:44:29
+TOTAL:                       47 143,56
+TAXES:                        6 502,56
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140726
+13-04-2026                    13:55:45
+TOTAL:                      118 816,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140727
+13-04-2026                    14:18:57
+TOTAL:                    1 054 075,32
+TAXES:                        6 496,32
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140728
+13-04-2026                    14:22:00
+TOTAL:                    2 218 467,92
+TAXES:                       12 025,92
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140729
+13-04-2026                    14:23:49
+TOTAL:                       73 715,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140730
+13-04-2026                    14:25:23
+TOTAL:                       80 687,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140731
+13-04-2026                    14:27:25
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140732
+13-04-2026                    14:28:27
+TOTAL:                      167 295,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140733
+13-04-2026                    14:49:20
+TOTAL:                       14 707,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140734
+13-04-2026                    15:23:13
+TOTAL:                      478 391,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140735
+13-04-2026                    15:24:27
+TOTAL:                      240 472,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140736
+13-04-2026                    15:28:59
+TOTAL:                      226 878,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140737
+13-04-2026                    15:35:06
+TOTAL:                    1 042 173,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140738
+13-04-2026                    15:41:34
+TOTAL:                    1 488 358,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140739
+13-04-2026                    15:44:24
+TOTAL:                      247 200,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140740
+13-04-2026                    15:44:30
+TOTAL:                      135 171,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140741
+13-04-2026                    15:49:41
+TOTAL:                      104 026,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140742
+13-04-2026                    15:49:45
+TOTAL:                    1 125 379,00
+TAXES:                        1 740,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140743
+13-04-2026                    15:51:05
+TOTAL:                      704 254,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140744
+13-04-2026                    15:51:54
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140745
+13-04-2026                    15:54:10
+TOTAL:                      301 493,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140746
+13-04-2026                    15:56:30
+TOTAL:                      239 950,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140747
+13-04-2026                    15:59:56
+TOTAL:                    1 846 449,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140748
+13-04-2026                    16:02:28
+TOTAL:                      599 433,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140749
+13-04-2026                    16:03:09
+TOTAL:                    1 502 895,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140750
+13-04-2026                    16:08:33
+TOTAL:                       98 067,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140751
+13-04-2026                    16:09:17
+TOTAL:                      878 596,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140752
+13-04-2026                    16:15:56
+TOTAL:                       22 684,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140753
+13-04-2026                    16:29:58
+TOTAL:                    1 699 908,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140754
+13-04-2026                    16:50:02
+TOTAL:                      633 755,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140755
+13-04-2026                    16:52:19
+TOTAL:                    1 006 053,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140756
+13-04-2026                    16:56:17
+TOTAL:                      649 573,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140757
+13-04-2026                    16:58:28
+TOTAL:                      397 550,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140758
+13-04-2026                    17:11:58
+TOTAL:                    1 401 258,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140759
+13-04-2026                    17:12:34
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140760
+13-04-2026                    18:06:25
+TOTAL:                       78 590,00
+TAXES:                       10 840,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140761
+14-04-2026                    06:33:07
+TOTAL:                      110 347,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140762
+14-04-2026                    07:32:43
+TOTAL:                      299 929,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140763
+14-04-2026                    07:39:34
+TOTAL:                      224 514,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140764
+14-04-2026                    08:00:02
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140765
+14-04-2026                    08:01:11
+TOTAL:                      209 823,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140766
+14-04-2026                    08:08:47
+TOTAL:                      168 016,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140767
+14-04-2026                    08:18:22
+TOTAL:                       17 400,00
+TAXES:                        2 400,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140768
+14-04-2026                    08:19:18
+TOTAL:                       11 400,48
+TAXES:                        1 572,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140769
+14-04-2026                    08:19:43
+TOTAL:                      189 270,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140770
+14-04-2026                    08:25:32
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140771
+14-04-2026                    08:27:57
+TOTAL:                       34 443,88
+TAXES:                        4 750,88
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140772
+14-04-2026                    08:35:11
+TOTAL:                       11 400,48
+TAXES:                        1 572,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140773
+14-04-2026                    08:43:13
+TOTAL:                      251 011,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140774
+14-04-2026                    08:48:29
+TOTAL:                      976 309,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140775
+14-04-2026                    09:05:16
+TOTAL:                      528 844,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140776
+14-04-2026                    09:08:36
+TOTAL:                      389 455,20
+TAXES:                        1 615,20
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140777
+14-04-2026                    09:09:33
+TOTAL:                       44 309,68
+TAXES:                        6 111,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140778
+14-04-2026                    09:18:14
+TOTAL:                    1 019 705,68
+TAXES:                        1 755,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140779
+14-04-2026                    09:28:36
+TOTAL:                      468 994,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140780
+14-04-2026                    09:30:41
+TOTAL:                      230 863,36
+TAXES:                        1 963,36
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140781
+14-04-2026                    09:35:38
+TOTAL:                       27 508,52
+TAXES:                        3 511,52
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140782
+14-04-2026                    09:43:22
+TOTAL:                    2 151 587,52
+TAXES:                        2 859,52
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140783
+14-04-2026                    09:43:40
+TOTAL:                      281 685,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140784
+14-04-2026                    09:48:32
+TOTAL:                          966,00
+TAXES:                            0,00
+CREDIT NOTE                           
+CU INVOICE NUMBER: 0040083410000140785
+14-04-2026                    09:53:03
+TOTAL:                      213 319,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140786
+14-04-2026                    09:56:50
+TOTAL:                      259 108,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140787
+14-04-2026                    10:18:20
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140788
+14-04-2026                    10:26:28
+TOTAL:                    1 293 585,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140789
+14-04-2026                    10:28:04
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140790
+14-04-2026                    10:36:52
+TOTAL:                    1 231 817,68
+TAXES:                        6 791,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140791
+14-04-2026                    10:46:54
+TOTAL:                      422 729,76
+TAXES:                        7 909,76
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140792
+14-04-2026                    10:47:12
+TOTAL:                      636 921,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140793
+14-04-2026                    11:20:23
+TOTAL:                            0,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140794
+14-04-2026                    12:00:08
+TOTAL:                       45 853,64
+TAXES:                        6 324,64
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140795
+14-04-2026                    12:00:59
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140796
+14-04-2026                    12:13:41
+TOTAL:                      203 677,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140797
+14-04-2026                    12:18:42
+TOTAL:                      195 338,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140798
+14-04-2026                    12:25:07
+TOTAL:                       28 617,20
+TAXES:                        3 947,20
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140799
+14-04-2026                    12:27:23
+TOTAL:                      536 218,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140800
+14-04-2026                    12:35:55
+TOTAL:                    1 526 582,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140801
+14-04-2026                    12:50:56
+TOTAL:                      169 519,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140802
+14-04-2026                    12:54:32
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140803
+14-04-2026                    13:05:33
+TOTAL:                      284 779,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140804
+14-04-2026                    13:06:15
+TOTAL:                      251 472,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140805
+14-04-2026                    14:12:36
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140806
+14-04-2026                    14:18:15
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140807
+14-04-2026                    14:26:05
+TOTAL:                       38 967,88
+TAXES:                        5 374,88
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140808
+14-04-2026                    14:28:41
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140809
+14-04-2026                    14:41:28
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140810
+14-04-2026                    14:51:26
+TOTAL:                    2 319 497,32
+TAXES:                       22 556,32
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140811
+14-04-2026                    15:03:33
+TOTAL:                      954 487,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140812
+14-04-2026                    15:15:21
+TOTAL:                       29 580,00
+TAXES:                        4 080,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140813
+14-04-2026                    15:17:19
+TOTAL:                    1 606 487,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140814
+14-04-2026                    15:22:56
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140815
+14-04-2026                    15:25:42
+TOTAL:                      762 217,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140816
+14-04-2026                    15:26:14
+TOTAL:                       11 400,48
+TAXES:                        1 572,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140817
+14-04-2026                    15:26:57
+TOTAL:                    1 401 122,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140818
+14-04-2026                    15:33:03
+TOTAL:                      160 074,20
+TAXES:                       22 079,20
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140819
+14-04-2026                    15:38:12
+TOTAL:                    1 207 340,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140820
+14-04-2026                    15:46:50
+TOTAL:                       89 490,52
+TAXES:                       12 343,52
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140821
+14-04-2026                    15:56:20
+TOTAL:                       41 119,68
+TAXES:                        5 671,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140822
+14-04-2026                    16:14:50
+TOTAL:                    3 732 771,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140823
+14-04-2026                    16:23:06
+TOTAL:                    3 688 624,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140824
+14-04-2026                    16:24:49
+TOTAL:                    5 745 966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140825
+14-04-2026                    16:25:15
+TOTAL:                    6 501 818,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140826
+14-04-2026                    16:25:52
+TOTAL:                    6 607 783,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140827
+14-04-2026                    16:26:53
+TOTAL:                    6 970 759,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140828
+14-04-2026                    16:28:27
+TOTAL:                    7 093 456,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140829
+14-04-2026                    16:29:15
+TOTAL:                    6 807 784,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140830
+14-04-2026                    16:29:25
+TOTAL:                    6 884 624,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140831
+14-04-2026                    16:30:55
+TOTAL:                    7 333 581,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140832
+14-04-2026                    16:32:18
+TOTAL:                    6 852 091,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140833
+14-04-2026                    16:33:44
+TOTAL:                    7 309 878,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140834
+14-04-2026                    16:42:59
+TOTAL:                      192 317,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140835
+14-04-2026                    17:00:06
+TOTAL:                      289 852,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140836
+14-04-2026                    17:06:22
+TOTAL:                    3 304 874,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140837
+14-04-2026                    17:19:31
+TOTAL:                      732 731,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140838
+14-04-2026                    17:26:45
+TOTAL:                      596 942,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140839
+14-04-2026                    17:37:41
+TOTAL:                    2 329 177,56
+TAXES:                       12 614,56
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140840
+14-04-2026                    17:47:01
+TOTAL:                      435 565,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140841
+14-04-2026                    17:47:20
+TOTAL:                    5 704 188,04
+TAXES:                       30 519,04
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140842
+14-04-2026                    17:50:40
+TOTAL:                    1 299 129,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140843
+14-04-2026                    18:00:55
+TOTAL:                    7 323 945,00
+TAXES:                       39 112,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140844
+14-04-2026                    18:04:10
+TOTAL:                    2 355 264,96
+TAXES:                       12 752,96
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140845
+14-04-2026                    18:13:01
+TOTAL:                    1 818 497,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140846
+14-04-2026                    18:22:42
+TOTAL:                      597 284,72
+TAXES:                        3 426,72
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140847
+14-04-2026                    18:24:25
+TOTAL:                       42 707,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140848
+14-04-2026                    18:29:24
+TOTAL:                        7 907,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140849
+14-04-2026                    18:32:13
+TOTAL:                       98 842,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140850
+14-04-2026                    18:39:51
+TOTAL:                      130 501,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140851
+14-04-2026                    18:44:11
+TOTAL:                    1 164 457,24
+TAXES:                        6 434,24
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140852
+14-04-2026                    18:45:55
+TOTAL:                       47 766,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140853
+14-04-2026                    18:52:12
+TOTAL:                    1 054 075,32
+TAXES:                        6 496,32
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140854
+15-04-2026                    08:02:02
+TOTAL:                          981,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140855
+15-04-2026                    08:19:46
+TOTAL:                       11 400,48
+TAXES:                        1 572,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140856
+15-04-2026                    08:42:17
+TOTAL:                      128 453,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140857
+15-04-2026                    08:44:58
+TOTAL:                       26 299,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140858
+15-04-2026                    08:46:49
+TOTAL:                      140 848,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140859
+15-04-2026                    08:52:01
+TOTAL:                      428 908,36
+TAXES:                        2 627,36
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140860
+15-04-2026                    09:03:25
+TOTAL:                      125 816,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140861
+15-04-2026                    09:17:28
+TOTAL:                    4 598 376,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140862
+15-04-2026                    09:20:09
+TOTAL:                    1 153 256,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140863
+15-04-2026                    09:22:30
+TOTAL:                    4 432 808,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140864
+15-04-2026                    09:24:28
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140865
+15-04-2026                    09:24:57
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140866
+15-04-2026                    09:25:52
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140867
+15-04-2026                    09:26:33
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140868
+15-04-2026                    09:35:56
+TOTAL:                       11 400,48
+TAXES:                        1 572,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140869
+15-04-2026                    09:36:29
+TOTAL:                      297 869,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140870
+15-04-2026                    09:53:35
+TOTAL:                    2 077 463,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140871
+15-04-2026                    10:09:46
+TOTAL:                    1 539 305,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140872
+15-04-2026                    10:12:21
+TOTAL:                       22 215,16
+TAXES:                        3 064,16
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140873
+15-04-2026                    10:13:39
+TOTAL:                      136 825,48
+TAXES:                       18 872,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140874
+15-04-2026                    10:17:49
+TOTAL:                      928 856,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140875
+15-04-2026                    10:53:56
+TOTAL:                       73 305,80
+TAXES:                        1 032,80
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140876
+15-04-2026                    11:00:30
+TOTAL:                      116 947,80
+TAXES:                        1 032,80
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140877
+15-04-2026                    11:08:07
+TOTAL:                       63 366,80
+TAXES:                        1 032,80
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140878
+15-04-2026                    11:17:12
+TOTAL:                      124 793,44
+TAXES:                       11 469,44
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140879
+15-04-2026                    11:32:42
+TOTAL:                      605 038,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140880
+15-04-2026                    11:48:55
+TOTAL:                       94 181,56
+TAXES:                       12 990,56
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140881
+15-04-2026                    12:09:32
+TOTAL:                      495 933,72
+TAXES:                        1 094,72
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140882
+15-04-2026                    12:13:13
+TOTAL:                      374 399,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140883
+15-04-2026                    12:15:56
+TOTAL:                      632 689,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140884
+15-04-2026                    12:22:47
+TOTAL:                      335 837,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140885
+15-04-2026                    12:28:09
+TOTAL:                      282 299,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140886
+15-04-2026                    12:32:21
+TOTAL:                    3 780 434,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140887
+15-04-2026                    12:34:54
+TOTAL:                       22 254,60
+TAXES:                        3 069,60
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140888
+15-04-2026                    12:37:57
+TOTAL:                      265 181,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140889
+15-04-2026                    12:38:59
+TOTAL:                      545 458,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140890
+15-04-2026                    12:44:16
+TOTAL:                       11 600,00
+TAXES:                        1 600,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140891
+15-04-2026                    12:45:53
+TOTAL:                      695 119,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140892
+15-04-2026                    12:45:57
+TOTAL:                       22 254,60
+TAXES:                        3 069,60
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140893
+15-04-2026                    12:47:59
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140894
+15-04-2026                    12:48:42
+TOTAL:                      174 346,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140895
+15-04-2026                    12:51:50
+TOTAL:                      608 522,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140896
+15-04-2026                    12:53:12
+TOTAL:                            0,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140897
+15-04-2026                    12:54:20
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140898
+15-04-2026                    12:54:48
+TOTAL:                    1 063 254,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140899
+15-04-2026                    12:58:49
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140900
+15-04-2026                    12:59:17
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140901
+15-04-2026                    13:01:14
+TOTAL:                      657 676,68
+TAXES:                          619,68
+CREDIT NOTE                           
+CU INVOICE NUMBER: 0040083410000140902
+15-04-2026                    13:05:34
+TOTAL:                       91 883,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140903
+15-04-2026                    13:06:18
+TOTAL:                      301 433,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140904
+15-04-2026                    13:08:19
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140905
+15-04-2026                    13:08:44
+TOTAL:                    2 321 429,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140906
+15-04-2026                    13:11:29
+TOTAL:                       92 202,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140907
+15-04-2026                    13:12:46
+TOTAL:                      367 271,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140908
+15-04-2026                    13:16:21
+TOTAL:                      309 999,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140909
+15-04-2026                    13:17:48
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140910
+15-04-2026                    13:20:36
+TOTAL:                    2 363 903,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140911
+15-04-2026                    13:24:26
+TOTAL:                    2 696 872,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140912
+15-04-2026                    13:27:47
+TOTAL:                    2 809 438,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140913
+15-04-2026                    13:27:50
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140914
+15-04-2026                    13:38:01
+TOTAL:                       31 009,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140915
+15-04-2026                    13:42:52
+TOTAL:                       17 980,00
+TAXES:                        2 480,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140916
+15-04-2026                    13:43:57
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140917
+15-04-2026                    13:56:23
+TOTAL:                       56 894,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140918
+15-04-2026                    14:01:39
+TOTAL:                       17 980,00
+TAXES:                        2 480,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140919
+15-04-2026                    14:01:51
+TOTAL:                       17 980,00
+TAXES:                        2 480,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140920
+15-04-2026                    14:03:30
+TOTAL:                       23 717,00
+TAXES:                        2 880,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140921
+15-04-2026                    14:06:45
+TOTAL:                      546 577,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140922
+15-04-2026                    14:13:32
+TOTAL:                    1 962 589,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140923
+15-04-2026                    14:15:43
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140924
+15-04-2026                    14:16:53
+TOTAL:                    2 803 380,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140925
+15-04-2026                    14:22:17
+TOTAL:                    1 772 139,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140926
+15-04-2026                    14:33:45
+TOTAL:                      421 050,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140927
+15-04-2026                    14:36:45
+TOTAL:                            0,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140928
+15-04-2026                    14:39:38
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140929
+15-04-2026                    14:41:14
+TOTAL:                      772 147,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140930
+15-04-2026                    14:41:29
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140931
+15-04-2026                    14:44:10
+TOTAL:                      622 544,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140932
+15-04-2026                    14:45:01
+TOTAL:                    1 345 198,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140933
+15-04-2026                    14:46:45
+TOTAL:                      947 888,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140934
+15-04-2026                    14:46:51
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140935
+15-04-2026                    14:50:49
+TOTAL:                      718 114,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140936
+15-04-2026                    14:55:17
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140937
+15-04-2026                    15:01:48
+TOTAL:                      923 910,80
+TAXES:                        1 840,80
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140938
+15-04-2026                    15:08:07
+TOTAL:                       17 411,60
+TAXES:                        2 401,60
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140939
+15-04-2026                    15:12:50
+TOTAL:                      441 330,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140940
+15-04-2026                    15:15:09
+TOTAL:                      820 565,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140941
+15-04-2026                    15:15:46
+TOTAL:                      965 831,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140942
+15-04-2026                    15:16:21
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140943
+15-04-2026                    15:18:54
+TOTAL:                    2 408 252,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140944
+15-04-2026                    15:19:36
+TOTAL:                      915 006,32
+TAXES:                        5 112,32
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140945
+15-04-2026                    15:20:48
+TOTAL:                       29 614,80
+TAXES:                        4 084,80
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140946
+15-04-2026                    15:20:59
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140947
+15-04-2026                    15:21:17
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140948
+15-04-2026                    15:25:25
+TOTAL:                    1 151 181,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140949
+15-04-2026                    15:25:50
+TOTAL:                    2 630 595,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140950
+15-04-2026                    15:28:43
+TOTAL:                      248 837,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140951
+15-04-2026                    15:28:50
+TOTAL:                    2 935 241,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140952
+15-04-2026                    15:30:10
+TOTAL:                    7 704 743,16
+TAXES:                       41 132,16
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140953
+15-04-2026                    15:30:31
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140954
+15-04-2026                    15:31:51
+TOTAL:                    1 237 144,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140955
+15-04-2026                    15:46:45
+TOTAL:                       25 346,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140956
+15-04-2026                    15:47:03
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140957
+15-04-2026                    15:47:14
+TOTAL:                    2 859 915,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140958
+15-04-2026                    15:47:19
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140959
+15-04-2026                    15:57:54
+TOTAL:                    3 800 160,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140960
+15-04-2026                    16:01:29
+TOTAL:                      159 979,20
+TAXES:                       13 263,20
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140961
+15-04-2026                    16:02:18
+TOTAL:                       21 465,80
+TAXES:                        2 960,80
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140962
+15-04-2026                    16:07:44
+TOTAL:                    2 696 872,00
+TAXES:                            0,00
+CREDIT NOTE                           
+CU INVOICE NUMBER: 0040083410000140963
+15-04-2026                    16:10:31
+TOTAL:                    1 168 352,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140964
+15-04-2026                    16:10:42
+TOTAL:                      279 371,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140965
+15-04-2026                    16:11:09
+TOTAL:                      474 807,40
+TAXES:                        2 974,40
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140966
+15-04-2026                    16:17:31
+TOTAL:                      968 247,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140967
+15-04-2026                    16:20:10
+TOTAL:                    2 734 510,36
+TAXES:                       12 703,36
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140968
+15-04-2026                    16:28:41
+TOTAL:                      125 919,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140969
+15-04-2026                    16:28:55
+TOTAL:                       19 140,00
+TAXES:                        2 640,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140970
+15-04-2026                    16:29:22
+TOTAL:                       14 405,56
+TAXES:                          334,56
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140971
+15-04-2026                    16:33:18
+TOTAL:                    1 054 075,32
+TAXES:                        6 496,32
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140972
+15-04-2026                    18:28:08
+TOTAL:                      362 124,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140973
+15-04-2026                    20:08:02
+TOTAL:                    2 396 795,84
+TAXES:                       12 971,84
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140974
+15-04-2026                    20:11:43
+TOTAL:                       48 928,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140975
+16-04-2026                    08:50:15
+TOTAL:                      439 269,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140976
+16-04-2026                    08:52:42
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140977
+16-04-2026                    08:52:57
+TOTAL:                      534 411,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140978
+16-04-2026                    08:54:50
+TOTAL:                      734 540,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140979
+16-04-2026                    08:59:44
+TOTAL:                      164 979,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140980
+16-04-2026                    09:00:02
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140981
+16-04-2026                    09:16:49
+TOTAL:                      110 674,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140982
+16-04-2026                    09:18:16
+TOTAL:                      366 699,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140983
+16-04-2026                    09:37:57
+TOTAL:                    2 232 135,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140984
+16-04-2026                    10:01:24
+TOTAL:                          966,00
+TAXES:                            0,00
+CREDIT NOTE                           
+CU INVOICE NUMBER: 0040083410000140985
+16-04-2026                    10:08:36
+TOTAL:                      347 938,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140986
+16-04-2026                    10:09:09
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140987
+16-04-2026                    10:11:04
+TOTAL:                       35 293,72
+TAXES:                        3 466,72
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140988
+16-04-2026                    10:13:28
+TOTAL:                      197 022,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140989
+16-04-2026                    10:19:38
+TOTAL:                      105 827,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140990
+16-04-2026                    10:20:16
+TOTAL:                    2 424 795,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140991
+16-04-2026                    10:20:51
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140992
+16-04-2026                    10:20:56
+TOTAL:                       69 234,88
+TAXES:                        1 890,88
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140993
+16-04-2026                    10:23:16
+TOTAL:                      233 603,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140994
+16-04-2026                    10:27:53
+TOTAL:                      302 857,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140995
+16-04-2026                    10:28:21
+TOTAL:                       27 188,36
+TAXES:                        3 467,36
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140996
+16-04-2026                    10:31:11
+TOTAL:                    2 500 163,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140997
+16-04-2026                    10:32:48
+TOTAL:                    2 178 817,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140998
+16-04-2026                    10:33:09
+TOTAL:                      500 675,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000140999
+16-04-2026                    10:34:24
+TOTAL:                      951 377,84
+TAXES:                        2 891,84
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141000
+16-04-2026                    10:41:57
+TOTAL:                    2 458 067,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141001
+16-04-2026                    10:46:42
+TOTAL:                          981,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141002
+16-04-2026                    10:48:59
+TOTAL:                      107 380,04
+TAXES:                        9 091,04
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141003
+16-04-2026                    10:49:42
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141004
+16-04-2026                    10:51:53
+TOTAL:                      282 764,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141005
+16-04-2026                    10:54:36
+TOTAL:                      528 912,04
+TAXES:                        1 859,04
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141006
+16-04-2026                    10:55:25
+TOTAL:                      279 743,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141007
+16-04-2026                    10:57:47
+TOTAL:                       92 513,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141008
+16-04-2026                    10:58:48
+TOTAL:                      195 049,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141009
+16-04-2026                    11:05:29
+TOTAL:                      442 115,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141010
+16-04-2026                    11:09:32
+TOTAL:                      838 993,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141011
+16-04-2026                    11:11:17
+TOTAL:                      824 096,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141012
+16-04-2026                    11:11:29
+TOTAL:                       25 151,12
+TAXES:                        3 469,12
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141013
+16-04-2026                    11:15:55
+TOTAL:                      123 748,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141014
+16-04-2026                    11:19:36
+TOTAL:                      214 833,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141015
+16-04-2026                    11:22:03
+TOTAL:                    1 394 968,28
+TAXES:                        2 685,28
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141016
+16-04-2026                    11:22:13
+TOTAL:                      322 037,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141017
+16-04-2026                    11:29:41
+TOTAL:                    1 410 243,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141018
+16-04-2026                    11:37:55
+TOTAL:                    1 704 786,48
+TAXES:                        1 652,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141019
+16-04-2026                    11:45:29
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141020
+16-04-2026                    11:49:54
+TOTAL:                      200 346,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141021
+16-04-2026                    11:54:54
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141022
+16-04-2026                    11:55:57
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141023
+16-04-2026                    12:01:56
+TOTAL:                      539 933,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141024
+16-04-2026                    12:04:15
+TOTAL:                    1 006 177,92
+TAXES:                        1 445,92
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141025
+16-04-2026                    12:08:18
+TOTAL:                      101 499,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141026
+16-04-2026                    12:11:00
+TOTAL:                      190 292,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141027
+16-04-2026                    12:11:31
+TOTAL:                      160 709,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141028
+16-04-2026                    12:15:09
+TOTAL:                      198 369,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141029
+16-04-2026                    12:15:17
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141030
+16-04-2026                    12:15:57
+TOTAL:                      500 927,24
+TAXES:                          826,24
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141031
+16-04-2026                    12:17:51
+TOTAL:                    4 391 562,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141032
+16-04-2026                    12:21:01
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141033
+16-04-2026                    12:26:51
+TOTAL:                      465 869,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141034
+16-04-2026                    12:27:35
+TOTAL:                      570 504,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141035
+16-04-2026                    12:29:25
+TOTAL:                    1 710 539,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141036
+16-04-2026                    12:32:02
+TOTAL:                      477 958,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141037
+16-04-2026                    12:33:27
+TOTAL:                       51 640,00
+TAXES:                        5 164,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141038
+16-04-2026                    12:38:36
+TOTAL:                      626 079,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141039
+16-04-2026                    12:51:16
+TOTAL:                    1 071 899,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141040
+16-04-2026                    12:55:01
+TOTAL:                       11 400,48
+TAXES:                        1 572,48
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141041
+16-04-2026                    13:53:10
+TOTAL:                      147 291,64
+TAXES:                        4 856,64
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141042
+16-04-2026                    14:34:09
+TOTAL:                       90 275,00
+TAXES:                        4 488,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141043
+16-04-2026                    14:35:07
+TOTAL:                      362 124,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141044
+16-04-2026                    14:38:07
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141045
+16-04-2026                    14:41:13
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141046
+16-04-2026                    14:53:48
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141047
+16-04-2026                    14:54:13
+TOTAL:                      939 794,40
+TAXES:                        5 242,40
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141048
+16-04-2026                    15:09:38
+TOTAL:                       78 969,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141049
+16-04-2026                    15:15:17
+TOTAL:                    2 369 494,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141050
+16-04-2026                    15:25:55
+TOTAL:                      857 118,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141051
+16-04-2026                    15:26:39
+TOTAL:                       10 328,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141052
+16-04-2026                    15:34:45
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141053
+16-04-2026                    15:37:59
+TOTAL:                      410 381,68
+TAXES:                          619,68
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141054
+16-04-2026                    15:38:49
+TOTAL:                       24 360,00
+TAXES:                        3 360,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141055
+16-04-2026                    15:47:49
+TOTAL:                          966,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141056
+16-04-2026                    16:18:08
+TOTAL:                    2 518 506,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141057
+16-04-2026                    16:20:12
+TOTAL:                      784 557,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141058
+16-04-2026                    16:22:50
+TOTAL:                      398 557,16
+TAXES:                        2 272,16
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141059
+16-04-2026                    16:30:00
+TOTAL:                    6 844 250,28
+TAXES:                       31 405,28
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141060
+16-04-2026                    17:09:39
+TOTAL:                        5 058,76
+TAXES:                          697,76
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141061
+16-04-2026                    17:17:21
+TOTAL:                      362 124,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141062
+16-04-2026                    17:18:18
+TOTAL:                      230 124,28
+TAXES:                       31 741,28
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141063
+16-04-2026                    17:40:37
+TOTAL:                      659 699,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141064
+16-04-2026                    21:21:53
+TOTAL:                      829 465,00
+TAXES:                            0,00
+FISCAL RECEIPT                        
+CU INVOICE NUMBER: 0040083410000141065
+16-04-2026                    22:46:07
+TOTAL:                      190 422,00
+TAXES:                            0,00
+- - - - - - - - - - - - - - - - - - - 
+TURNOVER*A…………………………………………7 048 955,76
+NET*A………………………………………………………6 076 686,00
+VAT*A……………………………………………………………972 269,76
+TURNOVER*B……………………………………639 138 598,00
+NET*B…………………………………………………639 138 598,00
+VAT*B……………………………………………………………………………0,00
+- - - - - - - - - - - - - - - - - - - 
+TOTAL TURNOVER…………………………646 187 553,76
+TOTAL TAXES……………………………………………972 269,76
+CREDIT NOTES:                         
+TOTAL TURNOVER………………………………9 703 324,48
+TOTAL TAXES………………………………………………13 964,48
+DEBIT NOTES:                          
+TOTAL TURNOVER……………………………………………………0,00
+TOTAL TAXES……………………………………………………………0,00
+- - - - - - - - - - - - - - - - - - - 
+RECEIPT N:                   120500001
+17-04-2026                    14:04:13
+- - - - - - - - - - - - - - - - - - - 
+CU SERIAL No:     KRAMW004202110008341
+           SERVICE RECEIPT            

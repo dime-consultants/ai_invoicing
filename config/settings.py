@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -25,7 +26,7 @@ SECRET_KEY = 'django-insecure-#1qa*2-vf$ae@bl8ci=&w+y+0%#-+r36+z+t-u-%-1c!jroka=
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["*"]
 
 
 # Application definition
@@ -37,11 +38,14 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'users', # user management and authentication
     'tools', # should determine which tool is needed for a task 
     'uploads', # file upload engine
-    'users', # user management and authentication
+    'chat', # chat interface for user interaction and feedback
     'ai_engine', # core AI processing and orchestration
 ]
+
+AUTH_USER_MODEL = 'users.User'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -84,16 +88,16 @@ if DEBUG:
     }
 }
 else:
-    DATABASES = {
+    DATABASES = os.getenv( {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': 'your_db_name',
-            'USER': 'your_db_user',
-            'PASSWORD': 'your_db_password',
-            'HOST': 'your_db_host',
-            'PORT': 'your_db_port',
+            'NAME': 'DB_NAME',
+            'USER': 'DB_USER',
+            'PASSWORD': 'DB_PASSWORD',
+            'HOST': 'DB_HOST',
+            'PORT': 'DB_PORT',
         }
-    }
+    })
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -119,7 +123,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Africa/Nairobi'   # UTC+3 — Kenya
 
 USE_I18N = True
 
@@ -130,3 +134,13 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# ── Unstructured ──────────────────────────────────────────────────────────────
+# Leave UNSTRUCTURED_API_KEY blank → uses local open-source package (no key needed)
+UNSTRUCTURED_API_KEY  = os.environ.get('UNSTRUCTURED_API_KEY', '')
+UNSTRUCTURED_API_URL  = os.environ.get('UNSTRUCTURED_API_URL', 'https://api.unstructured.io/general/v0/general')
+UNSTRUCTURED_MAX_CHARS = int(os.environ.get('UNSTRUCTURED_MAX_CHARS', '50000'))
+
+# ── Grok AI ───────────────────────────────────────────────────────────────
+GROK_API_KEY = os.environ.get('GROK_API_KEY', '')
+GROK_API_URL = os.environ.get('GROK_API_URL', 'https://api.grok.ai/v1/ai/generate')     

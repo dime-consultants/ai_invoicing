@@ -1,9 +1,11 @@
 /media/*
 /logs/*
 /.venv/*
-__pycache__/    
+__pycache__/*
+*.pyc    
 *.pyc
 *.pyo
 *.pyd
 *.db
 *.sqlite3
+/outputs/*
