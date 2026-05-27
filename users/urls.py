@@ -12,17 +12,17 @@ from .views import (
 
 urlpatterns = [
     # ── Auth ─────────────────────────────────────────────────────────────────
-    # POST /api/users/register/       create account (public)
-    path("register/", RegisterView.as_view(),  name="user-register"),
+    # POST /api/auth/signup/       create account (public)
+    path("signup/", RegisterView.as_view(),  name="user-register"),
 
-    # POST /api/users/login/          session login (public)
+    # POST /api/auth/login/          session login (public)
     path("login/",    LoginView.as_view(),     name="user-login"),
 
-    # POST /api/users/logout/         clear session (authenticated)
+    # POST /api/auth/logout/         clear session (authenticated)
     path("logout/",   LogoutView.as_view(),    name="user-logout"),
 
     # ── Own profile ───────────────────────────────────────────────────────────
-    # GET   /api/users/me/            current user profile
+    # GET   /api/users/me/            current user profile  (also served at /api/auth/me/)
     # PATCH /api/users/me/            update name, dept, phone
     path("me/",       ProfileView.as_view(),   name="user-profile"),
 
@@ -31,10 +31,11 @@ urlpatterns = [
 
     # ── Admin user management ─────────────────────────────────────────────────
     # GET   /api/users/               list all users (admin only)
-    # GET   /api/users/?role=finance
+    # POST  /api/users/               create user (admin only)
     path("",          UserListView.as_view(),  name="user-list"),
 
     # GET   /api/users/<id>/          user detail (admin only)
-    # PATCH /api/users/<id>/          promote role / deactivate (admin only)
+    # PUT   /api/users/<id>/          update user (admin only)
+    # DELETE /api/users/<id>/         delete user (admin only)
     path("<int:pk>/", UserDetailView.as_view(), name="user-detail"),
 ]

@@ -15,7 +15,6 @@ from django.utils import timezone
 
 from uploads.models import UploadBatch
 from uploads.services import UploadService
-from tools.services import ConversionService
 from .models import Workflow
 
 logger = logging.getLogger(__name__)
@@ -138,8 +137,8 @@ def _get_status_context() -> str:
         fc = b.files.count()
         ec = b.files.filter(parse_status="parse_error").count()
         lines.append(
-            f"  Batch {b.pk} | {b.get_data_source_display()} | "
-            f"{b.period_label} | status={b.status} | files={fc} | errors={ec}"
+            f"  Batch {b.pk} | {b.label} | "
+            f"status={b.status} | files={fc} | errors={ec}"
         )
     return "\n".join(lines)
 
@@ -459,17 +458,20 @@ def _workflow_source_for_type(ext: str) -> str:
 
 
 def _create_chat_batch(user, file_types: list[str]) -> UploadBatch:
-    preferred = next((ft for ft in file_types if ft in ('txt', 'pdf', 'xlsx', 'xls')), 'other')
+    label = f"chat_{timezone.now().strftime('%Y%m%d_%H%M%S')}"
     return UploadBatch.objects.create(
         uploaded_by=user,
-        data_source=_workflow_source_for_type(preferred),
-        period_label=f"chat_{timezone.now().strftime('%Y%m%d_%H%M%S')}",
+        label=label,
+        description="Chat attachment processing batch",
         status='processing',
-        notes='Chat attachment processing batch',
     )
 
 
 def _run_conversion_tools_for_attachments(file_attachments, user):
+    """
+    Attempt to ingest attachments through the UploadService pipeline.
+    Returns a list of output file dicts if any conversions produced files.
+    """
     outputs = []
     if not file_attachments:
         return outputs
@@ -479,27 +481,13 @@ def _run_conversion_tools_for_attachments(file_attachments, user):
         try:
             att.file.open('rb')
             data = att.file.read()
-            upload_obj = ContentFile(data, name=att.filename)
-            record = UploadService.ingest_file(batch, upload_obj)
-            conversion_job = UploadService.trigger_parse(record)
-            if not conversion_job:
-                continue
-            ConversionService.dispatch(conversion_job.id)
-            if conversion_job.output_file:
-                conversion_job.output_file.open('rb')
-                buf = BytesIO(conversion_job.output_file.read())
-                outputs.append({
-                    'filename': Path(conversion_job.output_file.name).name,
-                    'content': buf,
-                    'content_type': (
-                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                    ),
-                })
+            from django.core.files.base import ContentFile as DjContentFile
+            upload_obj = DjContentFile(data, name=att.filename)
+            UploadService.ingest_file(batch, upload_obj)
         except Exception as exc:
             logger.warning('Tool conversion failed for %s: %s', att.filename, exc)
 
-    batch.status = 'completed' if outputs else 'failed'
-    batch.save(update_fields=['status', 'updated_at'])
+    batch.refresh_from_db()
     return outputs
 
 

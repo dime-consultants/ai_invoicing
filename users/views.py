@@ -133,28 +133,51 @@ class ChangePasswordView(APIView):
 
 # ── User list (admin only) ────────────────────────────────────────────────────
 
-class UserListView(generics.ListAPIView):
+class UserListView(generics.ListCreateAPIView):
     """
-    GET /api/users/
-    Admin-only: list all users. Supports ?role=finance filter.
+    GET  /api/users/   — list all users  → { "users": [...] }
+    POST /api/users/   — admin: create a new user
     """
-    serializer_class   = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return RegisterSerializer
+        return UserSerializer
+
     def get_queryset(self):
-        if not self.request.user.is_admin:
-            return User.objects.none()
         qs = User.objects.order_by("username")
+        # Non-admins only see themselves
+        if not self.request.user.is_admin:
+            qs = qs.filter(pk=self.request.user.pk)
         role = self.request.query_params.get("role")
         if role:
             qs = qs.filter(role=role)
         return qs
 
+    def list(self, request, *args, **kwargs):
+        qs = self.get_queryset()
+        serializer = UserSerializer(qs, many=True)
+        return Response({"users": serializer.data})
 
-class UserDetailView(generics.RetrieveUpdateAPIView):
+    def create(self, request, *args, **kwargs):
+        if not request.user.is_admin:
+            return Response(
+                {"error": {"code": "forbidden", "message": "Only admins can create users.", "details": None}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = RegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+
+
+class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
-    GET   /api/users/<id>/   — admin: view any user
-    PATCH /api/users/<id>/   — admin: update role, active status
+    GET    /api/users/<id>/   — admin: view any user
+    PUT    /api/users/<id>/   — admin: update user
+    PATCH  /api/users/<id>/   — admin: partial update
+    DELETE /api/users/<id>/   — admin: delete user
     """
     permission_classes = [permissions.IsAuthenticated]
 

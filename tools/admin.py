@@ -5,17 +5,25 @@ from django.utils.html import format_html
 from .models import ToolDefinition, ToolCall
 
 
+def _badge(colour: str, label: str):
+    """Reusable coloured badge — always uses {} placeholders so format_html is happy."""
+    return format_html(
+        '<span style="background:{};color:#fff;padding:2px 8px;'
+        'border-radius:4px;font-size:0.8em">{}</span>',
+        colour,
+        label,
+    )
+
+
 # ── ToolDefinition ────────────────────────────────────────────────────────────
 
 @admin.register(ToolDefinition)
 class ToolDefinitionAdmin(admin.ModelAdmin):
-    list_display  = (
-        "name", "display_name", "category", "version",
-        "enabled_badge", "is_safe", "updated_at",
-    )
-    list_filter   = ("category", "enabled", "is_safe")
-    search_fields = ("name", "display_name", "description", "handler")
-    ordering      = ("category", "name")
+    list_display    = ("name", "display_name", "category", "version",
+                       "enabled_badge", "is_safe", "updated_at")
+    list_filter     = ("category", "enabled", "is_safe")
+    search_fields   = ("name", "display_name", "description", "handler")
+    ordering        = ("category", "name")
     readonly_fields = ("created_at", "updated_at")
 
     fieldsets = (
@@ -38,81 +46,51 @@ class ToolDefinitionAdmin(admin.ModelAdmin):
         }),
     )
 
-    @admin.display(description="Enabled", boolean=False)
+    @admin.display(description="Enabled")
     def enabled_badge(self, obj):
-        if obj.enabled:
-            return format_html(
-                '<span style="background:#198754;color:#fff;padding:2px 8px;'
-                'border-radius:4px;font-size:0.8em">Yes</span>'
-            )
-        return format_html(
-            '<span style="background:#dc3545;color:#fff;padding:2px 8px;'
-            'border-radius:4px;font-size:0.8em">No</span>'
-        )
+        return _badge("#198754", "Yes") if obj.enabled else _badge("#dc3545", "No")
 
 
-# ── Inline: tool calls inside a job (used by AIAnalysisJobAdmin) ──────────────
+# ── Inline ────────────────────────────────────────────────────────────────────
 
 class ToolCallInline(admin.TabularInline):
-    model   = ToolCall
-    extra   = 0
-    fields  = (
-        "tool", "status", "arguments", "result",
-        "error_message", "started_at", "finished_at",
-    )
-    readonly_fields = fields
+    model            = ToolCall
+    extra            = 0
+    fields           = ("tool", "status", "arguments", "result",
+                        "error_message", "started_at", "finished_at")
+    readonly_fields  = fields
     show_change_link = True
-    can_delete = False
+    can_delete       = False
 
 
-# ── ToolCall (standalone list) ────────────────────────────────────────────────
+# ── ToolCall ──────────────────────────────────────────────────────────────────
 
 @admin.register(ToolCall)
 class ToolCallAdmin(admin.ModelAdmin):
-    list_display  = (
-        "id", "tool", "job", "status_badge",
-        "duration_ms", "created_at",
-    )
-    list_filter   = ("status", "tool__category", "created_at")
-    search_fields = ("tool__name", "job__id", "error_message")
-    readonly_fields = (
-        "tool", "job", "arguments", "result",
-        "error_message", "status",
-        "started_at", "finished_at", "created_at",
-    )
-    ordering = ("-created_at",)
+    list_display    = ("id", "tool", "job", "status_badge", "duration_ms_display", "created_at")
+    list_filter     = ("status", "tool__category", "created_at")
+    search_fields   = ("tool__name", "error_message")
+    readonly_fields = ("tool", "job", "arguments", "result",
+                       "error_message", "status",
+                       "started_at", "finished_at", "created_at")
+    ordering        = ("-created_at",)
 
     fieldsets = (
-        ("Call", {
-            "fields": ("job", "tool", "status"),
-        }),
-        ("Payload", {
-            "fields": ("arguments", "result", "error_message"),
-        }),
-        ("Timing", {
-            "fields": ("started_at", "finished_at", "created_at"),
-            "classes": ("collapse",),
-        }),
+        ("Call",    {"fields": ("job", "tool", "status")}),
+        ("Payload", {"fields": ("arguments", "result", "error_message")}),
+        ("Timing",  {"fields": ("started_at", "finished_at", "created_at"),
+                     "classes": ("collapse",)}),
     )
 
     @admin.display(description="Status")
     def status_badge(self, obj):
         colours = {
-            "pending": "#6c757d",
-            "running": "#0d6efd",
-            "success": "#198754",
-            "error":   "#dc3545",
-            "skipped": "#adb5bd",
+            "pending": "#6c757d", "running": "#0d6efd",
+            "success": "#198754", "error":   "#dc3545", "skipped": "#adb5bd",
         }
-        colour = colours.get(obj.status, "#6c757d")
-        return format_html(
-            '<span style="background:{};color:#fff;padding:2px 8px;'
-            'border-radius:4px;font-size:0.8em">{}</span>',
-            colour,
-            obj.get_status_display(),
-        )
+        return _badge(colours.get(obj.status, "#6c757d"), obj.get_status_display())
 
     @admin.display(description="Duration (ms)")
-    def duration_ms(self, obj):
+    def duration_ms_display(self, obj):
         ms = obj.duration_ms
         return f"{ms} ms" if ms is not None else "—"

@@ -30,15 +30,29 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 
 class LoginSerializer(serializers.Serializer):
-    """Used for POST /api/users/login/"""
-    username = serializers.CharField()
+    """Used for POST /api/users/login/ — accepts email or username"""
+    username = serializers.CharField(required=False, allow_blank=True)
+    email    = serializers.CharField(required=False, allow_blank=True)
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
-        user = authenticate(
-            username=attrs["username"],
-            password=attrs["password"],
-        )
+        password = attrs.get("password", "")
+        username = attrs.get("username", "").strip()
+        email    = attrs.get("email", "").strip()
+
+        # Support both email and username login
+        if not username and not email:
+            raise serializers.ValidationError("Provide username or email.")
+
+        # Try email first (contract uses email)
+        if email and not username:
+            try:
+                user_obj = User.objects.get(email=email)
+                username = user_obj.username
+            except User.DoesNotExist:
+                raise serializers.ValidationError("Invalid credentials.")
+
+        user = authenticate(username=username, password=password)
         if not user:
             raise serializers.ValidationError("Invalid credentials.")
         if not user.is_active:
@@ -48,20 +62,31 @@ class LoginSerializer(serializers.Serializer):
 
 
 class UserSerializer(serializers.ModelSerializer):
-    """Read-only public representation of a user."""
+    """Read-only public representation of a user — matches the API contract shape."""
     role_display = serializers.CharField(source="get_role_display", read_only=True)
+    # Contract fields
+    name       = serializers.SerializerMethodField()
+    status     = serializers.SerializerMethodField()
+    lastActive = serializers.DateTimeField(source="updated_at", read_only=True)
 
     class Meta:
         model  = User
         fields = [
             "id", "username", "email",
-            "first_name", "last_name",
+            "first_name", "last_name", "name",
             "role", "role_display",
+            "status", "lastActive",
             "department", "phone",
             "is_active",
             "date_joined", "created_at",
         ]
         read_only_fields = fields
+
+    def get_name(self, obj):
+        return obj.get_full_name() or obj.username
+
+    def get_status(self, obj):
+        return "active" if obj.is_active else "inactive"
 
 
 class UserProfileSerializer(serializers.ModelSerializer):

@@ -6,27 +6,30 @@ from .views import (
     ToolCallListView,
     ToolCallDetailView,
     ToolRunView,
+    ToolsConvertView,
+    ToolsCleanView,
+    ToolsValidateView,
 )
 
 urlpatterns = [
-    # Tool registry
-    # GET  /api/tools/                list all enabled tools
-    # GET  /api/tools/?category=extraction
-    path("", ToolDefinitionListView.as_view(), name="tool-list"),
+    # ── Contract endpoints (/api/tools/...) ───────────────────────────────────
+    # POST /api/tools/convert    convert file format → download URL
+    path("convert/",  ToolsConvertView.as_view(),  name="tools-convert"),
+    # POST /api/tools/clean      clean/process data → download URL + stats
+    path("clean/",    ToolsCleanView.as_view(),    name="tools-clean"),
+    # POST /api/tools/validate   validate file against schema
+    path("validate/", ToolsValidateView.as_view(), name="tools-validate"),
 
-    # GET  /api/tools/<id>/           single tool detail + Grok schema
+    # ── Tool registry ─────────────────────────────────────────────────────────
+    # GET  /api/tools/           list all enabled tools
+    path("",          ToolDefinitionListView.as_view(),  name="tool-list"),
+    # GET  /api/tools/<id>/      single tool detail + Grok schema
     path("<int:pk>/", ToolDefinitionDetailView.as_view(), name="tool-detail"),
 
-    # Tool calls (audit log)
-    # GET  /api/tools/calls/          list all calls
-    # GET  /api/tools/calls/?job=<id>
-    # GET  /api/tools/calls/?tool=extract_ura_receipts
-    # GET  /api/tools/calls/?status=error
-    path("calls/", ToolCallListView.as_view(), name="tool-call-list"),
-
-    # GET  /api/tools/calls/<id>/     single call detail
+    # ── Tool calls (audit log) ────────────────────────────────────────────────
+    path("calls/",          ToolCallListView.as_view(),   name="tool-call-list"),
     path("calls/<int:pk>/", ToolCallDetailView.as_view(), name="tool-call-detail"),
 
-    # POST /api/tools/run/            run a tool directly (test / admin use)
-    path("run/", ToolRunView.as_view(), name="tool-run"),
+    # POST /api/tools/run/       run a tool directly
+    path("run/",      ToolRunView.as_view(), name="tool-run"),
 ]

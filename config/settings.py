@@ -12,19 +12,24 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 import os
 from pathlib import Path
+from datetime import timedelta
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load .env from project root
+load_dotenv(BASE_DIR / ".env")
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-#1qa*2-vf$ae@bl8ci=&w+y+0%#-+r36+z+t-u-%-1c!jroka='
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-#1qa*2-vf$ae@bl8ci=&w+y+0%#-+r36+z+t-u-%-1c!jroka=')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = ["*"]
 
@@ -32,23 +37,32 @@ ALLOWED_HOSTS = ["*"]
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',                              # must be first — replaces runserver with ASGI
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'users', # user management and authentication
-    'tools', # should determine which tool is needed for a task 
-    'uploads', # file upload engine
-    'chat', # chat interface for user interaction and feedback
-    'ai_engine', # core AI processing and orchestration
+    # Third-party
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'corsheaders',
+    'channels',
+    # Local apps
+    'users',       # user management and authentication
+    'tools',       # tool registry and call log
+    'uploads',     # file upload engine
+    'chat',        # chat interface for user interaction and feedback
+    'ai_engine',   # core AI processing and orchestration
+    'analytics',   # analytics and reporting metrics
 ]
 
 AUTH_USER_MODEL = 'users.User'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',          # must be before CommonMiddleware
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -75,6 +89,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+ASGI_APPLICATION  = 'config.asgi.application'
 
 
 # Database
@@ -82,22 +97,22 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 if DEBUG:
     DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
 else:
-    DATABASES = os.getenv( {
+    DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': 'DB_NAME',
-            'USER': 'DB_USER',
-            'PASSWORD': 'DB_PASSWORD',
-            'HOST': 'DB_HOST',
-            'PORT': 'DB_PORT',
+            'NAME': os.environ.get('DB_NAME', ''),
+            'USER': os.environ.get('DB_USER', ''),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST', 'localhost'),
+            'PORT': os.environ.get('DB_PORT', '5432'),
         }
-    })
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -134,6 +149,54 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Media files (uploads)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# ── Django REST Framework ─────────────────────────────────────────────────────
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
+    'EXCEPTION_HANDLER': 'config.exception_handler.custom_exception_handler',
+}
+
+# ── Simple JWT ────────────────────────────────────────────────────────────────
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME':  timedelta(hours=8),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS':  True,
+    'AUTH_HEADER_TYPES':      ('Bearer',),
+    'USER_ID_FIELD':          'id',
+    'USER_ID_CLAIM':          'user_id',
+}
+
+# ── CORS ──────────────────────────────────────────────────────────────────────
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+]
 
 # ── Unstructured ──────────────────────────────────────────────────────────────
 # Leave UNSTRUCTURED_API_KEY blank → uses local open-source package (no key needed)
@@ -141,6 +204,30 @@ UNSTRUCTURED_API_KEY  = os.environ.get('UNSTRUCTURED_API_KEY', '')
 UNSTRUCTURED_API_URL  = os.environ.get('UNSTRUCTURED_API_URL', 'https://api.unstructured.io/general/v0/general')
 UNSTRUCTURED_MAX_CHARS = int(os.environ.get('UNSTRUCTURED_MAX_CHARS', '50000'))
 
-# ── Grok AI ───────────────────────────────────────────────────────────────
-GROK_API_KEY = os.environ.get('GROK_API_KEY', '')
-GROK_API_URL = os.environ.get('GROK_API_URL', 'https://api.grok.ai/v1/ai/generate')     
+# ── Grok / xAI ────────────────────────────────────────────────────────────────
+XAI_API_KEY  = os.environ.get('XAI_API_KEY', os.environ.get('GROK_API_KEY', ''))
+GROK_API_KEY = XAI_API_KEY   # alias kept for backwards compatibility
+GROK_API_URL = os.environ.get('GROK_API_URL', 'https://api.x.ai/v1')
+
+# ── Django Channels ───────────────────────────────────────────────────────────
+# Uses Redis as the channel layer backend.
+# Falls back to in-memory layer when REDIS_URL is not set (dev/testing only —
+# in-memory does NOT support multi-process or multi-server deployments).
+_REDIS_URL = os.environ.get('REDIS_URL', '')
+
+if _REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [_REDIS_URL],
+            },
+        },
+    }
+else:
+    # In-memory fallback — fine for a single-process dev server
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        },
+    }
