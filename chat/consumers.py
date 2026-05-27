@@ -295,12 +295,18 @@ class ChatStreamConsumer(AsyncWebsocketConsumer):
                 logger.exception("ChatService failed in WS consumer: %s", exc)
                 return None, user_msg.pk, str(exc)
 
-            # Save assistant message
-            assistant_msg = ChatMessage.objects.create(
-                conversation=conv,
-                role="assistant",
-                content=response_text,
-            )
+            # Save assistant message — mark as WS-origin so the post_save
+            # signal doesn't push a second time (we stream directly below).
+            from chat.signals import mark_ws_origin, clear_ws_origin
+            mark_ws_origin()
+            try:
+                assistant_msg = ChatMessage.objects.create(
+                    conversation=conv,
+                    role="assistant",
+                    content=response_text,
+                )
+            finally:
+                clear_ws_origin()
 
             # Auto-title
             from django.utils import timezone as tz
