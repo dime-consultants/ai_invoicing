@@ -1,41 +1,37 @@
-# users/urls.py
+# users/urls.py — mounted at /api/users/
 from django.urls import path
 from .views import (
-    RegisterView,
-    LoginView,
-    LogoutView,
     ProfileView,
     ChangePasswordView,
     UserListView,
     UserDetailView,
+    LoginView,
+    LogoutView,
 )
 
 urlpatterns = [
-    # ── Auth ─────────────────────────────────────────────────────────────────
-    # POST /api/auth/signup/       create account (public)
-    path("signup/", RegisterView.as_view(),  name="user-register"),
-
-    # POST /api/auth/login/          session login (public)
-    path("login/",    LoginView.as_view(),     name="user-login"),
-
-    # POST /api/auth/logout/         clear session (authenticated)
-    path("logout/",   LogoutView.as_view(),    name="user-logout"),
-
+    path("login",   LoginView.as_view(), name="user-login"),
+    path("login/",  LoginView.as_view(), name="user-login-slash"),
+    path("logout",  LogoutView.as_view(), name="user-logout"),
+    path("logout/", LogoutView.as_view(), name="user-logout-slash"),
     # ── Own profile ───────────────────────────────────────────────────────────
-    # GET   /api/users/me/            current user profile  (also served at /api/auth/me/)
-    # PATCH /api/users/me/            update name, dept, phone
-    path("me/",       ProfileView.as_view(),   name="user-profile"),
+    # GET   /api/users/me      current user profile
+    # PATCH /api/users/me      update name, dept, phone
+    path("me",                  ProfileView.as_view(),        name="user-profile"),
+    path("me/",                 ProfileView.as_view(),        name="user-profile-slash"),
 
-    # POST  /api/users/me/change-password/
-    path("me/change-password/", ChangePasswordView.as_view(), name="user-change-password"),
+    # POST  /api/users/me/change-password
+    path("me/change-password",  ChangePasswordView.as_view(), name="user-change-password"),
+    path("me/change-password/", ChangePasswordView.as_view(), name="user-change-password-slash"),
 
     # ── Admin user management ─────────────────────────────────────────────────
-    # GET   /api/users/               list all users (admin only)
-    # POST  /api/users/               create user (admin only)
-    path("",          UserListView.as_view(),  name="user-list"),
+    # GET  /api/users      list all users
+    # POST /api/users      create user (admin only)
+    path("",            UserListView.as_view(),   name="user-list"),
 
-    # GET   /api/users/<id>/          user detail (admin only)
-    # PUT   /api/users/<id>/          update user (admin only)
-    # DELETE /api/users/<id>/         delete user (admin only)
-    path("<int:pk>/", UserDetailView.as_view(), name="user-detail"),
+    # GET    /api/users/<id>   user detail
+    # PUT    /api/users/<id>   update user
+    # DELETE /api/users/<id>   delete user
+    path("<int:pk>",    UserDetailView.as_view(), name="user-detail"),
+    path("<int:pk>/",   UserDetailView.as_view(), name="user-detail-slash"),
 ]

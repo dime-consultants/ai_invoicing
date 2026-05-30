@@ -14,8 +14,9 @@ class RegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model  = User
         fields = [
-            "username", "email", "first_name", "last_name",
+            "email",
             "password", "password2",
+            "first_name", "last_name",
             "department", "phone",
         ]
 
@@ -25,40 +26,47 @@ class RegisterSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        # New accounts are always viewers until an admin promotes them
-        return User.objects.create_user(role="viewer", **validated_data)
+        email = validated_data["email"]
+        user = User.objects.create_user(
+            email=email,
+            username=email,  # Set username to email for compatibility with auth system
+            password=validated_data["password"],
+            first_name=validated_data.get("first_name", ""),
+            last_name=validated_data.get("last_name", ""),
+            department=validated_data.get("department", ""),
+            phone=validated_data.get("phone", ""),
+            role="viewer",
+        )
+        return user
 
+
+      
 
 class LoginSerializer(serializers.Serializer):
     """Used for POST /api/users/login/ — accepts email or username"""
-    username = serializers.CharField(required=False, allow_blank=True)
-    email    = serializers.CharField(required=False, allow_blank=True)
+    email    = serializers.EmailField()
     password = serializers.CharField(write_only=True)
+   
 
     def validate(self, attrs):
-        password = attrs.get("password", "")
-        username = attrs.get("username", "").strip()
         email    = attrs.get("email", "").strip()
+        password = attrs.get("password", "")
 
-        # Support both email and username login
-        if not username and not email:
-            raise serializers.ValidationError("Provide username or email.")
-
-        # Try email first (contract uses email)
-        if email and not username:
-            try:
-                user_obj = User.objects.get(email=email)
-                username = user_obj.username
-            except User.DoesNotExist:
-                raise serializers.ValidationError("Invalid credentials.")
-
-        user = authenticate(username=username, password=password)
+        user = authenticate(username=email, password=password)
         if not user:
-            raise serializers.ValidationError("Invalid credentials.")
+            raise serializers.ValidationError(
+                {"detail": "Invalid email or password."}
+            )
         if not user.is_active:
-            raise serializers.ValidationError("This account has been deactivated.")
+            raise serializers.ValidationError(
+                {"detail": "Account is inactive."}
+            )
+
         attrs["user"] = user
         return attrs
+        
+
+       
 
 
 class UserSerializer(serializers.ModelSerializer):

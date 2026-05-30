@@ -20,6 +20,13 @@ class User(AbstractUser):
         ("viewer",  "Viewer"),
     ]
 
+    username = models.CharField(
+        max_length=150,
+        unique = True,
+        blank = True,
+        null = True,
+        )  
+
     role = models.CharField(
         max_length=10,
         choices=ROLE_CHOICES,
@@ -36,6 +43,10 @@ class User(AbstractUser):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    USERNAME_FIELD = "email"
+    REQUIRED_FIELDS = []
+
 
     class Meta:
         verbose_name        = "User"

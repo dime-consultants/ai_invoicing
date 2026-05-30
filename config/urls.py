@@ -40,18 +40,21 @@ urlpatterns = [
     path("api/health/", health_check, name="health-check-slash"),
 
     # ── JWT Auth ──────────────────────────────────────────────────────────────
-    # POST /api/auth/login/    → obtain access + refresh tokens (contract: returns token + user)
-    # POST /api/auth/refresh/  → refresh access token
-    # POST /api/auth/verify/   → verify token validity
-    # GET  /api/auth/me/       → current user profile
-    # POST /api/auth/logout/   → invalidate session
-    path("api/auth/login/",   KNTokenObtainPairView.as_view(),  name="token_obtain_pair"),
-    path("api/auth/refresh/", TokenRefreshView.as_view(),     name="token_refresh"),
-    path("api/auth/verify/",  TokenVerifyView.as_view(),      name="token_verify"),
-    path("api/auth/",         include("users.auth_urls")),
+    # Supports both trailing-slash and no-slash (APPEND_SLASH=False)
+    # path("api/auth/login",    KNTokenObtainPairView.as_view(), name="token_obtain_pair"),
+    # path("api/auth/login/",   KNTokenObtainPairView.as_view(), name="token_obtain_pair_slash"),
+    # path("api/auth/login",    LoginView.as_view(),                 name="auth-login"),
+    # path("api/auth/login/",   LoginView.as_view(),                 name="auth-login-slash"),
+    # path("api/auth/refresh",  TokenRefreshView.as_view(),      name="token_refresh"),
+    # path("api/auth/refresh/", TokenRefreshView.as_view(),      name="token_refresh_slash"),
+    # path("api/auth/verify",   TokenVerifyView.as_view(),       name="token_verify"),
+    # path("api/auth/verify/",  TokenVerifyView.as_view(),       name="token_verify_slash"),
 
-    # ── Users — auth + profile + admin user management ────────────────────────
-    path("api/auth/", include("users.urls")),
+    # signup, me, logout — handled in users/auth_urls.py
+    path("api/auth/", include("users.auth_urls")),
+
+    # ── Users — profile + admin user management ───────────────────────────────
+    path("api/users/", include("users.urls")),
 
     # ── Tools — registry + call log + direct run ──────────────────────────────
     path("api/tools/", include("tools.urls")),
