@@ -196,6 +196,7 @@ SIMPLE_JWT = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://kuehne.dimeconsultants.africa",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -216,12 +217,13 @@ CORS_ALLOW_HEADERS = [
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://kuehne.dimeconsultants.africa",
 ]
 
 CSRF_COOKIE_HTTPONLY = False
-CSRF_COOKIE_SECURE = False  # True in production HTTPS
+CSRF_COOKIE_SECURE = True  # True in production HTTPS
 
-SESSION_COOKIE_SECURE = False  # True in production HTTPS
+SESSION_COOKIE_SECURE = True  # True in production HTTPS
 
 # ── Secure Cookies ────────────────────────────────────────────────────────────
 SECURE_BROWSER_XSS_FILTER = True
