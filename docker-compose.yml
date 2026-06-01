@@ -82,7 +82,7 @@ services:
     networks:
       - invoicing-network
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/health/"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/api/health/"]
       interval: 30s
       timeout: 5s
       retries: 3
