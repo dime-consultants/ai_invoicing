@@ -29,7 +29,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         email = validated_data["email"]
         user = User.objects.create_user(
             email=email,
-            username=email,  # Set username to email for compatibility with auth system
+            username=email,
             password=validated_data["password"],
             first_name=validated_data.get("first_name", ""),
             last_name=validated_data.get("last_name", ""),
@@ -86,12 +86,14 @@ class UserSerializer(serializers.ModelSerializer):
             "status", "lastActive",
             "department", "phone",
             "is_active",
-            "date_joined", "created_at",
+            "created_at",
         ]
         read_only_fields = fields
 
     def get_name(self, obj):
-        return obj.get_full_name() or obj.username
+        parts = [obj.first_name or "", obj.last_name or ""]
+        full = " ".join(p for p in parts if p).strip()
+        return full or obj.username
 
     def get_status(self, obj):
         return "active" if obj.is_active else "inactive"

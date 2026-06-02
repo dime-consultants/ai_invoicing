@@ -60,7 +60,7 @@ class LoginView(APIView):
             key="refresh_token",
             value=str(refresh),
             httponly=True,
-            secure=False,  # True in production
+            secure=True,  # True in production
             samesite="Lax",
             max_age=7 * 24 * 60 * 60,
         )
@@ -100,7 +100,7 @@ class RefreshTokenView(APIView):
                 key="refresh_token",
                 value=serializer.validated_data["refresh"],
                 httponly=True,
-                secure=False,
+                secure=True,  # True in production
                 samesite="Lax",
                 max_age=7 * 24 * 60 * 60,
             )
