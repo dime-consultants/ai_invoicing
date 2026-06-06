@@ -282,13 +282,30 @@ def generate_chat_response(
 ) -> str:
     from ai_engine.services import _get_client, GROK_MODEL
 
-    messages = [{"role": "system", "content": system_prompt or _GENERAL_SYSTEM_PROMPT}]
+    sp = system_prompt if isinstance(system_prompt, str) and system_prompt else _GENERAL_SYSTEM_PROMPT
+    messages = [{"role": "system", "content": sp}]
+
     if conversation_history:
-        messages.extend(conversation_history)
-    messages.append({"role": "user", "content": user_message})
+        for entry in conversation_history:
+            if isinstance(entry, dict):
+                role = entry.get("role", "")
+                content = entry.get("content", "")
+                if isinstance(role, str) and isinstance(content, str):
+                    messages.append({"role": role, "content": content})
+
+    messages.append({"role": "user", "content": str(user_message)})
+
+    # DEBUG — remove after fix
+    #import json as _json
+    #for i, m in enumerate(messages):
+    #    try:
+    #        _json.dumps(m)
+    #    except TypeError as e:
+    #        logger.error("NON-SERIALIZABLE at messages[%d]: %s | value types: %s",
+    #                    i, e, {k: type(v).__name__ for k, v in m.items()})
 
     response = _get_client().chat.completions.create(
-        model=GROK_MODEL,
+        model=GROK_MODEL(),
         messages=messages,
         temperature=0.2,
         max_tokens=4096,
