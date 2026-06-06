@@ -10,7 +10,7 @@ class ChatMessageAttachmentSerializer(serializers.ModelSerializer):
         model = ChatMessageAttachment
         fields = [
             "id", "filename", "file_type", "attachment_type", 
-            "file_size_bytes", "uploaded_at", "file_url"
+            "file_size_bytes", "created_at", "file_url"
         ]
         read_only_fields = ["uploaded_at"]
     
