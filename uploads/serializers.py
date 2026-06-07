@@ -3,12 +3,19 @@ from rest_framework import serializers
 from .models import UploadBatch, UploadedFile
 
 
+def _get_user_display(user):
+    """Safe display name for custom User model without get_full_name()."""
+    if not user:
+        return None
+    full = f"{user.first_name} {user.last_name}".strip()
+    return full or user.email
+
+
 class UploadedFileSerializer(serializers.ModelSerializer):
-    """Serializer for a single file within a batch."""
-    status = serializers.CharField(source="parse_status", read_only=True)
-    name   = serializers.CharField(source="original_filename", read_only=True)
-    size   = serializers.IntegerField(source="file_size_bytes", read_only=True)
-    type   = serializers.CharField(source="mime_type", read_only=True)
+    status     = serializers.CharField(source="parse_status", read_only=True)
+    name       = serializers.CharField(source="original_filename", read_only=True)
+    size       = serializers.IntegerField(source="file_size_bytes", read_only=True)
+    type       = serializers.CharField(source="mime_type", read_only=True)
     uploadedAt = serializers.DateTimeField(source="uploaded_at", read_only=True)
     uploadedBy = serializers.SerializerMethodField()
 
@@ -23,13 +30,11 @@ class UploadedFileSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_uploadedBy(self, obj):
-        if obj.batch and obj.batch.uploaded_by:
-            return obj.batch.uploaded_by.get_full_name() or obj.batch.uploaded_by.username
-        return None
+        user = obj.batch.uploaded_by if obj.batch else None
+        return _get_user_display(user)
 
 
 class UploadBatchSerializer(serializers.ModelSerializer):
-    """Full batch detail including nested files."""
     files      = UploadedFileSerializer(many=True, read_only=True)
     uploadedBy = serializers.SerializerMethodField()
 
@@ -48,13 +53,10 @@ class UploadBatchSerializer(serializers.ModelSerializer):
         ]
 
     def get_uploadedBy(self, obj):
-        if obj.uploaded_by:
-            return obj.uploaded_by.get_full_name() or obj.uploaded_by.username
-        return None
+        return _get_user_display(obj.uploaded_by)
 
 
 class UploadBatchListSerializer(serializers.ModelSerializer):
-    """Lightweight batch list — no nested files."""
     uploadedBy = serializers.SerializerMethodField()
 
     class Meta:
@@ -67,12 +69,12 @@ class UploadBatchListSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_uploadedBy(self, obj):
-        if obj.uploaded_by:
-            return obj.uploaded_by.get_full_name() or obj.uploaded_by.username
-        return None
+        return _get_user_display(obj.uploaded_by)
 
 
 class FileUploadSerializer(serializers.Serializer):
-    """Used for POST /api/files/upload — multipart file upload."""
     file = serializers.FileField()
     type = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+# Note: We could add more validation here (e.g. allowed file types, max size) if needed.
