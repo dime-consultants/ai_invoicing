@@ -1,19 +1,26 @@
-# ai_invoicing/chat/serializers.py
+# chat/serializers.py
 from rest_framework import serializers
 from .models import ChatConversation, ChatMessage, ChatMessageAttachment, Workflow
 
 
+def _get_user_display(user):
+    if not user:
+        return None
+    full = f"{user.first_name} {user.last_name}".strip()
+    return full or user.email
+
+
 class ChatMessageAttachmentSerializer(serializers.ModelSerializer):
     file_url = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = ChatMessageAttachment
         fields = [
-            "id", "filename", "file_type", "attachment_type", 
+            "id", "filename", "file_type", "attachment_type",
             "file_size_bytes", "created_at", "file_url"
         ]
-        read_only_fields = ["uploaded_at"]
-    
+        read_only_fields = ["created_at"]
+
     def get_file_url(self, obj):
         request = self.context.get('request')
         if obj.file and request:
@@ -26,11 +33,11 @@ class ChatMessageSerializer(serializers.ModelSerializer):
     applied_workflow_name = serializers.CharField(
         source='applied_workflow.name', read_only=True
     )
-    
+
     class Meta:
         model = ChatMessage
         fields = [
-            "id", "role", "content", "created_at", 
+            "id", "role", "content", "created_at",
             "applied_workflow", "applied_workflow_name", "attachments"
         ]
         read_only_fields = ["created_at", "applied_workflow"]
@@ -69,4 +76,3 @@ class ChatConversationSerializer(serializers.ModelSerializer):
 
     def get_message_count(self, obj):
         return obj.messages.count()
- 
