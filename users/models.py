@@ -8,6 +8,8 @@ class UserManager(BaseUserManager):
         if not email:
             raise ValueError("Email is required")
         email = self.normalize_email(email)
+        #set username to email prefix if not provided
+        extra_fields.setdefault("username", email)
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -19,7 +21,9 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("is_active", True)
         return self._create_user(email, password, **extra_fields)
 
-    def create_superuser(self, email, password=None, first_name="", last_name="", **extra_fields):
+    def create_superuser(self, email, username=None, password=None, **extra_fields):
+        #accept username but fallback to email
+        extra_fields.setdefault("username", username or email)
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("is_active", True)
@@ -67,6 +71,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    date_joined = models.DateTimeField(auto_now_add=True)
 
     objects = UserManager()
 
