@@ -4,6 +4,7 @@ from .views import (
     DashboardStatsView,
     DashboardActivityView,
     DashboardRecentActivityView,
+    DashboardProcessingView,
 )
 
 urlpatterns = [
@@ -15,4 +16,10 @@ urlpatterns = [
 
     # GET /api/dashboard/recent-activity
     path("recent-activity/", DashboardRecentActivityView.as_view(), name="dashboard-recent-activity"),
+
+    # GET /api/dashboard/processing
+    path("processing/",      DashboardProcessingView.as_view(),      name="dashboard-processing"),
 ]
+
+# Add processing data endpoint if not already present
+# This should be added to urlpatterns

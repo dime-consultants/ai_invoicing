@@ -207,7 +207,10 @@ class ChatMessageSendView(APIView):
 
         # ── Auto-title conversation ───────────────────────────────────────────
         if conversation.title in ("Untitled Conversation", ""):
-            conversation.title = user_input[:50]
+            from .title_generator import generate_title_from_user_input
+            # Try to generate an AI title, fall back to truncated input if it fails
+            generated_title = generate_title_from_user_input(user_input)
+            conversation.title = generated_title or user_input[:50]
             conversation.updated_at = timezone.now()
             conversation.save(update_fields=["title", "updated_at"])
         else:
