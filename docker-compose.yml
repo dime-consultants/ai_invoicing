@@ -111,15 +111,6 @@ services:
       - invoicing-network
     restart: "no"
 
-volumes:
-  postgres_data:
-  redis_data:
-  static_files:
-  media_files:
-
-networks:
-  invoicing-network:
-    driver: bridge
   # ── Tool Sync (one-shot, syncs tools from backend to UI) ──────────────────
   sync-tools:
     build:
@@ -149,3 +140,7 @@ volumes:
   static_files:
   media_files:
   tools_export:
+
+networks:
+  invoicing-network:
+    driver: bridge
