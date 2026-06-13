@@ -801,3 +801,89 @@ def summarise_batch(batch_id: int) -> dict:
     except Exception as exc:
         logger.exception("summarise_batch(%s): %s", batch_id, exc)
         return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": str(exc)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. extract_file_universal
+# ─────────────────────────────────────────────────────────────────────────────
+
+def extract_file_universal(file_id: int, context: str = "") -> dict:
+    """
+    Universal file extraction tool.
+    
+    Handles ANY file type (TXT, CSV, XLSX, PDF, JSON, DOCX, XML, HTML, etc.)
+    and extracts structured data using Grok AI for intelligent parsing.
+    
+    Args:
+        file_id: ID of the UploadedFile record
+        context: Optional domain context for smarter parsing (e.g., "invoice", "financial report")
+        
+    Returns:
+        {
+            "ok": bool,
+            "file_id": int,
+            "filename": str,
+            "file_type": str,
+            "structured_data": dict,
+            "summary": str,
+            "error": str (if ok=False)
+        }
+    """
+    try:
+        from tools.universal_extractor import UniversalFileExtractor
+        
+        uf = _get_uploaded_file(file_id)
+        uf.file.open('rb')
+        
+        result = UniversalFileExtractor.extract(
+            uf.file,
+            uf.original_filename,
+            context=context
+        )
+        
+        uf.file.close()
+        
+        if result["success"]:
+            # Update the file record with extracted data
+            uf.detected_type = result["file_type"]
+            uf.parse_status = "parsed"
+            uf.save(update_fields=["detected_type", "parse_status"])
+            
+            record_count = len(result.get("structured_data", {}).get("records", []))
+            return {
+                "ok": True,
+                "file_id": file_id,
+                "filename": result["filename"],
+                "file_type": result["file_type"],
+                "structured_data": result["structured_data"],
+                "record_count": record_count,
+                "summary": f"Successfully extracted {result['file_type']} file with {record_count} records",
+            }
+        else:
+            uf.parse_status = "parse_error"
+            uf.parse_error = result.get("error", "Unknown error")
+            uf.save(update_fields=["parse_status", "parse_error"])
+            
+            return {
+                "ok": False,
+                "file_id": file_id,
+                "filename": result["filename"],
+                "error": result.get("error", "Unknown error"),
+            }
+    
+    except Exception as exc:
+        logger.exception(f"extract_file_universal failed for file_id={file_id}: {exc}")
+        try:
+            uf = _get_uploaded_file(file_id)
+            uf.parse_status = "parse_error"
+            uf.parse_error = str(exc)
+            uf.save(update_fields=["parse_status", "parse_error"])
+        except Exception:
+            pass
+        
+        return {
+            "ok": False,
+            "file_id": file_id,
+            "error": str(exc),
+        }
