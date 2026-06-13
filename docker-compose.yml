@@ -120,3 +120,32 @@ volumes:
 networks:
   invoicing-network:
     driver: bridge
+  # ── Tool Sync (one-shot, syncs tools from backend to UI) ──────────────────
+  sync-tools:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: invoicing-sync-tools
+    env_file: .env
+    environment:
+      DB_HOST: db
+      REDIS_URL: redis://redis:6379/0
+      DEBUG: "False"
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py sync_tools_to_ui --output /app/tools_export.json"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - tools_export:/app
+    networks:
+      - invoicing-network
+    restart: "no"
+
+volumes:
+  postgres_data:
+  redis_data:
+  static_files:
+  media_files:
+  tools_export:
