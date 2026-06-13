@@ -41,6 +41,10 @@ COPY --chown=django:django . .
 # Create dirs for static/media
 RUN mkdir -p /app/staticfiles /app/media && chown -R django:django /app
 
+# Copy entrypoint script
+COPY --chown=django:django docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 USER django
 
 EXPOSE 8000
@@ -49,4 +53,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8000/health/ || exit 1
 
-CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "config.asgi:application"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

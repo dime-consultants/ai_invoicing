@@ -10,6 +10,11 @@ from .views import (
     ToolsCleanView,
     ToolsValidateView,
 )
+from .views_active import (
+    ActiveToolsView,
+    JobActiveToolsView,
+    ToolUsageStatsView,
+)
 
 urlpatterns = [
     # ── Contract endpoints (/api/tools/...) ───────────────────────────────────
@@ -32,4 +37,12 @@ urlpatterns = [
 
     # POST /api/tools/run/       run a tool directly
     path("run/",      ToolRunView.as_view(), name="tool-run"),
+
+    # ── Active tools (real-time) ──────────────────────────────────────────────
+    # GET  /api/tools/active/              list all active/enabled tools
+    path("active/",                    ActiveToolsView.as_view(),     name="active-tools"),
+    # GET  /api/tools/job/<id>/active/     tools being used for a job
+    path("job/<int:job_id>/active/",   JobActiveToolsView.as_view(),  name="job-active-tools"),
+    # GET  /api/tools/usage/stats/         tool usage statistics
+    path("usage/stats/",               ToolUsageStatsView.as_view(),  name="tool-usage-stats"),
 ]
