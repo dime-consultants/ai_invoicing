@@ -50,7 +50,17 @@ class ChatConversationListCreateView(generics.ListCreateAPIView):
         ).order_by("-updated_at")
 
     def create(self, request, *args, **kwargs):
-        title = (request.data.get("title") or "Untitled Conversation").strip()
+        # Handle both dict and string request.data
+        if isinstance(request.data, dict):
+            title = (request.data.get("title") or "Untitled Conversation").strip()
+        else:
+            # If request.data is a string, use it as the title
+            title = (request.data or "Untitled Conversation").strip() if isinstance(request.data, str) else "Untitled Conversation"
+        
+        # Ensure title is not empty
+        if not title or title == "":
+            title = "Untitled Conversation"
+        
         conv = ChatConversation.objects.create(user=request.user, title=title)
         return Response(ChatConversationSerializer(conv).data, status=status.HTTP_201_CREATED)
 

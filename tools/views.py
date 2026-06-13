@@ -29,7 +29,7 @@ class IsAdminOrFinance(permissions.BasePermission):
 class ToolDefinitionListView(generics.ListAPIView):
     """GET /api/tools/ — list all enabled tools."""
     serializer_class   = ToolDefinitionSerializer
-    permission_classes = [IsAdminOrFinance]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         qs = ToolDefinition.objects.filter(enabled=True).order_by("category", "name")
@@ -42,7 +42,7 @@ class ToolDefinitionListView(generics.ListAPIView):
 class ToolDefinitionDetailView(generics.RetrieveAPIView):
     """GET /api/tools/<id>/ — full detail including Grok schema."""
     serializer_class   = ToolDefinitionSerializer
-    permission_classes = [IsAdminOrFinance]
+    permission_classes = [permissions.IsAuthenticated]
     queryset           = ToolDefinition.objects.filter(enabled=True)
 
 
@@ -51,7 +51,7 @@ class ToolDefinitionDetailView(generics.RetrieveAPIView):
 class ToolCallListView(generics.ListAPIView):
     """GET /api/tools/calls/ — list tool calls with optional filters."""
     serializer_class   = ToolCallSerializer
-    permission_classes = [IsAdminOrFinance]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         qs = ToolCall.objects.select_related("tool", "job").order_by("-created_at")
@@ -67,7 +67,7 @@ class ToolCallListView(generics.ListAPIView):
 class ToolCallDetailView(generics.RetrieveAPIView):
     """GET /api/tools/calls/<id>/ — single call detail."""
     serializer_class   = ToolCallSerializer
-    permission_classes = [IsAdminOrFinance]
+    permission_classes = [permissions.IsAuthenticated]
     queryset           = ToolCall.objects.select_related("tool", "job")
 
 
@@ -76,7 +76,7 @@ class ToolRunView(APIView):
     POST /api/tools/run/
     Execute a single tool directly (bypasses the LLM loop).
     """
-    permission_classes = [IsAdminOrFinance]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         tool_name = request.data.get("tool_name", "").strip()
