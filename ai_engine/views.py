@@ -51,7 +51,7 @@ class AIAnalysisJobListCreateView(generics.ListCreateAPIView):
                 "user_intent": "Flag any receipts with zero tax"  // optional
             }
     """
-    permission_classes = [IsAdminOrFinance]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_serializer_class(self):
         return (
@@ -110,7 +110,7 @@ class AIAnalysisJobDetailView(generics.RetrieveAPIView):
     GET /api/ai/jobs/<id>/
     Full detail: prompts, raw response, all tool calls, all insights.
     """
-    permission_classes = [IsAdminOrFinance]
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class   = AIAnalysisJobDetailSerializer
 
     def get_queryset(self):
@@ -132,7 +132,7 @@ class AIAnalysisJobRequeueView(APIView):
     Reset a failed or completed job back to 'queued' and re-dispatch it.
     Deletes previous insights and tool calls so they are regenerated cleanly.
     """
-    permission_classes = [IsAdminOrFinance]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):
         try:
@@ -250,7 +250,7 @@ class BatchAIJobListView(generics.ListAPIView):
     All jobs for a specific batch owned by the current user.
     Shortcut so the frontend doesn't need to filter /jobs/?batch=<id>.
     """
-    permission_classes = [IsAdminOrFinance]
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class   = AIAnalysisJobListSerializer
 
     def get_queryset(self):
