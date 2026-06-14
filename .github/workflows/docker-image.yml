@@ -82,7 +82,25 @@ jobs:
           script: |
             set -e
             # Load image transferred by SCP and restart services
-            docker load -i /tmp/image.tar
-            rm -f /tmp/image.tar
+            if [ -f /tmp/image.tar ]; then
+              docker load -i /tmp/image.tar
+            elif [ -d /tmp/image.tar ]; then
+              TARFILE=$(find /tmp/image.tar -type f -iname '*.tar' -print -quit)
+              if [ -n "$TARFILE" ]; then
+                docker load -i "$TARFILE"
+              else
+                TARFILE=$(find /tmp/image.tar -type f -print -quit)
+                if [ -n "$TARFILE" ]; then
+                  docker load -i "$TARFILE"
+                else
+                  echo "No tar file found in /tmp/image.tar" >&2
+                  exit 1
+                fi
+              fi
+            else
+              echo "/tmp/image.tar not found" >&2
+              exit 1
+            fi
+            rm -rf /tmp/image.tar
             cd /root/tools/ai_invoicing
             docker compose up -d --remove-orphans
