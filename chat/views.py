@@ -79,7 +79,16 @@ class ChatConversationDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def update(self, request, *args, **kwargs):
         allowed = {"title", "is_active"}
-        data = {k: v for k, v in request.data.items() if k in allowed}
+        # `request.data` can be a dict or a raw string (some clients send
+        # plain string bodies). Handle both cases gracefully — if it's a
+        # string, treat it as a title update.
+        if isinstance(request.data, dict):
+            data = {k: v for k, v in request.data.items() if k in allowed}
+        elif isinstance(request.data, str):
+            title = request.data.strip()
+            data = {"title": title} if title else {}
+        else:
+            data = {}
         instance = self.get_object()
         for field, value in data.items():
             setattr(instance, field, value)
