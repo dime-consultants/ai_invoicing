@@ -60,7 +60,7 @@ jobs:
           port: ${{ secrets.SSH_PORT }}
           source: "image.tar"
           target: "/tmp/image.tar"
-          timeout: 600
+          timeout: 600s
 
   deploy:
     needs: build-and-push
@@ -73,7 +73,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          timeout: 600
+          timeout: 600s
           script: |
             set -e
             # Load image transferred by SCP and restart services
