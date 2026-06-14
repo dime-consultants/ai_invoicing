@@ -21,6 +21,7 @@ from .serializers import (
     WorkflowSerializer,
 )
 from .services import ChatService
+import base64
 
 logger = logging.getLogger(__name__)
 
@@ -364,6 +365,54 @@ class ChatSimpleMessageView(APIView):
         message = (request.data.get("message") or "").strip()
         history = request.data.get("conversation_history") or []
         file_metadata = request.data.get("file_metadata") or []
+
+        # If the request is multipart/form-data with uploaded files, convert
+        # those files into `file_metadata` entries so the stateless endpoint
+        # can process them the same way as the conversation endpoint.
+        if request.FILES:
+            fm_from_files = []
+            for key in request.FILES:
+                for uploaded in request.FILES.getlist(key):
+                    try:
+                        uploaded.seek(0)
+                    except Exception:
+                        pass
+                    try:
+                        raw = uploaded.read()
+                    except Exception:
+                        raw = None
+
+                    content_str = ""
+                    if raw:
+                        # Try UTF-8 decode for text-based files, otherwise use base64
+                        try:
+                            content_str = raw.decode("utf-8")
+                        except Exception:
+                            content_str = base64.b64encode(raw).decode("ascii")
+
+                    fm_from_files.append({
+                        "name": getattr(uploaded, "name", "file"),
+                        "size": getattr(uploaded, "size", len(raw) if raw else 0),
+                        "type": getattr(uploaded, "content_type", "application/octet-stream"),
+                        "content": content_str,
+                    })
+
+            # merge: if existing file_metadata provided in JSON, append file uploads
+            if file_metadata:
+                try:
+                    # file_metadata might be a JSON string when parsed from form-data
+                    if isinstance(file_metadata, str):
+                        import json
+
+                        file_metadata = json.loads(file_metadata)
+                except Exception:
+                    pass
+                if isinstance(file_metadata, list):
+                    file_metadata = file_metadata + fm_from_files
+                else:
+                    file_metadata = fm_from_files
+            else:
+                file_metadata = fm_from_files
 
         if not message and not file_metadata:
             return Response(
