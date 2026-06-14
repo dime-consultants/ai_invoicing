@@ -67,5 +67,5 @@ jobs:
             set -e
             echo "${{ secrets.PA_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             docker pull ghcr.io/${{ github.repository_owner }}/ai_invoicing:latest
-            cd /ai_invoicing
+            cd /root/tools/ai_invoicing
             docker compose up -d --remove-orphans
