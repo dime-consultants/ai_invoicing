@@ -37,25 +37,19 @@ services:
       timeout: 3s
       retries: 5
 
-  # ── Migrations (one-shot, exits after running) ──────────────────────────────
-  migrate:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-local}/ai_invoicing:latest
-    container_name: invoicing-migrate
-    env_file: .env
-    environment:
-      DB_HOST: db
-      REDIS_URL: redis://redis:6379/0
-      DEBUG: "False"
-      RUN_STARTUP_TASKS: "false"
-    command: >
-      sh -c "python manage.py migrate --noinput &&
-             python manage.py collectstatic --noinput"
-    depends_on:
-      db:
-        condition: service_healthy
-    networks:
-      - invoicing-network
-    restart: "no"
+  # Migrations are run externally (not as a compose service) to avoid
+  # blocking `docker compose up`. Run migrations on the host or CI before
+  # bringing up the `app` service. Example commands:
+  #   # Using the built image on the host (after loading/pulling):
+  #   docker run --rm \
+  #     -e DB_HOST=db -e REDIS_URL=redis://redis:6379/0 \
+  #     -v /path/to/.env:/app/.env \
+  #     ghcr.io/${GITHUB_REPOSITORY_OWNER:-local}/ai_invoicing:latest \
+  #     sh -c "python manage.py migrate --noinput && python manage.py collectstatic --noinput"
+  #
+  #   # Or, run against the service container once it's available:
+  #   docker compose run --rm app python manage.py migrate --noinput
+  #   docker compose run --rm app python manage.py collectstatic --noinput
 
   # ── Django / Daphne ─────────────────────────────────────────────────────────
   app:
@@ -75,8 +69,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
     networks:
       - invoicing-network
     healthcheck:
