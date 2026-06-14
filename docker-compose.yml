@@ -108,32 +108,15 @@ services:
       timeout: 5s
       retries: 3
 
-  # ── Tool Sync (one-shot, syncs tools from backend to UI) ──────────────────
-  sync-tools:
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-local}/ai_invoicing:latest
-    container_name: invoicing-sync-tools
-    env_file: .env
-    environment:
-      DB_HOST: db
-      REDIS_URL: redis://redis:6379/0
-      DEBUG: "False"
-    command: >
-      sh -c "python manage.py sync_tools_to_ui --output /app/tools_export.json"
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-    volumes:
-      - tools_export:/app
-    networks:
-      - invoicing-network
-    restart: "no"
+  # Tool sync is run externally (not as a compose service) to avoid deployment timeouts.
+  # Run the sync command on the host or via your deployment scripts:
+  #   python manage.py sync_tools_to_ui --output /path/to/tools_export.json
 
 volumes:
   postgres_data:
   redis_data:
   static_files:
   media_files:
-  tools_export:
 
 networks:
   invoicing-network:
