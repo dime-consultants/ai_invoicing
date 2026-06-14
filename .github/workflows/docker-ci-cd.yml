@@ -46,34 +46,17 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          load: true
           tags: |
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Save image to tarball
-        run: |
-          IMAGE=${{ env.IMAGE_NAME }}:latest
-          docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE"
-          docker save "$IMAGE" -o image.tar
-
-      - name: Copy image tarball to remote via SCP
-        uses: appleboy/scp-action@v0.1.5
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          source: "image.tar"
-          target: "/tmp/image.tar"
-
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: Load image and restart services on remote
+      - name: Deploy on remote
         uses: appleboy/ssh-action@v0.1.7
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -82,10 +65,7 @@ jobs:
           port: ${{ secrets.SSH_PORT }}
           script: |
             set -e
-            # Load transferred image and restart compose services
-            docker load -i /tmp/image.tar
-            rm -f /tmp/image.tar
-            # Adjust the path below if your docker-compose.yml lives elsewhere
-            cd /root/tools/ai_invoicing || true
-            docker-compose pull || true
-            docker-compose up -d --remove-orphans
+            echo "${{ secrets.PA_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker pull ghcr.io/${{ github.repository_owner }}/ai_invoicing:latest
+            cd /root/tools/ai_invoicing
+            docker compose up -d --remove-orphans

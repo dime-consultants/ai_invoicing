@@ -37,11 +37,28 @@ services:
       timeout: 3s
       retries: 5
 
+  # ── Migrations (one-shot, exits after running) ──────────────────────────────
+  migrate:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-local}/ai_invoicing:latest
+    container_name: invoicing-migrate
+    env_file: .env
+    environment:
+      DB_HOST: db
+      REDIS_URL: redis://redis:6379/0
+      DEBUG: "False"
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - invoicing-network
+    restart: "no"
+
   # ── Django / Daphne ─────────────────────────────────────────────────────────
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-local}/ai_invoicing:latest
     container_name: invoicing-app
     restart: unless-stopped
     env_file: .env
@@ -62,7 +79,6 @@ services:
     networks:
       - invoicing-network
     healthcheck:
-      # Daphne listens on 8000 inside this container
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
       interval: 30s
       timeout: 5s
@@ -86,38 +102,14 @@ services:
     networks:
       - invoicing-network
     healthcheck:
-      # Nginx listens on 80 inside this container, proxies to app:8000
       test: ["CMD", "wget", "-qO-", "http://localhost/api/health/"]
       interval: 30s
       timeout: 5s
       retries: 3
 
-  # ── Migrations (one-shot, exits after running) ──────────────────────────────
-  migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: invoicing-migrate
-    env_file: .env
-    environment:
-      DB_HOST: db
-      REDIS_URL: redis://redis:6379/0
-      DEBUG: "False"
-    command: >
-      sh -c "python manage.py migrate --noinput &&
-             python manage.py collectstatic --noinput"
-    depends_on:
-      db:
-        condition: service_healthy
-    networks:
-      - invoicing-network
-    restart: "no"
-
   # ── Tool Sync (one-shot, syncs tools from backend to UI) ──────────────────
   sync-tools:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-local}/ai_invoicing:latest
     container_name: invoicing-sync-tools
     env_file: .env
     environment:
@@ -125,11 +117,10 @@ services:
       REDIS_URL: redis://redis:6379/0
       DEBUG: "False"
     command: >
-      sh -c "python manage.py migrate --noinput &&
-             python manage.py sync_tools_to_ui --output /app/tools_export.json"
+      sh -c "python manage.py sync_tools_to_ui --output /app/tools_export.json"
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - tools_export:/app
     networks:
