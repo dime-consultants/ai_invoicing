@@ -70,6 +70,7 @@ jobs:
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Deploy on remote
         uses: appleboy/ssh-action@v0.1.7
