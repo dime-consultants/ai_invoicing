@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/ai_invoicing
+  IMAGE_NAME: ai_invoicing
 
 jobs:
   build-and-push:
@@ -33,24 +33,34 @@ jobs:
           key: pip-${{ runner.os }}-${{ hashFiles('**/requirements*.txt') }}
           restore-keys: pip-${{ runner.os }}-
 
-      - name: Login to GHCR
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.PA_TOKEN }}
-
-      - name: Build and push image (with build cache)
+      - name: Build image (with build cache)
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile
-          push: true
+          push: false
+          load: true
           tags: |
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Save image to tarball
+        run: |
+          IMAGE=${{ env.IMAGE_NAME }}:latest
+          docker save "$IMAGE" -o image.tar
+
+      - name: Copy image tarball to remote via SCP
+        uses: appleboy/scp-action@v0.1.5
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "image.tar"
+          target: "/tmp/image.tar"
+          timeout: 600
 
   deploy:
     needs: build-and-push
@@ -63,9 +73,11 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
+          timeout: 600
           script: |
             set -e
-            echo "${{ secrets.PA_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            docker pull ghcr.io/${{ github.repository_owner }}/ai_invoicing:latest
+            # Load image transferred by SCP and restart services
+            docker load -i /tmp/image.tar
+            rm -f /tmp/image.tar
             cd /root/tools/ai_invoicing
             docker compose up -d --remove-orphans

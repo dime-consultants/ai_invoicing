@@ -46,6 +46,7 @@ services:
       DB_HOST: db
       REDIS_URL: redis://redis:6379/0
       DEBUG: "False"
+      RUN_STARTUP_TASKS: "false"
     command: >
       sh -c "python manage.py migrate --noinput &&
              python manage.py collectstatic --noinput"
@@ -80,10 +81,10 @@ services:
       - invoicing-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
-      interval: 30s
+      interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 40s
+      start_period: 10s
 
   # ── Nginx ───────────────────────────────────────────────────────────────────
   nginx:
