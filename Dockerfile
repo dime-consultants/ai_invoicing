@@ -5,15 +5,16 @@ WORKDIR /app
 
 # System deps needed to compile some packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential \
-        libpq-dev \
-        libmagic1 \
-        gcc \
+    build-essential \
+    libpq-dev \
+    libmagic1 \
+    gcc \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --upgrade pip \
- && pip install --prefix=/install --no-cache-dir -r requirements.txt
+    && pip wheel --no-cache-dir --wheel-dir=/wheels -r requirements.txt \
+    && pip install --prefix=/install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt
 
 
 # ── Stage 2: runtime image ────────────────────────────────────────────────────
@@ -23,10 +24,10 @@ WORKDIR /app
 
 # Runtime system deps only
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libpq5 \
-        libmagic1 \
-        tesseract-ocr \
-        curl \
+    libpq5 \
+    libmagic1 \
+    tesseract-ocr \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder
