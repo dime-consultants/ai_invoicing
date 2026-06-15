@@ -40,12 +40,16 @@ MAX_CHARS = getattr(settings, "UNSTRUCTURED_MAX_CHARS", 50_000)
 
 def _extract_text(file_path: str, extension: str) -> str:
     """
-    Extract plain text from a file using unstructured.
+    Extract plain text from a file for AI context / type detection.
 
-    Falls back to a simple utf-8 decode for .txt and .csv files so the
-    service works even if unstructured is not yet installed.
+    Uses lightweight, already-installed libraries per format:
+      - txt/csv  : direct utf-8 read
+      - pdf      : pdfplumber (page-by-page, stops once MAX_CHARS reached)
+      - xlsx/xls : openpyxl (xlsx) / xlrd (xls), cells flattened to text
+    Falls back to `unstructured` for anything else (docx, html, …) if it is
+    installed, otherwise returns "" so ingestion still succeeds.
     """
-    # Fast path for plain text — no unstructured needed
+    # Fast path for plain text — no parsing needed
     if extension in ("txt", "csv"):
         try:
             with open(file_path, "r", encoding="utf-8", errors="replace") as fh:
@@ -54,7 +58,61 @@ def _extract_text(file_path: str, extension: str) -> str:
             logger.warning("Plain text read failed for %s: %s", file_path, exc)
             return ""
 
-    # Try unstructured
+    # PDF — pdfplumber (installed). Stop early once we have enough text.
+    if extension == "pdf":
+        try:
+            import pdfplumber
+            parts, total = [], 0
+            with pdfplumber.open(file_path) as pdf:
+                for page in pdf.pages:
+                    t = page.extract_text() or ""
+                    if t:
+                        parts.append(t)
+                        total += len(t)
+                    if total >= MAX_CHARS:
+                        break
+            return "\n\n".join(parts)[:MAX_CHARS]
+        except Exception as exc:
+            logger.warning("pdfplumber extraction failed for %s: %s", file_path, exc)
+            # fall through to unstructured
+
+    # Spreadsheets — openpyxl for xlsx, xlrd for legacy xls.
+    if extension in ("xlsx", "xls"):
+        try:
+            parts, total = [], 0
+            if extension == "xlsx":
+                import openpyxl
+                wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
+                for ws in wb.worksheets:
+                    for row in ws.iter_rows(values_only=True):
+                        line = "\t".join("" if c is None else str(c) for c in row)
+                        if line.strip():
+                            parts.append(line)
+                            total += len(line)
+                        if total >= MAX_CHARS:
+                            break
+                    if total >= MAX_CHARS:
+                        break
+                wb.close()
+            else:  # xls
+                import xlrd
+                book = xlrd.open_workbook(file_path)
+                for sheet in book.sheets():
+                    for r in range(sheet.nrows):
+                        line = "\t".join(str(c) for c in sheet.row_values(r))
+                        if line.strip():
+                            parts.append(line)
+                            total += len(line)
+                        if total >= MAX_CHARS:
+                            break
+                    if total >= MAX_CHARS:
+                        break
+            return "\n".join(parts)[:MAX_CHARS]
+        except Exception as exc:
+            logger.warning("spreadsheet extraction failed for %s: %s", file_path, exc)
+            # fall through to unstructured
+
+    # Anything else (docx, html, images, …): try unstructured if available.
     try:
         from unstructured.partition.auto import partition
 
@@ -64,9 +122,8 @@ def _extract_text(file_path: str, extension: str) -> str:
 
     except ImportError:
         logger.warning(
-            "unstructured is not installed. "
-            "Run: pip install 'unstructured[pdf,xlsx]'  "
-            "Only .txt/.csv files will have extracted_text populated."
+            "unstructured is not installed; '%s' files have no extracted_text. "
+            "Install with: pip install 'unstructured[all-docs]'", extension
         )
         return ""
 
