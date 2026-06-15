@@ -337,10 +337,10 @@ class AIAnalyzeView(APIView):
             from ai_engine.services import _get_client, GROK_MODEL
 
             model_map = {
-                "grok-3":      GROK_MODEL,
+                "grok-3":      GROK_MODEL(),
                 "grok-3-mini": "grok-3-mini",
             }
-            model = model_map.get(model_id, GROK_MODEL)
+            model = model_map.get(model_id, GROK_MODEL())
 
             prompt = (
                 "Analyse the following data and return a JSON array of predictions. "
@@ -391,3 +391,71 @@ class AIAnalyzeView(APIView):
             ]
 
         return Response({"results": results})
+
+
+class AIRunAnalysisView(APIView):
+    """
+    POST /api/ai/run/
+    Run a real AI Engine analysis: creates and executes an AIAnalysisJob through
+    the agent (which picks and calls the right tools) over the user's most recent
+    uploaded batch, then returns the job id, summary, insights and tools used.
+
+    Request: { "context": str, "pipeline": str (optional) }
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        context  = (request.data.get("context") or request.data.get("analysisContext") or "").strip()
+        pipeline = (request.data.get("pipeline") or "").strip()
+
+        if not context:
+            return Response(
+                {"error": "Analysis context is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from uploads.models import UploadBatch
+        from ai_engine.services import AIEngineService
+        from ai_engine.models import AIInsight
+        from tools.models import ToolCall
+
+        # Use the user's most recent batch that actually has files as the source.
+        batch = (
+            UploadBatch.objects
+            .filter(uploaded_by=request.user, file_count__gt=0)
+            .order_by("-created_at")
+            .first()
+        )
+
+        message = f"[Pipeline: {pipeline}] {context}" if pipeline else context
+
+        try:
+            summary, job_id = AIEngineService.handle_chat_message(
+                user=request.user,
+                message=message,
+                batch=batch,
+            )
+        except Exception as exc:
+            logger.exception("AIRunAnalysisView failed: %s", exc)
+            return Response(
+                {"error": f"Analysis failed: {exc}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        insights = list(
+            AIInsight.objects.filter(job_id=job_id)
+            .values("insight_type", "severity", "title", "detail")[:25]
+        ) if job_id else []
+        tools_used = list(
+            ToolCall.objects.filter(job_id=job_id)
+            .values("tool__name", "status")
+        ) if job_id else []
+
+        return Response({
+            "job_id":      job_id,
+            "summary":     summary,
+            "batch":       batch.label if batch else None,
+            "batch_id":    batch.pk if batch else None,
+            "insights":    insights,
+            "tools_used":  tools_used,
+        })

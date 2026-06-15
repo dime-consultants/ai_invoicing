@@ -9,6 +9,7 @@ from .views import (
     BatchAIJobListView,
     AIModelsView,
     AIAnalyzeView,
+    AIRunAnalysisView,
 )
 
 urlpatterns = [
@@ -17,6 +18,8 @@ urlpatterns = [
     path("models/",   AIModelsView.as_view(),  name="ai-models"),
     # POST /api/ai/analyze         run analysis on data
     path("analyze/",  AIAnalyzeView.as_view(), name="ai-analyze"),
+    # POST /api/ai/run             run a full agent analysis over uploaded files
+    path("run/",      AIRunAnalysisView.as_view(), name="ai-run"),
 
     # ── Jobs ──────────────────────────────────────────────────────────────────
     path("jobs/",                    AIAnalysisJobListCreateView.as_view(), name="ai-job-list-create"),
