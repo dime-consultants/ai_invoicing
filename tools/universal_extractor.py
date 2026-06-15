@@ -6,6 +6,7 @@ structured or semi-structured data using Grok AI for intelligent parsing.
 """
 import logging
 import json
+import re
 from io import BytesIO
 from pathlib import Path
 import csv
@@ -230,7 +231,7 @@ Extract all data into this JSON structure:
         try:
             client = _get_client()
             response = client.chat.completions.create(
-                model=GROK_MODEL,
+                model=GROK_MODEL(),
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -249,20 +250,31 @@ Extract all data into this JSON structure:
 
     @staticmethod
     def _safe_json_parse(text: str) -> dict:
-        """Safely parse JSON from LLM output, handling markdown fences."""
-        text = text.strip()
-        
-        # Remove markdown code fences
-        if text.startswith("```"):
-            text = text.split("```", 2)[-2].strip()
-            if text.startswith("json"):
-                text = text[4:].strip()
-        
+        """Safely parse JSON from LLM output, handling markdown fences and prose."""
+        if not text:
+            return {"raw_response": ""}
+        s = text.strip()
+
+        # Pull JSON out of a ```json … ``` fence even if wrapped in prose.
+        fence = re.search(r"```(?:json)?\s*(.*?)```", s, re.DOTALL)
+        if fence:
+            s = fence.group(1).strip()
+
         try:
-            return json.loads(text)
+            return json.loads(s)
         except json.JSONDecodeError:
-            logger.warning("Failed to parse JSON response")
-            return {"raw_response": text[:1000]}
+            pass
+
+        # Fallback: parse the outermost {...} object found in the text.
+        start, end = s.find("{"), s.rfind("}")
+        if start != -1 and end > start:
+            try:
+                return json.loads(s[start:end + 1])
+            except json.JSONDecodeError:
+                pass
+
+        logger.warning("Failed to parse JSON response for output starting: %.120s", s)
+        return {"raw_response": text[:1000]}
 
 
 def extract_file_universal(file_id: int, context: str = "") -> dict:

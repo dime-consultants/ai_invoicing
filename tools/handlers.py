@@ -60,6 +60,156 @@ def _save_xlsx(wb, filename: str) -> BytesIO:
     return buf
 
 
+def _norm_id(value) -> str:
+    """Normalise a fiscal id (FDN / CU / statutory no) to a clean string,
+    stripping float artefacts like a trailing '.0' from numeric cells."""
+    s = str(value).strip()
+    if s.endswith(".0"):
+        s = s[:-2]
+    return s
+
+
+def _find_col(headers, *keywords) -> int:
+    """Index of the first header containing any keyword (case-insensitive), else -1."""
+    low = [str(h or "").lower() for h in headers]
+    for kw in keywords:
+        for i, h in enumerate(low):
+            if kw in h:
+                return i
+    return -1
+
+
+def _read_tabular(uf, prefer=()) -> tuple[list, list]:
+    """
+    Load an .xls/.xlsx UploadedFile into (headers, data_rows).
+
+    Picks the sheet whose header row best matches the `prefer` keywords (so we
+    grab the real data sheet, not a 'Criteria' tab), and detects the header row
+    as the first row with >= 4 non-empty cells.
+    """
+    ext = uf.extension.lower()
+    sheets = []  # (name, rows)
+    uf.file.open("rb")
+    if ext == "xlsx":
+        import openpyxl
+        wb = openpyxl.load_workbook(uf.file, data_only=True, read_only=True)
+        for ws in wb.worksheets:
+            sheets.append((ws.title, [list(r) for r in ws.iter_rows(values_only=True)]))
+        wb.close()
+    elif ext == "xls":
+        import xlrd
+        book = xlrd.open_workbook(file_contents=uf.file.read())
+        for sh in book.sheets():
+            sheets.append((sh.name, [sh.row_values(r) for r in range(sh.nrows)]))
+    else:
+        raise ValueError(f"_read_tabular: unsupported extension '{ext}'")
+
+    def header_idx(rows):
+        for i, r in enumerate(rows[:10]):
+            if sum(1 for c in r if c not in (None, "")) >= 4:
+                return i
+        return 0
+
+    best, best_score = None, -1
+    for _name, rows in sheets:
+        if not rows:
+            continue
+        hidx = header_idx(rows)
+        hdr = [str(c).strip() if c is not None else "" for c in rows[hidx]]
+        low = " | ".join(hdr).lower()
+        kw_hits = sum(1 for kw in prefer if kw in low) if prefer else 0
+        score = kw_hits * 1_000_000 + len(rows)  # keyword match dominates, size breaks ties
+        if score > best_score:
+            best_score, best = score, (hdr, rows, hidx)
+    if not best:
+        return [], []
+    hdr, rows, hidx = best
+    data = [[("" if c is None else c) for c in r]
+            for r in rows[hidx + 1:] if any(c not in (None, "") for c in r)]
+    return hdr, data
+
+
+def _parse_fiscal_side(uf) -> list[dict]:
+    """
+    Parse a URA/KRA fiscal *sales* file into normalised rows:
+        {fiscal_no, name, date, total, vat}
+
+    Handles BOTH the KRA `.txt` periodical report (CU INVOICE NUMBER blocks) and
+    the URA/KRA `.xls`/`.xlsx` sales tables (FDN / TOTAL (A+B) columns).
+    """
+    ext = uf.extension.lower()
+    out = []
+    if ext == "txt":
+        uf.file.open("rb")
+        raw = uf.file.read().decode("utf-8", errors="replace")
+        block = re.compile(
+            r'^(?P<t>FISCAL RECEIPT|CREDIT NOTE)\s*\r?\n'
+            r'CU INVOICE NUMBER:\s*(?P<cu>\S+)\s*\r?\n'
+            r'(?P<d>\d{2}-\d{2}-\d{4})\s+\d{2}:\d{2}:\d{2}\s*\r?\n'
+            r'TOTAL:\s+(?P<tot>[\d\s,]+)\r?\n'
+            r'TAXES:\s+(?P<tax>[\d\s,]+)',
+            re.MULTILINE | re.IGNORECASE,
+        )
+        for m in block.finditer(raw):
+            out.append({
+                "fiscal_no": _norm_id(m.group("cu")),
+                "name": "", "date": m.group("d"),
+                "total": _norm_number(m.group("tot")),
+                "vat": _norm_number(m.group("tax")),
+            })
+        return out
+
+    hdr, rows = _read_tabular(uf, prefer=("fdn", "name of purchaser", "cu invoice", "total (a+b)"))
+    c_no  = _find_col(hdr, "fdn", "cu invoice", "statutory", "invoice number")
+    c_nm  = _find_col(hdr, "name of purchaser", "name")
+    c_dt  = _find_col(hdr, "invoice date", "date")
+    c_tot = _find_col(hdr, "total (a+b)", "total", "billed amount", "(ugx)(a)")
+    c_vat = _find_col(hdr, "vat charged", "vat")
+    for r in rows:
+        if not (0 <= c_no < len(r)):
+            continue
+        fno = _norm_id(r[c_no])
+        if not fno or fno.lower() in ("none", ""):
+            continue
+        out.append({
+            "fiscal_no": fno,
+            "name":  str(r[c_nm]).strip() if 0 <= c_nm < len(r) else "",
+            "date":  str(r[c_dt]).strip() if 0 <= c_dt < len(r) else "",
+            "total": _saf_num(r[c_tot]) if 0 <= c_tot < len(r) else None,
+            "vat":   _saf_num(r[c_vat]) if 0 <= c_vat < len(r) else None,
+        })
+    return out
+
+
+def _parse_acon_side(uf) -> list[dict]:
+    """
+    Parse an ACON export into normalised rows:
+        {fiscal_no, item_number, name, amount}
+
+    The fiscal join key is ACON's statutory column — 'Statutory Item No(For
+    Download VAT)' (Kenya CU) or 'FDN' (Uganda) — NOT the internal Item Number.
+    """
+    hdr, rows = _read_tabular(uf, prefer=("debtor account", "statutory item", "fdn", "item number"))
+    c_no   = _find_col(hdr, "statutory item", "fdn")
+    c_item = _find_col(hdr, "item number")
+    c_nm   = _find_col(hdr, "full name", "name")
+    c_amt  = _find_col(hdr, "lc amount", "amount")
+    out = []
+    for r in rows:
+        if not (0 <= c_no < len(r)):
+            continue
+        fno = _norm_id(r[c_no])
+        if not fno or fno.lower() in ("none", ""):
+            continue
+        out.append({
+            "fiscal_no":   fno,
+            "item_number": _norm_id(r[c_item]) if 0 <= c_item < len(r) else "",
+            "name":        str(r[c_nm]).strip() if 0 <= c_nm < len(r) else "",
+            "amount":      _saf_num(r[c_amt]) if 0 <= c_amt < len(r) else None,
+        })
+    return out
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. detect_file_type
 # ─────────────────────────────────────────────────────────────────────────────
@@ -75,7 +225,9 @@ def detect_file_type(file_id: int) -> dict:
     try:
         uf = _get_uploaded_file(file_id)
         ext = uf.extension.lower()
-        text = (uf.extracted_text or "")[:2000].upper()
+        # Search a generous slice — key signals (e.g. "BILLED AMOUNT" in a
+        # Safaricom bill) can appear several pages in, not just at the top.
+        text = (uf.extracted_text or "")[:20000].upper()
 
         detected  = "unknown"
         confidence = "low"
@@ -89,14 +241,16 @@ def detect_file_type(file_id: int) -> dict:
                 detected, confidence = "unknown_txt", "low"
 
         elif ext == "pdf":
-            if "SAFARICOM" in text or "BILLED AMOUNT" in text:
+            if "SAFARICOM" in text or "POSTPAY" in text or "BILLED AMOUNT" in text:
                 detected, confidence = "safaricom_bill", "high"
             else:
                 detected, confidence = "generic_pdf", "low"
 
         elif ext in ("xlsx", "xls"):
-            if "DEBTOR" in text or "ACON" in text or "LC AMOUNT" in text:
+            if "DEBTOR ACCOUNT" in text or "STATUTORY ITEM" in text or "LC AMOUNT" in text:
                 detected, confidence = "acon_export", "high"
+            elif "NAME OF PURCHASER" in text or "TOTAL (A+B)" in text or "FDN" in text:
+                detected, confidence = "ura_sales_table", "high"
             elif "CU INVOICE" in text:
                 detected, confidence = "ura_fiscal_receipt", "medium"
             else:
@@ -128,21 +282,15 @@ def detect_file_type(file_id: int) -> dict:
 
 def extract_ura_receipts(file_id: int) -> dict:
     """
-    Parse a URA fiscal receipt .txt file.
+    Parse a URA/KRA fiscal *sales* file and write a normalised .xlsx.
 
-    Extracts every FISCAL RECEIPT / CREDIT NOTE block and returns
-    headers + rows.  Also writes an .xlsx output file to
-    outputs/converted/ and updates UploadedFile.parse_status.
+    Handles two input shapes automatically:
+      • KRA `.txt` periodical report — FISCAL RECEIPT / CREDIT NOTE blocks with
+        a CU INVOICE NUMBER, total and taxes.
+      • URA/KRA `.xls`/`.xlsx` sales table — columns such as FDN, Name of
+        Purchaser, Invoice Date and TOTAL (A+B).
 
-    Returns:
-        {
-            "ok": true,
-            "record_count": 724,
-            "headers": [...],
-            "rows": [[...], ...],        # first 5 rows for LLM preview
-            "output_filename": "...",
-            "summary": "..."
-        }
+    Returns {ok, record_count, headers, rows (preview), output_filename, summary}.
     """
     try:
         import openpyxl
@@ -153,6 +301,44 @@ def extract_ura_receipts(file_id: int) -> dict:
         uf.parse_status = "parsing"
         uf.save(update_fields=["parse_status"])
 
+        # ── Tabular URA/KRA sales export (.xls/.xlsx) ─────────────────────────
+        if uf.extension.lower() in ("xls", "xlsx"):
+            recs = _parse_fiscal_side(uf)
+            headers = ["Fiscal No (FDN/CU)", "Name of Purchaser", "Invoice Date", "Total", "VAT"]
+            rows = [[r["fiscal_no"], r["name"], r["date"], r["total"], r["vat"]] for r in recs]
+
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "URA Sales"
+            ws.append(headers)
+            for row in rows:
+                ws.append(row)
+            out_dir = Path(settings.BASE_DIR) / "outputs" / "converted"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            stem = Path(uf.original_filename).stem
+            out_path = out_dir / f"{stem}_extracted.xlsx"
+            wb.save(out_path)
+
+            uf.parse_status = "parsed"
+            uf.parsed_at    = timezone.now()
+            uf.save(update_fields=["parse_status", "parsed_at"])
+
+            total_amt = sum(r["total"] or 0 for r in recs)
+            return {
+                "ok":              True,
+                "file_id":         file_id,
+                "record_count":    len(rows),
+                "headers":         headers,
+                "rows":            rows[:5],
+                "output_filename": str(out_path),
+                "summary": (
+                    f"Extracted {len(rows)} URA sales records from "
+                    f"'{uf.original_filename}'. Total amount {total_amt:,.2f}. "
+                    f"Output saved to {out_path.name}."
+                ),
+            }
+
+        # ── KRA `.txt` periodical report ──────────────────────────────────────
         uf.file.open("rb")
         raw = uf.file.read().decode("utf-8", errors="replace")
 
@@ -226,12 +412,44 @@ def extract_ura_receipts(file_id: int) -> dict:
 # 3. extract_safaricom_bill
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Patterns for the per-subscriber TAX INVOICE pages and the summary table.
+_SAF_RE_INV   = re.compile(r"Invoice Number\s+([A-Z0-9\-]+)", re.I)
+_SAF_RE_CU    = re.compile(r"CU\s*INVOICE\s*NO[:\s]+(\d+)", re.I)
+_SAF_RE_PHONE = re.compile(r"^\d{9}$")
+_SAF_RE_INVNO = re.compile(r"^[A-Z]\d?-?\d{6,}$")
+
+
+def _saf_num(raw) -> float | None:
+    """Parse a Safaricom amount like '9,429.13' → 9429.13; '' → None."""
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    try:
+        return float(s.replace(",", "").replace(" ", ""))
+    except ValueError:
+        return None
+
+
+def _saf_department(name: str) -> str:
+    """Best-effort: strip the Kuehne+Nagel company prefix to leave the unit/user."""
+    d = re.sub(r"^\s*kuehne\s*\+?\s*nagel(\s+ltd)?\b[\s\-]*", "", name, flags=re.I)
+    d = re.sub(r"^\s*kuehne\s+and\s+nagel(\s+ltd)?\b[\s\-]*", "", d, flags=re.I)
+    return d.strip() or name
+
+
 def extract_safaricom_bill(file_id: int) -> dict:
     """
-    Extract line items from a Safaricom monthly bill PDF.
+    Extract a per-line telephone billing report from a Safaricom PostPay bill PDF.
 
-    Parses tables from every page using pdfplumber and returns
-    Name, Reference NO., Invoice NO., Net Amount, VAT, Excise, Billed Amount.
+    The bill has two relevant sections:
+      • TAX INVOICE SUMMARY (a few pages): Name/department, phone (Reference NO.),
+        invoice number, Net/VAT/Excise/Billed Amount — one row per subscriber.
+      • One TAX INVOICE per subscriber (each spanning several pages) whose first
+        page carries the fiscal "CU INVOICE NO" plus the invoice number.
+
+    This joins the two on invoice number so every subscriber row gets its CU
+    number, then writes an .xlsx billing report mapping
+    telephone user → department → phone → invoice → CU number → amounts.
     """
     try:
         import pdfplumber
@@ -243,26 +461,64 @@ def extract_safaricom_bill(file_id: int) -> dict:
         uf.parse_status = "parsing"
         uf.save(update_fields=["parse_status"])
 
-        headers = ["Name", "Reference NO.", "Invoice NO.", "Net Amount", "VAT", "Excise", "Billed Amount"]
-        rows = []
+        detail_cu: dict[str, str] = {}   # invoice_no -> CU invoice number
+        summary: dict[str, dict]  = {}   # invoice_no -> subscriber row (deduped)
 
         uf.file.open("rb")
         with pdfplumber.open(uf.file) as pdf:
+            in_summary = False
             for page in pdf.pages:
-                for table in (page.extract_tables() or []):
-                    for row in table:
-                        if not row or not any(row):
-                            continue
-                        first = str(row[0] or "").strip()
-                        if not first or any(h.upper() in first.upper() for h in ("NAME", "REFERENCE", "INVOICE")):
-                            continue
-                        if len(row) < 7:
-                            continue
-                        rows.append([str(c or "").strip() for c in row[:7]])
+                text = page.extract_text() or ""
+                upper = text.upper()
+
+                if "TAX INVOICE SUMMARY" in upper:
+                    in_summary = True
+
+                # A per-subscriber document page: end of the summary section,
+                # and the place where the CU invoice number lives.
+                if "SUBSCRIBER NUMBER" in upper:
+                    in_summary = False
+                    m_inv, m_cu = _SAF_RE_INV.search(text), _SAF_RE_CU.search(text)
+                    if m_inv and m_cu:
+                        detail_cu.setdefault(m_inv.group(1).strip(), m_cu.group(1).strip())
+                    continue
+
+                if in_summary:
+                    for table in (page.extract_tables() or []):
+                        for row in table:
+                            cells = [str(c or "").replace("\n", " ").strip() for c in row]
+                            if len(cells) < 7:
+                                continue
+                            phone = cells[1].replace(" ", "")
+                            inv   = cells[2].replace(" ", "")
+                            if _SAF_RE_PHONE.match(phone) and _SAF_RE_INVNO.match(inv):
+                                summary[inv] = {
+                                    "name": cells[0], "phone": phone, "invoice_no": inv,
+                                    "net": cells[3], "vat": cells[4],
+                                    "excise": cells[5], "billed": cells[6],
+                                }
+
+        headers = [
+            "Telephone User", "Department", "Phone Number", "Invoice Number",
+            "CU Invoice Number", "Net Amount", "VAT", "Excise", "Billed Amount",
+        ]
+        rows = []
+        for inv, s in summary.items():
+            rows.append([
+                s["name"],
+                _saf_department(s["name"]),
+                s["phone"],
+                inv,
+                detail_cu.get(inv, ""),
+                _saf_num(s["net"]),
+                _saf_num(s["vat"]),
+                _saf_num(s["excise"]),
+                _saf_num(s["billed"]),
+            ])
 
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = "Safaricom Bill"
+        ws.title = "Safaricom Billing"
         ws.append(headers)
         for row in rows:
             ws.append(row)
@@ -277,6 +533,8 @@ def extract_safaricom_bill(file_id: int) -> dict:
         uf.parsed_at    = timezone.now()
         uf.save(update_fields=["parse_status", "parsed_at"])
 
+        total_billed   = sum(r[8] or 0 for r in rows)
+        without_cu      = sum(1 for r in rows if not r[4])
         return {
             "ok":              True,
             "file_id":         file_id,
@@ -284,14 +542,25 @@ def extract_safaricom_bill(file_id: int) -> dict:
             "headers":         headers,
             "rows":            rows[:5],
             "output_filename": str(out_path),
+            "total_billed":    round(total_billed, 2),
+            "missing_cu_count": without_cu,
             "summary": (
-                f"Extracted {len(rows)} line items from Safaricom bill '{uf.original_filename}'. "
+                f"Extracted {len(rows)} telephone subscribers from Safaricom bill "
+                f"'{uf.original_filename}'. Total billed Ksh {total_billed:,.2f}. "
+                f"{len(rows) - without_cu}/{len(rows)} matched a CU invoice number. "
                 f"Output saved to {out_path.name}."
             ),
         }
 
     except Exception as exc:
         logger.exception("extract_safaricom_bill(%s): %s", file_id, exc)
+        try:
+            uf = _get_uploaded_file(file_id)
+            uf.parse_status = "parse_error"
+            uf.parse_error  = str(exc)
+            uf.save(update_fields=["parse_status", "parse_error"])
+        except Exception:
+            pass
         return {"ok": False, "error": str(exc)}
 
 
@@ -374,10 +643,15 @@ def clean_acon_export(file_id: int) -> dict:
 
 def reconcile_ura_vs_acon(ura_file_id: int, acon_file_id: int) -> dict:
     """
-    Cross-reference URA fiscal receipt records against ACON export records.
+    Reconcile a URA/KRA fiscal *sales* file against an ACON export.
 
-    Matches on CU Invoice Number (URA) vs. the invoice/item number column (ACON).
-    Returns variance rows where amounts differ, plus unmatched records.
+    The join key is the FISCAL number — the URA/KRA FDN or CU Invoice Number
+    matched against ACON's statutory column ('Statutory Item No(For Download
+    VAT)' for Kenya, or 'FDN' for Uganda) — NOT ACON's internal Item Number.
+
+    Produces a reconciliation workpaper (.xlsx) with one row per fiscal number:
+    matched rows (with both amounts and the variance), records present in the
+    fiscal file but MISSING_IN_ACON, and records in ACON but MISSING_IN_URA.
     """
     try:
         import openpyxl
@@ -386,115 +660,78 @@ def reconcile_ura_vs_acon(ura_file_id: int, acon_file_id: int) -> dict:
         ura_uf  = _get_uploaded_file(ura_file_id)
         acon_uf = _get_uploaded_file(acon_file_id)
 
-        # ── Load URA data ─────────────────────────────────────────────
-        ura_uf.file.open("rb")
-        raw = ura_uf.file.read().decode("utf-8", errors="replace")
-        BLOCK_RE = re.compile(
-            r'^(?P<entry_type>FISCAL RECEIPT|CREDIT NOTE)\s*\r?\n'
-            r'CU INVOICE NUMBER:\s*(?P<cu_no>\S+)\s*\r?\n'
-            r'(?P<date>\d{2}-\d{2}-\d{4})\s+(?P<time>\d{2}:\d{2}:\d{2})\s*\r?\n'
-            r'TOTAL:\s+(?P<total>[\d\s,]+)\r?\n'
-            r'TAXES:\s+(?P<taxes>[\d\s,]+)',
-            re.MULTILINE | re.IGNORECASE,
-        )
-        ura_records = {
-            m.group("cu_no").strip(): {
-                "total":  _norm_number(m.group("total")),
-                "taxes":  _norm_number(m.group("taxes")),
-                "date":   m.group("date"),
-                "type":   m.group("entry_type").title(),
+        ura_rows  = _parse_fiscal_side(ura_uf)
+        acon_rows = _parse_acon_side(acon_uf)
+
+        # Index ACON by fiscal number (first occurrence wins).
+        acon_by_no = {}
+        for a in acon_rows:
+            acon_by_no.setdefault(a["fiscal_no"], a)
+        ura_nos = {u["fiscal_no"] for u in ura_rows}
+
+        TOL = 1.0
+        matched, variances, unmatched_ura = [], [], []
+        for u in ura_rows:
+            a = acon_by_no.get(u["fiscal_no"])
+            if not a:
+                unmatched_ura.append(u)
+                continue
+            ut, at = u.get("total"), a.get("amount")
+            var = round(ut - at, 2) if (ut is not None and at is not None) else None
+            row = {
+                "fiscal_no":   u["fiscal_no"],
+                "name":        u.get("name") or a.get("name"),
+                "date":        u.get("date"),
+                "ura_total":   ut,
+                "acon_item":   a.get("item_number"),
+                "acon_amount": at,
+                "variance":    var,
             }
-            for m in BLOCK_RE.finditer(raw)
-        }
+            matched.append(row)
+            if var is not None and abs(var) > TOL:
+                variances.append(row)
 
-        # ── Load ACON data ────────────────────────────────────────────
-        acon_uf.file.open("rb")
-        wb_acon = openpyxl.load_workbook(acon_uf.file, data_only=True)
-        ws_acon = wb_acon.active
-        acon_rows = list(ws_acon.iter_rows(values_only=True))
-        acon_headers = [str(h or "").lower().strip() for h in acon_rows[0]]
+        unmatched_acon = [a for a in acon_rows if a["fiscal_no"] not in ura_nos]
 
-        def _col(name: str) -> int | None:
-            for i, h in enumerate(acon_headers):
-                if name in h:
-                    return i
-            return None
-
-        inv_col = _col("number") or _col("invoice") or _col("item")
-        amt_col = _col("lc amount") or _col("amount")
-
-        acon_map = {}
-        if inv_col is not None and amt_col is not None:
-            for row in acon_rows[1:]:
-                key = str(row[inv_col] or "").strip()
-                try:
-                    amt = float(str(row[amt_col] or "0").replace(",", ""))
-                except ValueError:
-                    amt = 0.0
-                if key:
-                    acon_map[key] = amt
-
-        # ── Compare ───────────────────────────────────────────────────
-        matched = unmatched_ura = variance = 0
-        variance_rows = []
-
-        for cu_no, ura in ura_records.items():
-            acon_amt = acon_map.get(cu_no)
-            if acon_amt is None:
-                unmatched_ura += 1
-                variance_rows.append({
-                    "cu_invoice_number": cu_no,
-                    "ura_total":         ura["total"],
-                    "acon_amount":       None,
-                    "difference":        ura["total"],
-                    "status":            "UNMATCHED — not in ACON",
-                    "date":              ura["date"],
-                })
-            else:
-                diff = round(abs(ura["total"] - acon_amt), 2)
-                if diff > 0.01:
-                    variance += 1
-                    variance_rows.append({
-                        "cu_invoice_number": cu_no,
-                        "ura_total":         ura["total"],
-                        "acon_amount":       acon_amt,
-                        "difference":        diff,
-                        "status":            "VARIANCE",
-                        "date":              ura["date"],
-                    })
-                else:
-                    matched += 1
-
-        # ── Write variance xlsx ───────────────────────────────────────
+        # ── Write the reconciliation workpaper ────────────────────────────────
         out_dir = Path(settings.BASE_DIR) / "outputs" / "converted"
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / "ura_acon_variance.xlsx"
+        out_path = out_dir / "ura_acon_reconciliation.xlsx"
 
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = "Variance"
-        ws.append(["CU Invoice Number", "URA Total", "ACON Amount", "Difference", "Status", "Date"])
-        for vr in variance_rows:
-            ws.append([
-                vr["cu_invoice_number"], vr["ura_total"],
-                vr["acon_amount"], vr["difference"],
-                vr["status"], vr["date"],
-            ])
+        ws.title = "Reconciliation"
+        ws.append(["Fiscal No (FDN/CU)", "Purchaser", "Date",
+                   "URA Total", "ACON Item No", "ACON Amount", "Variance", "Status"])
+        for m in matched:
+            status = "VARIANCE" if (m["variance"] is not None and abs(m["variance"]) > TOL) else "MATCH"
+            ws.append([m["fiscal_no"], m["name"], m["date"], m["ura_total"],
+                       m["acon_item"], m["acon_amount"], m["variance"], status])
+        for u in unmatched_ura:
+            ws.append([u["fiscal_no"], u.get("name"), u.get("date"), u.get("total"),
+                       "", "", "", "MISSING_IN_ACON"])
+        for a in unmatched_acon:
+            ws.append([a["fiscal_no"], a.get("name"), "", "",
+                       a.get("item_number"), a.get("amount"), "", "MISSING_IN_URA"])
         wb.save(out_path)
 
-        total = len(ura_records)
         return {
-            "ok":               True,
-            "total_ura":        total,
-            "matched":          matched,
-            "unmatched_ura":    unmatched_ura,
-            "variance_count":   variance,
-            "variance_rows":    variance_rows[:10],   # preview
-            "output_filename":  str(out_path),
+            "ok":                   True,
+            "ura_count":            len(ura_rows),
+            "acon_count":           len(acon_rows),
+            "matched_count":        len(matched),
+            "variance_count":       len(variances),
+            "missing_in_acon":      len(unmatched_ura),
+            "missing_in_ura":       len(unmatched_acon),
+            "output_filename":      str(out_path),
+            "rows":                 matched[:5],
             "summary": (
-                f"Reconciliation complete. {total} URA records vs ACON export. "
-                f"Matched: {matched} | Unmatched: {unmatched_ura} | Variances: {variance}. "
-                f"Variance report saved to {out_path.name}."
+                f"Reconciled {len(ura_rows)} URA/KRA records against "
+                f"{len(acon_rows)} ACON records (matched on fiscal number). "
+                f"Matched {len(matched)}, of which {len(variances)} have amount "
+                f"variances. Missing in ACON: {len(unmatched_ura)}; "
+                f"missing in URA: {len(unmatched_acon)}. "
+                f"Workpaper saved to {out_path.name}."
             ),
         }
 
@@ -681,41 +918,29 @@ def generate_report(file_id: int, report_type: str = "ura_sales") -> dict:
         if report_type == "ura_sales":
             ws.title = "URA Sales Report"
             headers = [
-                "CU Invoice Number", "Date", "Time",
-                "Total (UGX)", "Taxes (UGX)", "Net Amount (UGX)", "Entry Type",
+                "Fiscal No (FDN/CU)", "Name of Purchaser", "Date",
+                "Total", "VAT", "Net Amount",
             ]
             _style_headers(ws, headers)
 
-            uf.file.open("rb")
-            raw = uf.file.read().decode("utf-8", errors="replace")
-            BLOCK_RE = re.compile(
-                r'^(?P<entry_type>FISCAL RECEIPT|CREDIT NOTE)\s*\r?\n'
-                r'CU INVOICE NUMBER:\s*(?P<cu_no>\S+)\s*\r?\n'
-                r'(?P<date>\d{2}-\d{2}-\d{4})\s+(?P<time>\d{2}:\d{2}:\d{2})\s*\r?\n'
-                r'TOTAL:\s+(?P<total>[\d\s,]+)\r?\n'
-                r'TAXES:\s+(?P<taxes>[\d\s,]+)',
-                re.MULTILINE | re.IGNORECASE,
-            )
-            total_sum = taxes_sum = 0.0
-            row_count = 0
-            for m in BLOCK_RE.finditer(raw):
-                total = _norm_number(m.group("total"))
-                taxes = _norm_number(m.group("taxes"))
-                net   = round(total - taxes, 2)
+            # Use the shared parser so this works for BOTH the .txt CU periodical
+            # report and the .xls/.xlsx URA sales tables (FDN columns).
+            recs = _parse_fiscal_side(uf)
+            total_sum = vat_sum = 0.0
+            for r in recs:
+                tot = r.get("total") or 0.0
+                vat = r.get("vat") or 0.0
                 ws.append([
-                    m.group("cu_no").strip(),
-                    m.group("date").strip(),
-                    m.group("time").strip(),
-                    total, taxes, net,
-                    m.group("entry_type").strip().title(),
+                    r["fiscal_no"], r.get("name", ""), r.get("date", ""),
+                    tot, vat, round(tot - vat, 2),
                 ])
-                total_sum += total
-                taxes_sum += taxes
-                row_count += 1
+                total_sum += tot
+                vat_sum   += vat
+            row_count = len(recs)
 
             # Totals row
-            ws.append(["TOTAL", "", "", round(total_sum, 2), round(taxes_sum, 2),
-                        round(total_sum - taxes_sum, 2), ""])
+            ws.append(["TOTAL", "", "", round(total_sum, 2), round(vat_sum, 2),
+                        round(total_sum - vat_sum, 2)])
             for cell in ws[ws.max_row]:
                 cell.font = Font(bold=True)
 
