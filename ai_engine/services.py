@@ -284,19 +284,39 @@ def _run_tool_loop(
     max_tok    = MAX_TOKENS()
     max_rounds = MAX_TOOL_ROUNDS()
 
+    # The xAI/OpenAI SDK cannot serialise raw Python functions — `tools` must be
+    # a list of JSON-Schema dicts. Build them from each tool's ToolDefinition
+    # (registered via `register_tools`), keeping a name→callable map for dispatch.
+    from tools.models import ToolDefinition
+    fn_map = {fn.__name__: fn for fn in tools}
+    _schema_by_name = {
+        d.name: d.to_grok_schema()
+        for d in ToolDefinition.objects.filter(name__in=list(fn_map), enabled=True)
+    }
+    tool_schemas = [_schema_by_name[name] for name in fn_map if name in _schema_by_name]
+    missing = [name for name in fn_map if name not in _schema_by_name]
+    if missing:
+        logger.warning(
+            "No enabled ToolDefinition for %s — not offered to the LLM. "
+            "Run `manage.py register_tools`.", missing
+        )
+
     input_tokens = output_tokens = 0
 
     for round_num in range(max_rounds):
         logger.debug("Tool loop round %d/%d", round_num + 1, max_rounds)
 
-        response = client.chat.completions.create(
+        create_kwargs = dict(
             model=model,
             messages=messages,
-            tools=tools,          # ← pass functions directly, not schema dicts
-            tool_choice="auto",
             max_tokens=max_tok,
             temperature=0.2,
         )
+        if tool_schemas:
+            create_kwargs["tools"] = tool_schemas
+            create_kwargs["tool_choice"] = "auto"
+
+        response = client.chat.completions.create(**create_kwargs)
 
         input_tokens  += response.usage.prompt_tokens
         output_tokens += response.usage.completion_tokens
@@ -623,8 +643,21 @@ class AIEngineService:
         if target_file and target_file.extracted_text:
             user_prompt += (
                 f"\n\n[File: {target_file.original_filename} "
-                f"id={target_file.pk}]\n"
+                f"id={target_file.pk} type={target_file.detected_type or target_file.extension}]\n"
                 f"{target_file.extracted_text[:6000]}"
+            )
+        elif batch and files:
+            # Multiple files: give the agent each file_id so it can detect types
+            # and pass the right ids to extractors / reconcile_ura_vs_acon.
+            listing = "\n".join(
+                f"  - file_id={f.pk} '{f.original_filename}' "
+                f"(type={f.detected_type or f.extension})"
+                for f in files
+            )
+            user_prompt += (
+                f"\n\n[Batch id={batch.pk} has {len(files)} files. Call detect_file_type "
+                f"on each, then the matching extractor; for a URA/KRA-vs-ACON request call "
+                f"reconcile_ura_vs_acon with the fiscal file_id and the ACON file_id:\n{listing}]"
             )
         elif batch:
             user_prompt += f"\n\n[Batch id={batch.pk}: {batch.label}]"
