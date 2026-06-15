@@ -166,10 +166,20 @@ class ToolService:
                 kwargs["tools"]       = tool_schemas
                 kwargs["tool_choice"] = "auto"
 
-            response = client.chat.completions.create(**kwargs)
+            try:
+                response = client.chat.completions.create(**kwargs)
+            except Exception as exc:
+                # Log full context for debugging (API errors, HTTP details)
+                logger.exception("Grok API call failed on round %d: %s", round_num + 1, exc)
+                # Surface a readable error to the caller
+                raise RuntimeError(f"Grok API call failed: {exc}") from exc
 
-            input_tokens  += response.usage.prompt_tokens
-            output_tokens += response.usage.completion_tokens
+            # Record token usage if provided
+            try:
+                input_tokens  += response.usage.prompt_tokens
+                output_tokens += response.usage.completion_tokens
+            except Exception:
+                logger.debug("Grok response missing usage fields; skipping token accounting")
 
             choice  = response.choices[0]
             message = choice.message
@@ -284,10 +294,14 @@ class ToolService:
             "role":    "user",
             "content": "Please provide your final answer based on the tool results so far.",
         })
-        final = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=0.2,
-        )
-        return final.choices[0].message.content or "", tool_call_pks
+        try:
+            final = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=0.2,
+            )
+            return final.choices[0].message.content or "", tool_call_pks
+        except Exception as exc:
+            logger.exception("Final Grok summarise call failed after max rounds: %s", exc)
+            raise RuntimeError(f"Grok final call failed: {exc}") from exc
