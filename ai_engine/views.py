@@ -459,3 +459,74 @@ class AIRunAnalysisView(APIView):
             "insights":    insights,
             "tools_used":  tools_used,
         })
+
+
+class AIEngineStatsView(APIView):
+    """
+    GET /api/ai/stats/
+    Live headline stats for the AI Engine page: analyses run today (with the
+    day-over-day delta), insights generated this week, and average job runtime.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from django.utils import timezone
+        from datetime import timedelta
+        from .models import AIAnalysisJob, AIInsight
+
+        now      = timezone.now()
+        today    = now.date()
+        yesterday = today - timedelta(days=1)
+        week_ago = now - timedelta(days=7)
+
+        analyses_today = AIAnalysisJob.objects.filter(created_at__date=today).count()
+        analyses_yest  = AIAnalysisJob.objects.filter(created_at__date=yesterday).count()
+        insights_week  = AIInsight.objects.filter(job__created_at__gte=week_ago).count()
+
+        delta_pct = None
+        if analyses_yest:
+            delta_pct = round((analyses_today - analyses_yest) / analyses_yest * 100)
+
+        done = (
+            AIAnalysisJob.objects
+            .filter(status="done", started_at__isnull=False, finished_at__isnull=False)
+            .order_by("-finished_at")[:200]
+        )
+        durations = [(j.finished_at - j.started_at).total_seconds() for j in done]
+        avg_seconds = round(sum(durations) / len(durations), 1) if durations else 0
+
+        return Response({
+            "analyses_today":           analyses_today,
+            "analyses_today_delta_pct": delta_pct,
+            "insights_this_week":       insights_week,
+            "avg_processing_seconds":   avg_seconds,
+        })
+
+
+class AIRecentInsightsView(APIView):
+    """
+    GET /api/ai/insights/recent/
+    The most recent AI insights across all jobs, shaped for the AI Engine page.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from .models import AIInsight
+
+        # AIInsight has no own timestamp; order by pk and borrow the job's time.
+        rows = (
+            AIInsight.objects
+            .select_related("job")
+            .order_by("-id")[:10]
+        )
+        severity_map = {"critical": "error", "warning": "warning", "info": "success"}
+        insights = [{
+            "id":          ins.id,
+            "title":       ins.title,
+            "description": ins.detail,
+            "severity":    severity_map.get(ins.severity, "warning"),
+            "source":      ins.get_insight_type_display(),
+            "created_at":  ins.job.created_at.isoformat() if ins.job and ins.job.created_at else None,
+        } for ins in rows]
+
+        return Response({"insights": insights})
