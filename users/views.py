@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 
 from .models import User
 from .serializers import (
@@ -90,10 +91,16 @@ class RefreshTokenView(APIView):
             data={"refresh": refresh_token}
         )
 
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except (TokenError, InvalidToken,User.DoesNotExist) as e:
+            return Response(
+                {"detail": "Invalid refresh token"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
         access = serializer.validated_data["access"]
-
+        
         response = Response({
             "token": access,
         })
@@ -104,7 +111,7 @@ class RefreshTokenView(APIView):
                 key="refresh_token",
                 value=serializer.validated_data["refresh"],
                 httponly=True,
-                secure=True,  # True in production
+                secure=not settings.DEBUG,  # True in production
                 samesite="Lax",
                 max_age=7 * 24 * 60 * 60,
             )

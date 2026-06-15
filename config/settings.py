@@ -246,6 +246,30 @@ XAI_API_KEY  = os.environ.get('XAI_API_KEY', os.environ.get('GROK_API_KEY', ''))
 GROK_API_KEY = XAI_API_KEY   # alias kept for backwards compatibility
 GROK_API_URL = os.environ.get('GROK_API_URL', 'https://api.x.ai/v1')
 
+# ── Upload limits / handlers ─────────────────────────────────────────────────
+# Allow large file uploads (PDFs with many pages). Controlled via env var
+# `MAX_UPLOAD_SIZE_MB` (default 200MB). We use TemporaryFileUploadHandler so
+# files stream to disk instead of being buffered fully in memory.
+MAX_UPLOAD_SIZE_MB = int(os.environ.get('MAX_UPLOAD_SIZE_MB', '200'))
+MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+# Django settings that control memory buffering of request and file uploads
+# `DATA_UPLOAD_MAX_MEMORY_SIZE` limits the combined size of request body in RAM.
+# `FILE_UPLOAD_MAX_MEMORY_SIZE` limits the size of an individual upload buffered
+# in memory before being streamed to disk. We set both to the same env-driven
+# value so large uploads are handled by TemporaryFileUploadHandler.
+DATA_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE_BYTES
+FILE_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE_BYTES
+
+# Force Django to use disk-backed upload handler to avoid OOM on large files
+FILE_UPLOAD_HANDLERS = [
+    'django.core.files.uploadhandler.TemporaryFileUploadHandler',
+]
+
+# Optional: directory for temporary uploads (let Django default if unset)
+FILE_UPLOAD_TEMP_DIR = os.environ.get('FILE_UPLOAD_TEMP_DIR', '')
+
+
 # ── Django Channels ───────────────────────────────────────────────────────────
 # Uses Redis as the channel layer backend.
 # Falls back to in-memory layer when REDIS_URL is not set (dev/testing only —
