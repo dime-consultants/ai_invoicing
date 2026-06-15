@@ -1,10 +1,9 @@
 # uploads/views.py
 import mimetypes
-import os
 
 from django.http import FileResponse
 from rest_framework import generics, permissions, status
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -15,6 +14,7 @@ from .serializers import (
     UploadedFileSerializer,
     FileUploadSerializer,
 )
+from .services import UploadService
 
 
 # ── Permissions ───────────────────────────────────────────────────────────────
@@ -26,6 +26,16 @@ class CanUpload(permissions.BasePermission):
             request.user.is_authenticated
             and getattr(request.user, "role", None) in ("admin", "finance")
         )
+
+
+def _user_owns_or_is_admin(request, uploaded_file: UploadedFile) -> bool:
+    """
+    Return True if the requesting user owns the file's batch or has the
+    admin role. Avoids referencing a non-existent `is_admin` attribute.
+    """
+    if uploaded_file.batch.uploaded_by == request.user:
+        return True
+    return getattr(request.user, "role", None) == "admin"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -50,10 +60,10 @@ class UploadBatchListCreateView(generics.ListCreateAPIView):
     def create(self, request, *args, **kwargs):
         label       = (request.data.get("label") or "Untitled Batch").strip()
         description = request.data.get("description", "")
-        batch = UploadBatch.objects.create(
+        batch = UploadService.create_batch(
             label=label,
             description=description,
-            uploaded_by=request.user,
+            user=request.user,
         )
         return Response(UploadBatchSerializer(batch).data, status=status.HTTP_201_CREATED)
 
@@ -71,7 +81,7 @@ class UploadBatchDetailView(generics.RetrieveDestroyAPIView):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Files — contract-compatible endpoints
+# Files
 # ─────────────────────────────────────────────────────────────────────────────
 
 class FileListView(generics.ListAPIView):
@@ -79,8 +89,7 @@ class FileListView(generics.ListAPIView):
     GET /api/files/
     List uploaded files with pagination and optional filters.
 
-    Query params:
-        page, limit, type, search
+    Query params: page, limit, type, search
     """
     permission_classes = [permissions.IsAuthenticated]
     serializer_class   = UploadedFileSerializer
@@ -122,7 +131,9 @@ class FileListView(generics.ListAPIView):
 class FileUploadView(APIView):
     """
     POST /api/files/upload
-    Upload a single file. Creates a new batch automatically.
+    Upload a single file. Creates a new batch automatically and runs text
+    extraction via UploadService so the file is immediately ready for the
+    tool handlers.
     """
     permission_classes = [CanUpload]
     parser_classes     = [MultiPartParser, FormParser]
@@ -131,38 +142,30 @@ class FileUploadView(APIView):
         serializer = FileUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        uploaded = serializer.validated_data["file"]
+        uploaded  = serializer.validated_data["file"]
         file_type = serializer.validated_data.get("type", "")
 
-        ext      = uploaded.name.rsplit(".", 1)[-1].lower() if "." in uploaded.name else ""
-        mime, _  = mimetypes.guess_type(uploaded.name)
-        mime     = mime or "application/octet-stream"
-
-        # Auto-create a batch for this single upload
-        batch = UploadBatch.objects.create(
+        # Create a batch then ingest — this populates extracted_text,
+        # sets parse_status correctly, and refreshes all batch counters.
+        batch = UploadService.create_batch(
             label=uploaded.name,
-            uploaded_by=request.user,
+            user=request.user,
         )
+        uf = UploadService.ingest_file(batch, uploaded)
 
-        uf = UploadedFile.objects.create(
-            batch=batch,
-            file=uploaded,
-            original_filename=uploaded.name,
-            file_size_bytes=uploaded.size,
-            mime_type=mime,
-            extension=ext,
-            detected_type=file_type,
-        )
-
-        # Update batch counter
-        batch.file_count = 1
-        batch.save(update_fields=["file_count"])
+        # Allow the caller to hint at the document type (e.g. from the UI
+        # file-type picker). Only write it if it's non-empty; the tool handler
+        # detect_file_type will overwrite it with a more accurate value.
+        if file_type and not uf.detected_type:
+            uf.detected_type = file_type
+            uf.save(update_fields=["detected_type"])
 
         return Response({
             "id":         uf.pk,
             "name":       uf.original_filename,
             "type":       uf.mime_type,
             "size":       uf.file_size_bytes,
+            "status":     uf.parse_status,
             "uploadedAt": uf.uploaded_at,
         }, status=status.HTTP_200_OK)
 
@@ -178,16 +181,22 @@ class FileDownloadView(APIView):
         try:
             uf = UploadedFile.objects.select_related("batch").get(pk=pk)
         except UploadedFile.DoesNotExist:
-            return Response({"error": {"code": "not_found", "message": "File not found.", "details": None}},
-                            status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": {"code": "not_found", "message": "File not found.", "details": None}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
-        if uf.batch.uploaded_by != request.user and not request.user.is_admin:
-            return Response({"error": {"code": "forbidden", "message": "Access denied.", "details": None}},
-                            status=status.HTTP_403_FORBIDDEN)
+        if not _user_owns_or_is_admin(request, uf):
+            return Response(
+                {"error": {"code": "forbidden", "message": "Access denied.", "details": None}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         if not uf.file:
-            return Response({"error": {"code": "not_found", "message": "File not available.", "details": None}},
-                            status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": {"code": "not_found", "message": "File not available.", "details": None}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         response = FileResponse(
             uf.file.open("rb"),
@@ -209,20 +218,29 @@ class FileDeleteView(APIView):
         try:
             uf = UploadedFile.objects.select_related("batch").get(pk=pk)
         except UploadedFile.DoesNotExist:
-            return Response({"error": {"code": "not_found", "message": "File not found.", "details": None}},
-                            status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": {"code": "not_found", "message": "File not found.", "details": None}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
-        if uf.batch.uploaded_by != request.user and not request.user.is_admin:
-            return Response({"error": {"code": "forbidden", "message": "Access denied.", "details": None}},
-                            status=status.HTTP_403_FORBIDDEN)
+        if not _user_owns_or_is_admin(request, uf):
+            return Response(
+                {"error": {"code": "forbidden", "message": "Access denied.", "details": None}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
-        # Delete the physical file
         if uf.file:
             try:
-                storage = uf.file.storage
-                storage.delete(uf.file.name)
+                uf.file.storage.delete(uf.file.name)
             except Exception:
                 pass
 
         uf.delete()
+
+        # Refresh batch counters now that a file has been removed
+        try:
+            UploadService._refresh_batch_counters(uf.batch)
+        except Exception:
+            pass
+
         return Response(status=status.HTTP_204_NO_CONTENT)

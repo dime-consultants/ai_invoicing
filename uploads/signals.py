@@ -2,6 +2,12 @@
 """
 Django signals for the uploads app.
 Fires WebSocket notifications when a file's parse status changes.
+
+Import note
+-----------
+chat.notify is imported INSIDE the receiver body (not at module level) to
+avoid the circular import:  chat.services → uploads.models → uploads.signals
+→ chat.notify → (chat module) → chat.services
 """
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -16,8 +22,8 @@ def on_file_saved(sender, instance, created, **kwargs):
     if created:
         return
 
-    status = instance.parse_status
-    if status not in ("parsed", "parse_error"):
+    file_status = instance.parse_status
+    if file_status not in ("parsed", "parse_error"):
         return
 
     user = getattr(instance.batch, "uploaded_by", None)
@@ -25,9 +31,10 @@ def on_file_saved(sender, instance, created, **kwargs):
         return
 
     try:
+        # Lazy import breaks the chat → uploads → chat circular dependency.
         from chat.notify import notify_user, notify_file_processed
 
-        ws_status = "parsed" if status == "parsed" else "error"
+        ws_status = "parsed" if file_status == "parsed" else "error"
         notify_file_processed(
             user.pk,
             file_id=instance.pk,
@@ -35,10 +42,10 @@ def on_file_saved(sender, instance, created, **kwargs):
             status=ws_status,
         )
 
-        title   = "File processed" if status == "parsed" else "File processing failed"
+        title   = "File processed" if file_status == "parsed" else "File processing failed"
         message = (
             f"'{instance.original_filename}' was parsed successfully."
-            if status == "parsed"
+            if file_status == "parsed"
             else f"'{instance.original_filename}' could not be parsed: {instance.parse_error[:120]}"
         )
         notify_user(user.pk, title=title, message=message)

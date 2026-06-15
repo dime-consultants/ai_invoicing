@@ -1,13 +1,23 @@
 # chat/views.py
+import base64
+import csv
+import json
 import logging
+from io import BytesIO, StringIO
+from pathlib import Path
+
+import openpyxl
+from openpyxl.styles import Font, PatternFill
 
 from django.core.files.base import ContentFile
 from django.http import FileResponse
 from django.utils import timezone
 from django.views.generic import TemplateView
+
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -21,10 +31,96 @@ from .serializers import (
     WorkflowSerializer,
 )
 from .services import ChatService
-import base64
 
 logger = logging.getLogger(__name__)
 
+MIME_MAP = {
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pdf":  "application/pdf",
+    "csv":  "text/csv",
+    "txt":  "text/plain",
+    "json": "application/json",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _parse_workflow_id(raw):
+    """
+    Return (workflow_id_int, workflow_option) from a raw workflow_id value.
+    workflow_option is set when the value starts with 'full_' (e.g. 'full_pipeline').
+    """
+    if not raw:
+        return None, None
+    raw = str(raw)
+    if raw.startswith("full_"):
+        return None, raw
+    try:
+        return int(raw), None
+    except (TypeError, ValueError):
+        return None, None
+
+
+def _save_output_attachments(output_files, assistant_msg):
+    """
+    Persist tool-produced output files as ChatMessageAttachment records.
+    Returns the list of saved attachment instances.
+    """
+    saved = []
+    for out in output_files:
+        buf = out["content"]
+        # Always rewind — ToolService leaves the cursor at the end
+        if hasattr(buf, "seek"):
+            buf.seek(0)
+        file_content = buf.read()
+        if not file_content:
+            logger.warning("Output file %s is empty — skipping.", out["filename"])
+            continue
+
+        ext = out["filename"].rsplit(".", 1)[-1].lower() if "." in out["filename"] else "bin"
+        att = ChatMessageAttachment(
+            message=assistant_msg,
+            filename=out["filename"],
+            file_type=ext,
+            attachment_type="assistant_output",
+            file_size_bytes=len(file_content),
+        )
+        att.file.save(out["filename"], ContentFile(file_content), save=True)
+        saved.append(att)
+    return saved
+
+
+def _build_conv_history(conversation, exclude_pk):
+    """Return the last 20 turns of a conversation as a list of role/content dicts."""
+    rows = (
+        ChatMessage.objects
+        .filter(conversation=conversation)
+        .exclude(pk=exclude_pk)
+        .order_by("created_at")
+        .values("role", "content")
+    )[-20:]
+    return [{"role": m["role"], "content": m["content"]} for m in rows]
+
+
+def _auto_title(conversation, user_input):
+    """Generate and save a conversation title if it is still the default."""
+    if conversation.title not in ("Untitled Conversation", ""):
+        conversation.updated_at = timezone.now()
+        conversation.save(update_fields=["updated_at"])
+        return
+
+    from .title_generator import generate_title_from_user_input
+    conversation.title = generate_title_from_user_input(user_input) or user_input[:50]
+    conversation.updated_at = timezone.now()
+    conversation.save(update_fields=["title", "updated_at"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UI entry point
+# ─────────────────────────────────────────────────────────────────────────────
 
 class ChatInterfaceView(TemplateView):
     """Serve the invoice processing chat UI."""
@@ -37,8 +133,8 @@ class ChatInterfaceView(TemplateView):
 
 class ChatConversationListCreateView(generics.ListCreateAPIView):
     """
-    GET  /api/chat/conversations/   — list user's conversations (no messages)
-    POST /api/chat/conversations/   — create a new conversation
+    GET  /api/chat/conversations/  — list user's conversations (no messages)
+    POST /api/chat/conversations/  — create a new conversation
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -46,22 +142,18 @@ class ChatConversationListCreateView(generics.ListCreateAPIView):
         return ChatConversationListSerializer if self.request.method == "GET" else ChatConversationSerializer
 
     def get_queryset(self):
-        return ChatConversation.objects.filter(
-            user=self.request.user
-        ).order_by("-updated_at")
+        return ChatConversation.objects.filter(user=self.request.user).order_by("-updated_at")
 
     def create(self, request, *args, **kwargs):
-        # Handle both dict and string request.data
-        if isinstance(request.data, dict):
-            title = (request.data.get("title") or "Untitled Conversation").strip()
+        data = request.data
+        if isinstance(data, dict):
+            title = (data.get("title") or "").strip()
+        elif isinstance(data, str):
+            title = data.strip()
         else:
-            # If request.data is a string, use it as the title
-            title = (request.data or "Untitled Conversation").strip() if isinstance(request.data, str) else "Untitled Conversation"
-        
-        # Ensure title is not empty
-        if not title or title == "":
-            title = "Untitled Conversation"
-        
+            title = ""
+        title = title or "Untitled Conversation"
+
         conv = ChatConversation.objects.create(user=request.user, title=title)
         return Response(ChatConversationSerializer(conv).data, status=status.HTTP_201_CREATED)
 
@@ -69,7 +161,7 @@ class ChatConversationListCreateView(generics.ListCreateAPIView):
 class ChatConversationDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     GET    /api/chat/conversations/<id>/
-    PATCH  /api/chat/conversations/<id>/   — title / is_active only
+    PATCH  /api/chat/conversations/<id>/  — title / is_active only
     DELETE /api/chat/conversations/<id>/
     """
     permission_classes = [permissions.IsAuthenticated]
@@ -80,55 +172,51 @@ class ChatConversationDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def update(self, request, *args, **kwargs):
         allowed = {"title", "is_active"}
-        # `request.data` can be a dict or a raw string (some clients send
-        # plain string bodies). Handle both cases gracefully — if it's a
-        # string, treat it as a title update.
-        if isinstance(request.data, dict):
-            data = {k: v for k, v in request.data.items() if k in allowed}
-        elif isinstance(request.data, str):
-            title = request.data.strip()
-            data = {"title": title} if title else {}
+        data = request.data
+        if isinstance(data, dict):
+            updates = {k: v for k, v in data.items() if k in allowed}
+        elif isinstance(data, str):
+            updates = {"title": data.strip()} if data.strip() else {}
         else:
-            data = {}
+            updates = {}
+
         instance = self.get_object()
-        for field, value in data.items():
+        for field, value in updates.items():
             setattr(instance, field, value)
-        instance.save(update_fields=list(data.keys()) + ["updated_at"])
+        if updates:
+            instance.save(update_fields=list(updates.keys()) + ["updated_at"])
         return Response(ChatConversationSerializer(instance).data)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Send message
+# Send message  (primary chat endpoint)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class ChatMessageSendView(APIView):
     """
     POST /api/chat/conversations/<conversation_id>/send/
 
-    Accepts multipart/form-data:
-        message         str       required
-        files           file[]    optional  — any number of attachments
-        workflow_id     int|string optional
+    multipart/form-data:
+        message      str       — required (or at least one file)
+        files        file[]    — optional attachments
+        workflow_id  int|str   — optional workflow selector
 
     Returns:
         user_message        saved user ChatMessage
-        assistant_message   saved assistant ChatMessage (with output attachments)
-        user_attachments    list of uploaded file attachment records
-        output_attachments  list of AI-generated file attachment records (downloadable)
+        assistant_message   saved assistant ChatMessage
+        user_attachments    uploaded file attachment records
+        output_attachments  AI-generated output file records (downloadable)
     """
     authentication_classes = [SessionAuthentication, JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, conversation_id):
-        # ── Validate conversation ownership ───────────────────────────────────
         try:
-            conversation = ChatConversation.objects.get(
-                pk=conversation_id, user=request.user
-            )
+            conversation = ChatConversation.objects.get(pk=conversation_id, user=request.user)
         except ChatConversation.DoesNotExist:
             return Response({"error": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        user_input = (request.data.get("message") or "").strip()
+        user_input     = (request.data.get("message") or "").strip()
         uploaded_files = request.FILES.getlist("files")
 
         if not user_input and not uploaded_files:
@@ -136,18 +224,19 @@ class ChatMessageSendView(APIView):
                 {"error": "Provide a message or at least one file."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        if not user_input and uploaded_files:
+        if not user_input:
             user_input = "Please extract all data from the attached file and create an Excel file."
 
-        # ── Save user message ─────────────────────────────────────────────────
+        # ── Persist user message ──────────────────────────────────────────────
         user_msg = ChatMessage.objects.create(
             conversation=conversation,
             role="user",
             content=user_input,
         )
 
-        # ── Save uploaded file attachments ────────────────────────────────────
+        # ── Persist uploaded files as ChatMessageAttachments ──────────────────
+        # Raw attachment records — ChatService.get_response() will push them
+        # through UploadService to get UploadedFile records with extracted_text.
         user_attachments = []
         for f in uploaded_files:
             ext = f.name.rsplit(".", 1)[-1].lower() if "." in f.name else "other"
@@ -161,33 +250,16 @@ class ChatMessageSendView(APIView):
             )
             user_attachments.append(att)
 
-        # ── Build conversation history for multi-turn context ─────────────────
-        history = list(
-            ChatMessage.objects.filter(conversation=conversation)
-            .exclude(pk=user_msg.pk)
-            .order_by("created_at")
-            .values("role", "content")
-        )[-20:]   # last 20 turns — keeps token usage bounded
-        conv_history = [{"role": m["role"], "content": m["content"]} for m in history]
-
-        # ── Get AI response ───────────────────────────────────────────────────
-        workflow_id = request.data.get("workflow_id")
-        workflow_option = workflow_id if workflow_id and str(workflow_id).startswith("full_") else None
-        workflow_id_int = None
-        if workflow_id and not workflow_option:
-            try:
-                workflow_id_int = int(workflow_id)
-            except (TypeError, ValueError):
-                workflow_id_int = None
+        workflow_id_int, workflow_option = _parse_workflow_id(request.data.get("workflow_id"))
 
         try:
             response_text, output_files = ChatService.get_response(
                 message=user_input,
                 user=request.user,
-                file_attachments=user_attachments if user_attachments else None,
+                file_attachments=user_attachments or None,
                 workflow_id=workflow_id_int,
                 workflow_option=workflow_option,
-                conversation_history=conv_history,
+                conversation_history=_build_conv_history(conversation, user_msg.pk),
             )
         except Exception as exc:
             logger.exception("ChatService.get_response failed: %s", exc)
@@ -196,9 +268,9 @@ class ChatMessageSendView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        # ── Save assistant message ────────────────────────────────────────────
+        # ── Persist assistant message ─────────────────────────────────────────
         applied_workflow = None
-        if workflow_id and not workflow_option:
+        if workflow_id_int:
             try:
                 applied_workflow = Workflow.objects.get(pk=workflow_id_int)
             except Workflow.DoesNotExist:
@@ -211,38 +283,15 @@ class ChatMessageSendView(APIView):
             applied_workflow=applied_workflow,
         )
 
-        # ── Save AI-generated output files as attachments ─────────────────────
-        output_attachments = []
-        for out in output_files:
-            file_content = out["content"].read()
-            att = ChatMessageAttachment(
-                message=assistant_msg,
-                filename=out["filename"],
-                file_type=out["filename"].rsplit(".", 1)[-1].lower(),
-                attachment_type="assistant_output",
-                file_size_bytes=len(file_content),
-            )
-            att.file.save(out["filename"], ContentFile(file_content), save=True)
-            output_attachments.append(att)
-
-        # ── Auto-title conversation ───────────────────────────────────────────
-        if conversation.title in ("Untitled Conversation", ""):
-            from .title_generator import generate_title_from_user_input
-            # Try to generate an AI title, fall back to truncated input if it fails
-            generated_title = generate_title_from_user_input(user_input)
-            conversation.title = generated_title or user_input[:50]
-            conversation.updated_at = timezone.now()
-            conversation.save(update_fields=["title", "updated_at"])
-        else:
-            conversation.updated_at = timezone.now()
-            conversation.save(update_fields=["updated_at"])
+        output_attachments = _save_output_attachments(output_files, assistant_msg)
+        _auto_title(conversation, user_input)
 
         ctx = {"request": request}
         return Response(
             {
-                "user_message":      ChatMessageSerializer(user_msg, context=ctx).data,
-                "assistant_message": ChatMessageSerializer(assistant_msg, context=ctx).data,
-                "user_attachments":  ChatMessageAttachmentSerializer(user_attachments, many=True, context=ctx).data,
+                "user_message":       ChatMessageSerializer(user_msg, context=ctx).data,
+                "assistant_message":  ChatMessageSerializer(assistant_msg, context=ctx).data,
+                "user_attachments":   ChatMessageAttachmentSerializer(user_attachments, many=True, context=ctx).data,
                 "output_attachments": ChatMessageAttachmentSerializer(output_attachments, many=True, context=ctx).data,
             },
             status=status.HTTP_201_CREATED,
@@ -281,9 +330,7 @@ class ChatMessageListView(generics.ListAPIView):
 class ChatAttachmentDownloadView(APIView):
     """
     GET /api/chat/attachments/<id>/download/
-
-    Streams the file to the client.
-    Works for both user-uploaded files and AI-generated output files.
+    Streams the file — works for user uploads and AI-generated output files.
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -301,14 +348,7 @@ class ChatAttachmentDownloadView(APIView):
         if not att.file:
             return Response({"error": "File not available."}, status=status.HTTP_404_NOT_FOUND)
 
-        content_types = {
-            "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "pdf":  "application/pdf",
-            "csv":  "text/csv",
-            "txt":  "text/plain",
-        }
-        ct = content_types.get(att.file_type, "application/octet-stream")
-
+        ct = MIME_MAP.get(att.file_type, "application/octet-stream")
         response = FileResponse(att.file.open("rb"), content_type=ct, as_attachment=True)
         response["Content-Disposition"] = f'attachment; filename="{att.filename}"'
         return response
@@ -341,104 +381,89 @@ class WorkflowViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Contract: POST /api/chat/message/  — stateless single-turn endpoint
+# Stateless single-turn endpoint
 # ─────────────────────────────────────────────────────────────────────────────
 
 class ChatSimpleMessageView(APIView):
     """
     POST /api/chat/message/
 
-    Stateless single-turn message matching the frontend API contract.
-    Accepts JSON body:
+    Stateless single-turn message. Files are ingested through UploadService
+    (same path as the conversation endpoint) so tool handlers can reference
+    them by file_id. The response includes a download URL for any output file.
+
+    JSON body:
         {
             "message": "string",
             "conversation_history": [...],
-            "file_metadata": [{"name", "size", "type", "content"}]
         }
+
+    multipart/form-data (alternative):
+        message   str
+        files     file[]
 
     Returns:
         { "response": "string", "processed_data": {...} | null }
     """
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        message = (request.data.get("message") or "").strip()
-        history = request.data.get("conversation_history") or []
-        file_metadata = request.data.get("file_metadata") or []
+        message  = (request.data.get("message") or "").strip()
+        history  = request.data.get("conversation_history") or []
 
-        # If the request is multipart/form-data with uploaded files, convert
-        # those files into `file_metadata` entries so the stateless endpoint
-        # can process them the same way as the conversation endpoint.
-        if request.FILES:
-            fm_from_files = []
-            for key in request.FILES:
-                for uploaded in request.FILES.getlist(key):
-                    try:
-                        uploaded.seek(0)
-                    except Exception:
-                        pass
-                    try:
-                        raw = uploaded.read()
-                    except Exception:
-                        raw = None
+        # Normalise history if it arrived as a JSON string (multipart sends strings)
+        if isinstance(history, str):
+            try:
+                history = json.loads(history)
+            except Exception:
+                history = []
 
-                    content_str = ""
-                    if raw:
-                        # Try UTF-8 decode for text-based files, otherwise use base64
-                        try:
-                            content_str = raw.decode("utf-8")
-                        except Exception:
-                            content_str = base64.b64encode(raw).decode("ascii")
+        uploaded_files = request.FILES.getlist("files") or []
 
-                    fm_from_files.append({
-                        "name": getattr(uploaded, "name", "file"),
-                        "size": getattr(uploaded, "size", len(raw) if raw else 0),
-                        "type": getattr(uploaded, "content_type", "application/octet-stream"),
-                        "content": content_str,
-                    })
-
-            # merge: if existing file_metadata provided in JSON, append file uploads
-            if file_metadata:
-                try:
-                    # file_metadata might be a JSON string when parsed from form-data
-                    if isinstance(file_metadata, str):
-                        import json
-
-                        file_metadata = json.loads(file_metadata)
-                except Exception:
-                    pass
-                if isinstance(file_metadata, list):
-                    file_metadata = file_metadata + fm_from_files
-                else:
-                    file_metadata = fm_from_files
-            else:
-                file_metadata = fm_from_files
-
-        if not message and not file_metadata:
+        if not message and not uploaded_files:
             return Response(
-                {"error": {"code": "bad_request", "message": "Provide a message or file_metadata.", "details": None}},
+                {"error": {"code": "bad_request", "message": "Provide a message or files.", "details": None}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        if not message and file_metadata:
+        if not message:
             message = "Please extract all data from the attached file and create an Excel file."
 
-        # Build enriched message with file content snippets
-        enriched = message
-        if file_metadata:
-            sections = []
-            for fm in file_metadata:
-                name    = fm.get("name", "file")
-                content = fm.get("content", "")
-                if content:
-                    sections.append(f"[FILE: {name}]\n{content[:5000]}")
-            if sections:
-                enriched = message + "\n\n=== ATTACHED FILE CONTENT ===\n" + "\n\n---\n\n".join(sections)
+        # ── Ingest files through UploadService ────────────────────────────────
+        # Create temporary ChatMessageAttachment records so ChatService can
+        # push them through _ingest_attachments_to_upload_batch, giving every
+        # file a proper UploadedFile record with extracted_text and file_id.
+        temp_attachments = []
+        if uploaded_files:
+            # We need a throwaway ChatMessage to attach to; use a sentinel
+            # conversation owned by this user (or create one on the fly).
+            temp_conv, _ = ChatConversation.objects.get_or_create(
+                user=request.user,
+                title="__stateless__",
+                defaults={"is_active": False},
+            )
+            temp_msg = ChatMessage.objects.create(
+                conversation=temp_conv,
+                role="user",
+                content=message,
+            )
+            for f in uploaded_files:
+                ext = f.name.rsplit(".", 1)[-1].lower() if "." in f.name else "other"
+                att = ChatMessageAttachment.objects.create(
+                    message=temp_msg,
+                    file=f,
+                    filename=f.name,
+                    file_type=ext,
+                    attachment_type="user_upload",
+                    file_size_bytes=f.size,
+                )
+                temp_attachments.append(att)
 
         try:
             response_text, output_files = ChatService.get_response(
-                message=enriched,
+                message=message,
                 user=request.user,
+                file_attachments=temp_attachments or None,
                 conversation_history=history,
             )
         except Exception as exc:
@@ -451,39 +476,45 @@ class ChatSimpleMessageView(APIView):
         processed_data = None
         if output_files:
             first = output_files[0]
+            buf = first["content"]
+            if hasattr(buf, "seek"):
+                buf.seek(0)
+            ext = first["filename"].rsplit(".", 1)[-1] if "." in first["filename"] else "xlsx"
             processed_data = {
-                "format":   first["filename"].rsplit(".", 1)[-1] if "." in first["filename"] else "xlsx",
+                "format":   ext,
                 "filename": first["filename"],
-                "data":     [],
+                "content":  base64.b64encode(buf.read()).decode("utf-8"),
             }
 
-        return Response({
-            "response":       response_text,
-            "processed_data": processed_data,
-        })
+        return Response({"response": response_text, "processed_data": processed_data})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Contract: GET /api/chat/history
+# Chat history
 # ─────────────────────────────────────────────────────────────────────────────
 
 class ChatHistoryView(APIView):
     """
     GET /api/chat/history?conversationId=<id>&limit=50
-
-    Returns messages for a conversation (or the most recent conversation).
+    Returns messages for a conversation (or the most recent one).
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         conversation_id = request.query_params.get("conversationId")
-        limit = int(request.query_params.get("limit", 50))
+        limit = min(int(request.query_params.get("limit", 50)), 200)
 
         try:
             if conversation_id:
                 conv = ChatConversation.objects.get(pk=conversation_id, user=request.user)
             else:
-                conv = ChatConversation.objects.filter(user=request.user).order_by("-updated_at").first()
+                conv = (
+                    ChatConversation.objects
+                    .filter(user=request.user)
+                    .exclude(title="__stateless__")
+                    .order_by("-updated_at")
+                    .first()
+                )
                 if not conv:
                     return Response({"messages": []})
         except ChatConversation.DoesNotExist:
@@ -499,35 +530,29 @@ class ChatHistoryView(APIView):
         )[:limit]
 
         ctx = {"request": request}
-        return Response({
-            "messages": ChatMessageSerializer(messages, many=True, context=ctx).data
-        })
+        return Response({"messages": ChatMessageSerializer(messages, many=True, context=ctx).data})
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Contract: POST /api/chat/process-file/
+# Process file  — ingest + tool extraction, return base64 result
 # ─────────────────────────────────────────────────────────────────────────────
 
 class ChatProcessFileView(APIView):
     """
     POST /api/chat/process-file/
-    Process an uploaded file and return structured data.
+
+    Ingests a file through UploadService then runs ChatService so the tool
+    handlers perform the actual extraction. Returns the output file as base64.
 
     multipart/form-data:
-        file          File object
-        action        convert | analyze | validate | clean
-        output_format csv | json | xlsx | pdf | txt
+        file          File object  (required)
+        action        convert | analyze | validate | clean  (ignored for now — tool decides)
+        output_format xlsx | csv | json | txt
     """
     permission_classes = [permissions.IsAuthenticated]
-
-    from rest_framework.parsers import MultiPartParser, FormParser
-    parser_classes = [MultiPartParser, FormParser]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        import base64, csv, json as _json
-        from io import BytesIO, StringIO
-        from pathlib import Path
-
         uploaded = request.FILES.get("file")
         if not uploaded:
             return Response(
@@ -535,74 +560,57 @@ class ChatProcessFileView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        action        = request.data.get("action", "convert")
-        output_format = request.data.get("output_format", "xlsx").lower()
-        filename      = uploaded.name
-        ext           = Path(filename).suffix.lstrip(".").lower()
+        output_format = (request.data.get("output_format") or "xlsx").lower()
 
-        warnings  = []
-        errors    = 0
-        rows_processed = 0
-        content   = b""
-        out_filename = Path(filename).stem + f"_processed.{output_format}"
+        # Ingest through UploadService via a temporary conversation + message
+        from uploads.services import UploadService
+
+        temp_conv, _ = ChatConversation.objects.get_or_create(
+            user=request.user,
+            title="__stateless__",
+            defaults={"is_active": False},
+        )
+        temp_msg = ChatMessage.objects.create(
+            conversation=temp_conv, role="user",
+            content=f"Extract data from {uploaded.name}",
+        )
+        ext = uploaded.name.rsplit(".", 1)[-1].lower() if "." in uploaded.name else "other"
+        att = ChatMessageAttachment.objects.create(
+            message=temp_msg,
+            file=uploaded,
+            filename=uploaded.name,
+            file_type=ext,
+            attachment_type="user_upload",
+            file_size_bytes=uploaded.size,
+        )
+
+        warnings = []
+        errors = 0
+        content = b""
+        out_filename = Path(uploaded.name).stem + f"_processed.{output_format}"
 
         try:
-            from uploads.services import UploadService
-            from uploads.models import UploadBatch
-
-            # Ingest into a temporary batch for text extraction
-            batch = UploadBatch.objects.create(
-                label=f"process-file-{filename}",
-                uploaded_by=request.user,
+            response_text, output_files = ChatService.get_response(
+                message=f"Extract all data from {uploaded.name} and return it as {output_format}.",
+                user=request.user,
+                file_attachments=[att],
             )
-            record = UploadService.ingest_file(batch, uploaded)
-            extracted_text = record.extracted_text or ""
-            rows_processed = extracted_text.count("\n") + 1 if extracted_text else 0
 
-            if output_format == "xlsx":
-                import openpyxl
-                wb = openpyxl.Workbook()
-                ws = wb.active
-                ws.title = "Data"
-                lines = [l for l in extracted_text.splitlines() if l.strip()]
-                for i, line in enumerate(lines):
-                    ws.cell(row=i + 1, column=1, value=line)
-                buf = BytesIO()
-                wb.save(buf)
-                content = buf.getvalue()
-
-            elif output_format == "csv":
-                lines = [l for l in extracted_text.splitlines() if l.strip()]
-                buf = StringIO()
-                writer = csv.writer(buf)
-                for line in lines:
-                    writer.writerow([line])
-                content = buf.getvalue().encode("utf-8")
-
-            elif output_format == "json":
-                lines = [l for l in extracted_text.splitlines() if l.strip()]
-                content = _json.dumps({"rows": lines}, indent=2).encode("utf-8")
-
-            elif output_format == "txt":
-                content = extracted_text.encode("utf-8")
-
+            if output_files:
+                buf = output_files[0]["content"]
+                if hasattr(buf, "seek"):
+                    buf.seek(0)
+                content = buf.read()
+                out_filename = output_files[0]["filename"]
             else:
-                content = extracted_text.encode("utf-8")
-                warnings.append(f"Unsupported output_format '{output_format}', returned as txt.")
+                warnings.append("No output file was produced by the extraction tools.")
 
         except Exception as exc:
             logger.exception("ChatProcessFileView failed: %s", exc)
             errors += 1
             warnings.append(str(exc))
-            content = b""
 
-        mime_map = {
-            "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "csv":  "text/csv",
-            "json": "application/json",
-            "txt":  "text/plain",
-            "pdf":  "application/pdf",
-        }
+        rows_processed = content.count(b"\n") + 1 if content else 0
 
         return Response({
             "status": "success" if not errors else "error",
@@ -621,31 +629,23 @@ class ChatProcessFileView(APIView):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Contract: POST /api/chat/convert-format/
+# Convert format  — ingest + tool extraction to a specific target format
 # ─────────────────────────────────────────────────────────────────────────────
 
 class ChatConvertFormatView(APIView):
     """
     POST /api/chat/convert-format/
-    Convert a file between formats.
 
     multipart/form-data:
-        file         File object
-        from_format  txt | csv | json | xlsx | xls | pdf | docx
-        to_format    txt | csv | json | xlsx | pdf | docx
+        file        File object  (required)
+        to_format   xlsx | csv | json | txt
     """
     permission_classes = [permissions.IsAuthenticated]
-
-    from rest_framework.parsers import MultiPartParser, FormParser
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        import base64, csv, json as _json
-        from io import BytesIO, StringIO
-        from pathlib import Path
-
-        uploaded    = request.FILES.get("file")
-        to_format   = (request.data.get("to_format") or "xlsx").lower()
+        uploaded  = request.FILES.get("file")
+        to_format = (request.data.get("to_format") or "xlsx").lower()
 
         if not uploaded:
             return Response(
@@ -653,61 +653,45 @@ class ChatConvertFormatView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        filename    = uploaded.name
-        out_name    = Path(filename).stem + f".{to_format}"
-        content     = b""
+        out_name = Path(uploaded.name).stem + f".{to_format}"
 
-        mime_map = {
-            "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "csv":  "text/csv",
-            "json": "application/json",
-            "txt":  "text/plain",
-            "pdf":  "application/pdf",
-            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        }
+        temp_conv, _ = ChatConversation.objects.get_or_create(
+            user=request.user,
+            title="__stateless__",
+            defaults={"is_active": False},
+        )
+        temp_msg = ChatMessage.objects.create(
+            conversation=temp_conv, role="user",
+            content=f"Convert {uploaded.name} to {to_format}",
+        )
+        ext = uploaded.name.rsplit(".", 1)[-1].lower() if "." in uploaded.name else "other"
+        att = ChatMessageAttachment.objects.create(
+            message=temp_msg,
+            file=uploaded,
+            filename=uploaded.name,
+            file_type=ext,
+            attachment_type="user_upload",
+            file_size_bytes=uploaded.size,
+        )
 
         try:
-            from uploads.services import UploadService
-            from uploads.models import UploadBatch
-
-            batch  = UploadBatch.objects.create(
-                label=f"convert-{filename}",
-                uploaded_by=request.user,
+            _, output_files = ChatService.get_response(
+                message=f"Convert {uploaded.name} to {to_format} format.",
+                user=request.user,
+                file_attachments=[att],
             )
-            record = UploadService.ingest_file(batch, uploaded)
-            text   = record.extracted_text or ""
-            lines  = [l for l in text.splitlines() if l.strip()]
 
-            if to_format == "xlsx":
-                import openpyxl
-                wb = openpyxl.Workbook()
-                ws = wb.active
-                ws.title = "Converted"
-                for i, line in enumerate(lines, 1):
-                    # Try to split on tab or comma for structured data
-                    parts = line.split("\t") if "\t" in line else line.split(",")
-                    for j, part in enumerate(parts, 1):
-                        ws.cell(row=i, column=j, value=part.strip())
-                buf = BytesIO()
-                wb.save(buf)
-                content = buf.getvalue()
+            if not output_files:
+                return Response(
+                    {"error": {"code": "server_error", "message": "Conversion produced no output.", "details": None}},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
 
-            elif to_format == "csv":
-                buf = StringIO()
-                writer = csv.writer(buf)
-                for line in lines:
-                    parts = line.split("\t") if "\t" in line else [line]
-                    writer.writerow(parts)
-                content = buf.getvalue().encode("utf-8")
-
-            elif to_format == "json":
-                content = _json.dumps({"rows": lines}, indent=2).encode("utf-8")
-
-            elif to_format == "txt":
-                content = text.encode("utf-8")
-
-            else:
-                content = text.encode("utf-8")
+            buf = output_files[0]["content"]
+            if hasattr(buf, "seek"):
+                buf.seek(0)
+            content = buf.read()
+            out_name = output_files[0]["filename"]
 
         except Exception as exc:
             logger.exception("ChatConvertFormatView failed: %s", exc)
@@ -720,37 +704,33 @@ class ChatConvertFormatView(APIView):
             "filename":  out_name,
             "format":    to_format,
             "content":   base64.b64encode(content).decode("utf-8"),
-            "mime_type": mime_map.get(to_format, "application/octet-stream"),
+            "mime_type": MIME_MAP.get(to_format, "application/octet-stream"),
         })
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Contract: POST /api/chat/export-data/
+# Export data  — serialise in-memory data to a file format
 # ─────────────────────────────────────────────────────────────────────────────
 
 class ChatExportDataView(APIView):
     """
     POST /api/chat/export-data/
-    Export in-memory data to a file format.
 
     JSON body:
         {
-            "data": [...] or {...},
-            "format": "csv|json|xlsx|pdf|txt",
+            "data":     [...] | {...},
+            "format":   "csv | json | xlsx | txt",
             "filename": "output",
-            "options": { "include_headers": true, "delimiter": "," }
+            "options":  { "include_headers": true, "delimiter": "," }
         }
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        import base64, csv, json as _json
-        from io import BytesIO, StringIO
-
-        data        = request.data.get("data")
-        fmt         = (request.data.get("format") or "xlsx").lower()
-        filename    = (request.data.get("filename") or "export").rstrip(".")
-        options     = request.data.get("options") or {}
+        data     = request.data.get("data")
+        fmt      = (request.data.get("format") or "xlsx").lower()
+        filename = (request.data.get("filename") or "export").rstrip(".")
+        options  = request.data.get("options") or {}
         include_hdr = options.get("include_headers", True)
         delimiter   = options.get("delimiter", ",")
 
@@ -763,23 +743,16 @@ class ChatExportDataView(APIView):
         out_name = f"{filename}.{fmt}"
         content  = b""
 
-        mime_map = {
-            "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "csv":  "text/csv",
-            "json": "application/json",
-            "txt":  "text/plain",
-            "pdf":  "application/pdf",
-        }
-
         try:
             rows = data if isinstance(data, list) else [data]
 
             if fmt == "json":
-                content = _json.dumps(data, indent=2, default=str).encode("utf-8")
+                content = json.dumps(data, indent=2, default=str).encode("utf-8")
 
             elif fmt in ("csv", "txt"):
+                sep = delimiter if fmt == "csv" else "\t"
                 buf = StringIO()
-                writer = csv.writer(buf, delimiter=delimiter if fmt == "csv" else "\t")
+                writer = csv.writer(buf, delimiter=sep)
                 if rows and isinstance(rows[0], dict):
                     if include_hdr:
                         writer.writerow(rows[0].keys())
@@ -794,14 +767,11 @@ class ChatExportDataView(APIView):
                 content = buf.getvalue().encode("utf-8")
 
             elif fmt == "xlsx":
-                import openpyxl
-                from openpyxl.styles import Font, PatternFill, Alignment
-
                 wb = openpyxl.Workbook()
                 ws = wb.active
                 ws.title = "Export"
-
                 start_row = 1
+
                 if rows and isinstance(rows[0], dict) and include_hdr:
                     headers = list(rows[0].keys())
                     for col, h in enumerate(headers, 1):
@@ -825,8 +795,7 @@ class ChatExportDataView(APIView):
                 content = buf.getvalue()
 
             else:
-                # Fallback: plain text
-                content = _json.dumps(data, indent=2, default=str).encode("utf-8")
+                content = json.dumps(data, indent=2, default=str).encode("utf-8")
 
         except Exception as exc:
             logger.exception("ChatExportDataView failed: %s", exc)
@@ -839,5 +808,5 @@ class ChatExportDataView(APIView):
             "filename":  out_name,
             "format":    fmt,
             "content":   base64.b64encode(content).decode("utf-8"),
-            "mime_type": mime_map.get(fmt, "application/octet-stream"),
+            "mime_type": MIME_MAP.get(fmt, "application/octet-stream"),
         })
