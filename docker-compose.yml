@@ -53,6 +53,7 @@ services:
 
   # ── Django / Daphne ─────────────────────────────────────────────────────────
   app:
+    build: .
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-local}/ai_invoicing:latest
     container_name: invoicing-app
     restart: unless-stopped
