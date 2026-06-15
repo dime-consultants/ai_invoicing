@@ -26,13 +26,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Restore pip cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: pip-${{ runner.os }}-${{ hashFiles('**/requirements*.txt') }}
-          restore-keys: pip-${{ runner.os }}-
-
       - name: Build image (with build cache)
         uses: docker/build-push-action@v5
         with:
@@ -48,15 +41,10 @@ jobs:
 
       - name: Save image to tarball
         run: |
-          IMAGE=${{ env.IMAGE_NAME }}:latest
-          docker save "$IMAGE" -o image.tar
+          docker save "${{ env.IMAGE_NAME }}:latest" -o image.tar
+          chmod 644 image.tar
 
-      - name: Ensure tarball is readable
-        run: |
-          ls -l image.tar || true
-          chmod 644 image.tar || true
-
-      - name: Copy image tarball to remote via SCP
+      - name: Copy tarball to server
         uses: appleboy/scp-action@v0.1.5
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -68,40 +56,66 @@ jobs:
           timeout: 600s
 
   deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Deploy on remote
-        uses: appleboy/ssh-action@v0.1.7
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          timeout: 600s
-          script: |
-            set -e
-            # Load image transferred by SCP and restart services
-            if [ -f /tmp/image.tar ]; then
-              docker load -i /tmp/image.tar
-            elif [ -d /tmp/image.tar ]; then
-              TARFILE=$(find /tmp/image.tar -type f -iname '*.tar' -print -quit)
-              if [ -n "$TARFILE" ]; then
-                docker load -i "$TARFILE"
-              else
-                TARFILE=$(find /tmp/image.tar -type f -print -quit)
-                if [ -n "$TARFILE" ]; then
-                  docker load -i "$TARFILE"
-                else
-                  echo "No tar file found in /tmp/image.tar" >&2
-                  exit 1
-                fi
+      needs: build-and-push
+      runs-on: ubuntu-latest
+      timeout-minutes: 15
+      steps:
+        - name: Deploy on remote
+          uses: appleboy/ssh-action@v0.1.7
+          with:
+            host: ${{ secrets.SSH_HOST }}
+            username: ${{ secrets.SSH_USER }}
+            key: ${{ secrets.SSH_PRIVATE_KEY }}
+            port: ${{ secrets.SSH_PORT }}
+            timeout: 600s
+            script: |
+              set -e
+              cd /root/tools/ai_invoicing
+
+              # ── 1. Free disk space if low (less than 2GB free) ──────────────
+              FREE_KB=$(df / | awk 'NR==2 {print $4}')
+              if [ "$FREE_KB" -lt 2097152 ]; then
+                echo "Low disk space — pruning Docker..."
+                docker system prune -af --volumes
               fi
-            else
-              echo "/tmp/image.tar not found" >&2
-              exit 1
-            fi
-            rm -rf /tmp/image.tar
-            cd /root/tools/ai_invoicing
-            docker compose up -d --remove-orphans
+
+              # ── 2. Backup DB before deploy ───────────────────────────────────
+              BACKUP_DIR=/root/backups/db
+              mkdir -p "$BACKUP_DIR"
+              TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+              echo "Backing up database..."
+              docker compose exec -T db pg_dump \
+                -U "${DB_USER}" "${DB_NAME}" \
+                | gzip > "$BACKUP_DIR/backup_${TIMESTAMP}.sql.gz"
+              # Keep only last 7 backups
+              ls -tp "$BACKUP_DIR"/*.sql.gz | grep -v '/$' | tail -n +8 | xargs -r rm --
+
+              # ── 3. Load new image ────────────────────────────────────────────
+              echo "Loading new image..."
+              if [ -f /tmp/image.tar ]; then
+                docker load -i /tmp/image.tar
+              elif [ -d /tmp/image.tar ]; then
+                TARFILE=$(find /tmp/image.tar -type f -name '*.tar' -print -quit)
+                [ -n "$TARFILE" ] && docker load -i "$TARFILE" || { echo "No tar found"; exit 1; }
+              else
+                echo "/tmp/image.tar not found" >&2; exit 1
+              fi
+              rm -rf /tmp/image.tar
+
+              # ── 4. Run migrations & collectstatic ───────────────────────────
+              echo "Running migrations..."
+              docker compose run --rm migrate
+
+              # ── 5. Register & sync tools ─────────────────────────────────────
+              echo "Registering tools..."
+              docker compose run --rm app python manage.py register_tools
+
+              echo "Syncing tools to UI..."
+              docker compose run --rm app python manage.py sync_tools_to_ui \
+                --output /app/tools_export.json 2>/dev/null || true
+
+              # ── 6. Restart app ───────────────────────────────────────────────
+              echo "Restarting services..."
+              docker compose up -d --remove-orphans
+
+              echo "Deploy complete."

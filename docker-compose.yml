@@ -1,4 +1,3 @@
-version: '3.9'
 
 services:
 
@@ -37,24 +36,27 @@ services:
       timeout: 3s
       retries: 5
 
-  # Migrations are run externally (not as a compose service) to avoid
-  # blocking `docker compose up`. Run migrations on the host or CI before
-  # bringing up the `app` service. Example commands:
-  #   # Using the built image on the host (after loading/pulling):
-  #   docker run --rm \
-  #     -e DB_HOST=db -e REDIS_URL=redis://redis:6379/0 \
-  #     -v /path/to/.env:/app/.env \
-  #     ghcr.io/${GITHUB_REPOSITORY_OWNER:-local}/ai_invoicing:latest \
-  #     sh -c "python manage.py migrate --noinput && python manage.py collectstatic --noinput"
-  #
-  #   # Or, run against the service container once it's available:
-  #   docker compose run --rm app python manage.py migrate --noinput
-  #   docker compose run --rm app python manage.py collectstatic --noinput
+  # ── Migrations & collectstatic (one-shot, runs then exits) ─────────────────
+  migrate:
+    image: ghcr.io/kib4n4/ai_invoicing:latest
+    container_name: invoicing-migrate
+    restart: "no"
+    env_file: .env
+    environment:
+      DB_HOST: db
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - invoicing-network
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput"
 
   # ── Django / Daphne ─────────────────────────────────────────────────────────
   app:
-    build: .
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-local}/ai_invoicing:latest
+    image: ghcr.io/kib4n4/ai_invoicing:latest
     container_name: invoicing-app
     restart: unless-stopped
     env_file: .env
@@ -100,10 +102,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-
-  # Tool sync is run externally (not as a compose service) to avoid deployment timeouts.
-  # Run the sync command on the host or via your deployment scripts:
-  #   python manage.py sync_tools_to_ui --output /path/to/tools_export.json
 
 volumes:
   postgres_data:
