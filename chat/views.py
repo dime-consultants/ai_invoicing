@@ -95,13 +95,16 @@ def _save_output_attachments(output_files, assistant_msg):
 
 def _build_conv_history(conversation, exclude_pk):
     """Return the last 20 turns of a conversation as a list of role/content dicts."""
-    rows = (
+    # Django QuerySets don't support negative indexing, so take the most recent
+    # 20 in descending order, then reverse back to chronological order.
+    rows = list(
         ChatMessage.objects
         .filter(conversation=conversation)
         .exclude(pk=exclude_pk)
-        .order_by("created_at")
-        .values("role", "content")
-    )[-20:]
+        .order_by("-created_at")
+        .values("role", "content")[:20]
+    )
+    rows.reverse()
     return [{"role": m["role"], "content": m["content"]} for m in rows]
 
 

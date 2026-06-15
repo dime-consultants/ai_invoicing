@@ -531,6 +531,20 @@ class ChatService:
             return ChatService._offline_fallback(message), []
 
         has_files = bool(file_attachments)
+
+        # File-processing requests go through the AI agent so they use the real
+        # domain handlers (URA/Safaricom/ACON extraction, reconciliation, report
+        # generation) instead of the unreliable "ask Grok to return JSON" path.
+        if has_files:
+            return ChatService._run_agent(
+                message=message,
+                user=user,
+                file_attachments=file_attachments,
+                workflow_id=workflow_id,
+                workflow_option=workflow_option,
+                conversation_history=conversation_history,
+            )
+
         intent = _detect_intent(message, has_files=has_files)
         system_prompt = _INTENT_SYSTEM_PROMPTS.get(intent, _GENERAL_SYSTEM_PROMPT)
 
@@ -619,6 +633,102 @@ class ChatService:
                         )
 
         return response_text, output_files
+
+    @staticmethod
+    def _run_agent(
+        *,
+        message: str,
+        user,
+        file_attachments,
+        workflow_id: int | None = None,
+        workflow_option: str | None = None,
+        conversation_history: list[dict] | None = None,
+    ) -> tuple[str, list]:
+        """
+        Route a file-processing chat turn through the AI agent so it uses the
+        real domain handlers (detect → extract → reconcile → report) instead of
+        asking Grok to hand-write JSON.
+        """
+        from ai_engine.services import AIEngineService
+
+        # 1. Ingest the uploaded attachments into a batch — this populates
+        #    extracted_text and gives the agent UploadedFile ids to act on.
+        batch = UploadService.create_batch(
+            label=f"Chat upload ({len(file_attachments)} file(s))",
+            user=user,
+        )
+        for att in file_attachments:
+            try:
+                att.file.open("rb")
+                rec = UploadService.ingest_file(batch, att.file)
+                try:
+                    att.uploaded_file = rec
+                    att.save(update_fields=["uploaded_file"])
+                except Exception:
+                    pass
+            except Exception as exc:
+                logger.warning(
+                    "Chat agent could not ingest %s: %s",
+                    getattr(att, "filename", "?"), exc,
+                )
+        batch.refresh_from_db()
+
+        # 2. Optional workflow (constrains which tools the agent is offered).
+        workflow = None
+        if workflow_id:
+            workflow = Workflow.objects.filter(pk=workflow_id).first()
+
+        # 3. Run the agent tool loop.
+        try:
+            response_text, job_id = AIEngineService.handle_chat_message(
+                user=user,
+                message=message,
+                batch=batch,
+                workflow=workflow,
+                conversation_history=conversation_history,
+            )
+        except Exception as exc:
+            logger.exception("Chat agent run failed: %s", exc)
+            return f"Sorry, I hit an error while processing the file: {exc}", []
+
+        # 4. Surface any files the tools produced as downloadable attachments.
+        output_files = ChatService._collect_job_output_files(job_id)
+        if output_files and "attach" not in response_text.lower():
+            names = ", ".join(f["filename"] for f in output_files)
+            response_text = f"{response_text}\n\nGenerated file(s) attached: {names}"
+        return response_text, output_files
+
+    @staticmethod
+    def _collect_job_output_files(job_id) -> list:
+        """Read any .xlsx/.csv/.pdf files referenced in a job's successful tool results."""
+        from pathlib import Path
+        from io import BytesIO
+        from tools.models import ToolCall
+
+        mime = {
+            "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "csv":  "text/csv",
+            "pdf":  "application/pdf",
+        }
+        files, seen = [], set()
+        if not job_id:
+            return files
+        for tc in ToolCall.objects.filter(job_id=job_id, status="success"):
+            for value in (tc.result or {}).values():
+                if not isinstance(value, str) or "." not in value:
+                    continue
+                ext = value.rsplit(".", 1)[-1].lower()
+                if ext not in mime or value in seen:
+                    continue
+                p = Path(value)
+                if p.exists() and p.is_file():
+                    seen.add(value)
+                    files.append({
+                        "filename":     p.name,
+                        "content":      BytesIO(p.read_bytes()),
+                        "content_type": mime[ext],
+                    })
+        return files
 
     @staticmethod
     def _try_build_file(raw: str) -> tuple:
