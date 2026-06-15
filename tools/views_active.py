@@ -32,11 +32,13 @@ class ActiveToolsView(APIView):
             "tools": [
                 {
                     "id": tool.id,
-                    "name": tool.name,
+                    "name": tool.display_name or tool.name,
                     "category": tool.category,
                     "description": tool.description,
-                    "version": tool.version or "1.0",
-                    "tags": tool.tags.split(",") if tool.tags else [],
+                    "version": str(tool.version or 1),
+                    # ToolDefinition has no `tags` field — surface the safety flag
+                    # as a tag so the UI still has something meaningful to show.
+                    "tags": ["safe"] if tool.is_safe else ["needs review"],
                 }
                 for tool in tools
             ],
