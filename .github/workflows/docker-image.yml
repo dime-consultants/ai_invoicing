@@ -55,11 +55,6 @@ jobs:
           target: "/tmp/image.tar"
           timeout: 600s
 
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
       - name: Deploy on remote
         uses: appleboy/ssh-action@v0.1.7
         with:
