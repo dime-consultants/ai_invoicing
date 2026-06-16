@@ -3,9 +3,6 @@ set -e
 
 echo "Starting Django application..."
 
-# By default skip heavy startup tasks (collectstatic, register_tools, sync_tools)
-# These are run in the one-shot `migrate` service during deployment.
-# To force running them on container start set `RUN_STARTUP_TASKS=true`.
 if [ "${RUN_STARTUP_TASKS}" = "true" ]; then
     echo "Collecting static files..."
     python manage.py collectstatic --noinput
@@ -21,7 +18,7 @@ fi
 
 # If arguments are passed, run them instead of Daphne
 if [ "$#" -gt 0 ]; then
-    echo "Running command: $@"
+    echo "Running command: $*"
     exec "$@"
 else
     echo "Starting Daphne server..."
