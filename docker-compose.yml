@@ -49,8 +49,9 @@ services:
         condition: service_healthy
     networks:
       - invoicing-network
-    entrypoint: ["/bin/sh", "-c"]
-    command: ["python manage.py migrate --noinput && python manage.py collectstatic --noinput"]
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput"
 
   # ── Django / Daphne ─────────────────────────────────────────────────────────
   app:
