@@ -85,13 +85,36 @@ class Command(BaseCommand):
         definitions = []
 
         for tool in tools:
+            # Resolve the grok schema robustly: prefer `grok_schema` attribute
+            # but fall back to `to_grok_schema()` method if available.
+            schema = {}
+            try:
+                if hasattr(tool, "grok_schema") and tool.grok_schema:
+                    try:
+                        schema = json.loads(tool.grok_schema)
+                    except Exception:
+                        logger.warning("Could not parse grok_schema JSON for tool %s", tool.name)
+                        schema = {}
+                elif hasattr(tool, "to_grok_schema") and callable(getattr(tool, "to_grok_schema")):
+                    try:
+                        raw = tool.to_grok_schema()
+                        if isinstance(raw, dict):
+                            schema = raw
+                        elif isinstance(raw, str):
+                            schema = json.loads(raw)
+                    except Exception as exc:
+                        logger.warning("to_grok_schema() failed for tool %s: %s", tool.name, exc)
+                        schema = {}
+            except Exception as exc:
+                logger.warning("Unexpected error resolving schema for tool %s: %s", tool.name, exc)
+
             definition = {
                 "id": tool.id,
                 "name": tool.name,
                 "category": tool.category,
                 "description": tool.description,
                 "enabled": tool.enabled,
-                "schema": json.loads(tool.grok_schema) if tool.grok_schema else {},
+                "schema": schema,
                 "input_format": tool.input_format or "text",
                 "output_format": tool.output_format or "text",
                 "version": tool.version or "1.0",
