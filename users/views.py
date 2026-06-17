@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 
 from .models import User
 from .serializers import (
@@ -90,7 +91,13 @@ class RefreshTokenView(APIView):
             data={"refresh": refresh_token}
         )
 
-        serializer.is_valid(raise_exception=True)
+        # simplejwt raises a bare TokenError (not a DRF APIException) for an
+        # expired/blacklisted/malformed token; left uncaught it becomes a 500.
+        # Convert it to InvalidToken (401) like simplejwt's own TokenRefreshView.
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError as exc:
+            raise InvalidToken(exc.args[0])
 
         access = serializer.validated_data["access"]
 
