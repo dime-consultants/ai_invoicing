@@ -37,7 +37,7 @@ services:
 
   # ── Migrations & collectstatic (one-shot, runs then exits) ─────────────────
   migrate:
-    image: ghcr.io/kib4n4/ai_invoicing:latest
+    image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
     container_name: invoicing-migrate
     restart: "no"
     env_file: .env
@@ -55,7 +55,7 @@ services:
 
   # ── Django / Daphne ─────────────────────────────────────────────────────────
   app:
-    image: ghcr.io/kib4n4/ai_invoicing:latest
+    image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
     container_name: invoicing-app
     restart: unless-stopped
     env_file: .env

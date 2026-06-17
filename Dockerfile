@@ -20,6 +20,11 @@ RUN pip install --upgrade pip \
 # ── Stage 2: runtime image ────────────────────────────────────────────────────
 FROM python:3.12-slim
 
+# Build-time arg so each image is traceable to the commit that produced it —
+# helps confirm a "successful" deploy actually shipped new code, not a cached layer.
+ARG GIT_SHA=unknown
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+
 WORKDIR /app
 
 # Runtime system deps only

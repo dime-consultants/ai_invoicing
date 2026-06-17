@@ -6,19 +6,27 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: ai_invoicing
+  REGISTRY: ghcr.io
+  IMAGE_NAME: kib4n4/ai_invoicing
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Set short SHA tag
+        id: meta
+        run: echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
@@ -26,34 +34,49 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Build image (with build cache)
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # push: true — this is the actual fix. The image now lives in a real
+      # registry the remote host can pull from, instead of a tarball that has
+      # to be SCP'd and `docker load`-ed under a hopeful tag match.
+      - name: Build and push image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile
-          push: false
-          load: true
+          push: true
           tags: |
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Save image to tarball
-        run: |
-          docker save "${{ env.IMAGE_NAME }}:latest" -o image.tar
-          chmod 644 image.tar
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Copy tarball to server
+      # Compose file + nginx conf live in the repo and get synced to the
+      # server on every deploy, so the remote directory can never drift from
+      # what's in git.
+      - name: Sync compose files to server
         uses: appleboy/scp-action@v0.1.5
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          source: "image.tar"
-          target: "/tmp/image.tar"
-          timeout: 600s
+          source: "docker-compose.yml,nginx/"
+          target: "/root/tools/ai_invoicing"
+          timeout: 120s
 
       - name: Deploy on remote
         uses: appleboy/ssh-action@v0.1.7
@@ -62,16 +85,21 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          timeout: 600s
+          command_timeout: 15m
+          envs: IMAGE_TAG
           script: |
             set -e
             cd /root/tools/ai_invoicing
+            export IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
+            export IMAGE_NAME="ghcr.io/kib4n4/ai_invoicing"
+
+            echo "Deploying tag: ${IMAGE_TAG}"
 
             # ── 1. Free disk space if low (less than 2GB free) ──────────────
             FREE_KB=$(df / | awk 'NR==2 {print $4}')
             if [ "$FREE_KB" -lt 2097152 ]; then
               echo "Low disk space — pruning Docker..."
-              docker system prune -af --volumes
+              timeout 120 docker system prune -af --volumes
             fi
 
             # ── 2. Backup DB before deploy (skip if DB not running) ──────────
@@ -79,9 +107,9 @@ jobs:
             mkdir -p "$BACKUP_DIR"
             TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
-            if docker compose ps db | grep -q "healthy"; then
+            if docker compose ps db 2>/dev/null | grep -q "healthy"; then
               echo "Backing up database..."
-              docker compose exec -T db pg_dump \
+              timeout 120 docker compose exec -T db pg_dump \
                 -U "${DB_USER}" "${DB_NAME}" \
                 | gzip > "$BACKUP_DIR/backup_${TIMESTAMP}.sql.gz"
               ls -tp "$BACKUP_DIR"/*.sql.gz | grep -v '/$' | tail -n +8 | xargs -r rm --
@@ -90,32 +118,42 @@ jobs:
               echo "DB not running — skipping backup (first deploy or after prune)."
             fi
 
-            # ── 3. Load new image ────────────────────────────────────────────
-            echo "Loading new image..."
-            if [ -f /tmp/image.tar ]; then
-              docker load -i /tmp/image.tar
-            elif [ -d /tmp/image.tar ]; then
-              TARFILE=$(find /tmp/image.tar -type f -name '*.tar' -print -quit)
-              [ -n "$TARFILE" ] && docker load -i "$TARFILE" || { echo "No tar found"; exit 1; }
-            else
-              echo "/tmp/image.tar not found" >&2; exit 1
-            fi
-            rm -rf /tmp/image.tar
+            # ── 3. Pull the exact tagged image (no more tarball/SCP) ─────────
+            echo "Pulling ${IMAGE_NAME}:${IMAGE_TAG}..."
+            timeout 300 docker pull "${IMAGE_NAME}:${IMAGE_TAG}"
+            docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${IMAGE_NAME}:latest"
 
-            # ── 4. Run migrations & collectstatic ───────────────────────────
+            # ── 4. Migrations + collectstatic, one bounded one-shot job ──────
+            # IMAGE_TAG is read by docker-compose.yml so this runs the image
+            # that was just pulled, not a stale cached :latest.
             echo "Running migrations..."
-            docker compose run --rm migrate
+            timeout 180 docker compose run --rm migrate
 
-            # ── 5. Register & sync tools ─────────────────────────────────────
+            # ── 5. Register & sync tools — bounded, non-fatal ────────────────
             echo "Registering tools..."
-            docker compose run --rm app python manage.py register_tools
+            timeout 60 docker compose run --rm app python manage.py register_tools || \
+              echo "register_tools failed or timed out — continuing deploy."
 
             echo "Syncing tools to UI..."
-            docker compose run --rm app python manage.py sync_tools_to_ui \
-              --output /app/tools_export.json 2>/dev/null || true
+            timeout 60 docker compose run --rm app python manage.py sync_tools_to_ui \
+              --output /app/tools_export.json || \
+              echo "sync_tools_to_ui failed or timed out — continuing deploy."
 
-            # ── 6. Restart app ───────────────────────────────────────────────
+            # ── 6. Restart app (backgrounded by compose itself; -d is non-blocking)
             echo "Restarting services..."
-            docker compose up -d --remove-orphans
+            timeout 180 docker compose up -d --remove-orphans
 
-            echo "Deploy complete."
+            # ── 7. Wait for the app healthcheck explicitly, with a hard ceiling
+            echo "Waiting for app to become healthy..."
+            ATTEMPTS=0
+            until [ "$(docker inspect -f '{{.State.Health.Status}}' invoicing-app 2>/dev/null)" = "healthy" ]; do
+              ATTEMPTS=$((ATTEMPTS+1))
+              if [ "$ATTEMPTS" -ge 30 ]; then
+                echo "App did not become healthy in time." >&2
+                docker compose logs --tail=100 app
+                exit 1
+              fi
+              sleep 5
+            done
+
+            echo "Deploy complete. Live tag: ${IMAGE_TAG}"
