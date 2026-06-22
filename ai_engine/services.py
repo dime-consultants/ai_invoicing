@@ -108,6 +108,22 @@ def extract_ura_receipts(file_id: int) -> dict:
     return _h(file_id=file_id)
 
 
+def extract_kra_receipts(file_id: int) -> dict:
+    """
+    Parse a KRA fiscal receipt .txt file (detected_type='kra_fiscal_receipt').
+    Extracts every RECEIPT block:
+    Invoice Number, Date, Time, Total (UGX), Taxes (UGX).
+    Saves an .xlsx output file to outputs/converted/.
+
+    Args:
+        file_id: PK of the UploadedFile (.txt) to parse.
+    Returns:
+        dict with keys: ok, record_count, headers, rows (first 5), output_filename, summary.
+    """
+    from tools.handlers import extract_kra_receipts as _h
+    return _h(file_id=file_id)
+
+
 def extract_safaricom_bill(file_id: int) -> dict:
     """
     Extract line items from a Safaricom monthly telephone bill PDF
