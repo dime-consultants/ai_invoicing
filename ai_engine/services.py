@@ -1,302 +1,429 @@
-# uploads/services.py
+# ai_engine/services.py
 """
-UploadService — handles file ingestion into an UploadBatch.
+AIEngineService — job lifecycle + chat entry point for AI-driven file processing.
 
-Responsibilities
-----------------
-1.  Save the uploaded file to media storage (UploadedFile record).
-2.  Extract plain text from the file (and, for PDFs, record page_count
-    so callers like chat/services.py can decide whether a file is large
-    enough to route to the async Celery pipeline instead of processing
-    inline in an HTTP request).
-3.  Store the extracted text in UploadedFile.extracted_text so the
-    ai_engine can inject it into the LLM context window without re-reading
-    the raw bytes on every request.
-4.  Update batch counters (file_count, processed_count, error_count).
+Architecture
+------------
+All actual tool-calling (resolving ToolDefinition rows, dispatching to
+tools.handlers.*, recording ToolCall rows) lives in ONE place:
+tools.services.ToolService.run(). This module does not reimplement that
+loop — it only:
 
-`unstructured` supports: txt, pdf, docx, xlsx, pptx, html, images, eml, and more.
-No API key is required for the local package.
+  1. Builds the system prompt / user message for a given task.
+  2. Creates and updates AIAnalysisJob rows (queued -> running -> done/error).
+  3. Calls ToolService.run(..., job=job) so every ToolCall is linked to a job.
+  4. Persists AIInsight rows from the tool results once the run finishes.
+
+Job lifecycle
+-------------
+queued → running → done | error
+(ai_engine/signals.py listens for these transitions and pushes WebSocket
+notifications.)
+
+Entry points
+------------
+AIEngineService.create_job(...)          — persist a queued job
+AIEngineService.dispatch(job_id)         — run it synchronously (called by
+                                            ai_engine/tasks.py's Celery task)
+AIEngineService.handle_chat_message(...) — called by chat / the WebSocket consumer
+AIEngineService.requeue(job_id)          — reset a failed/done job and re-run it
+
+IMPORTANT: UploadBatch and UploadedFile live in the `uploads` app, NOT here.
+Never add a top-level `from .models import UploadBatch, ...` to this file —
+ai_engine.models only defines AIAnalysisJob / AIInsight. Any reference to
+upload models in this file must be a lazy `from uploads.models import ...`
+inside a function, to avoid circular imports between ai_engine and uploads.
 """
 
 from __future__ import annotations
 
 import logging
-import mimetypes
-from pathlib import Path
+from datetime import datetime, timezone as tz
 
 from django.conf import settings
-from django.db import transaction
-from django.utils import timezone
-
-from .models import UploadBatch, UploadedFile
 
 logger = logging.getLogger(__name__)
 
-# Max characters stored in extracted_text (keeps DB rows reasonable)
-MAX_CHARS = getattr(settings, "UNSTRUCTURED_MAX_CHARS", 50_000)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Grok client (lazy singleton)
+# Exported for use by other modules that need a raw client/model name —
+# ai_engine/views.py:AIAnalyzeView and tools/universal_extractor.py both
+# import these directly, so keep the names even though the tool loop
+# itself no longer lives here.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_client = None
+
+
+def _get_client():
+    global _client
+    if _client is None:
+        from openai import OpenAI
+        api_key = getattr(settings, "XAI_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("XAI_API_KEY is not set in settings / .env")
+        _client = OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
+    return _client
+
+
+GROK_MODEL = lambda: getattr(settings, "GROK_MODEL", "grok-3")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Page counting (PDF only, for now)
+# Tool name whitelists per task_type
+# These are ToolDefinition.name strings — the single source of truth for
+# what each tool does and accepts lives in tools/handlers.py + the
+# ToolDefinition DB rows, not here.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _count_pdf_pages(file_path: str) -> int | None:
-    """
-    Return the page count of a PDF without extracting any text — used to
-    decide, cheaply and up front, whether a file is large enough to route
-    to the async Celery pipeline (see chat/services.py:ASYNC_PAGE_THRESHOLD)
-    rather than processing inline in an HTTP request thread.
-    """
-    try:
-        import pdfplumber
-        with pdfplumber.open(file_path) as pdf:
-            return len(pdf.pages)
-    except Exception as exc:
-        logger.warning("Could not count pages for %s: %s", file_path, exc)
-        return None
+ALL_TOOL_NAMES: list[str] = [
+    "detect_file_type",
+    "extract_ura_receipts",
+    "extract_safaricom_bill",
+    "clean_acon_export",
+    "reconcile_ura_vs_acon",
+    "flag_anomalies",
+    "generate_report",
+    "summarise_batch",
+    "extract_file_universal",
+]
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Text extraction
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _extract_text(file_path: str, extension: str) -> str:
-    """
-    Extract plain text from a file for AI context / type detection.
-
-    Uses lightweight, already-installed libraries per format:
-      - txt/csv  : direct utf-8 read
-      - pdf      : pdfplumber (page-by-page, stops once MAX_CHARS reached)
-      - xlsx/xls : openpyxl (xlsx) / xlrd (xls), cells flattened to text
-    Falls back to `unstructured` for anything else (docx, html, …) if it is
-    installed, otherwise returns "" so ingestion still succeeds.
-
-    NOTE: this still caps at MAX_CHARS for the *stored* extracted_text
-    column — it is a preview/search-context field, not the full document.
-    Tool handlers that need the complete document (e.g.
-    tools/handlers.py:extract_safaricom_bill) re-open and re-read the raw
-    file directly rather than relying on this truncated column.
-    """
-    if extension in ("txt", "csv"):
-        try:
-            with open(file_path, "r", encoding="utf-8", errors="replace") as fh:
-                return fh.read()[:MAX_CHARS]
-        except Exception as exc:
-            logger.warning("Plain text read failed for %s: %s", file_path, exc)
-            return ""
-
-    if extension == "pdf":
-        try:
-            import pdfplumber
-            parts, total = [], 0
-            with pdfplumber.open(file_path) as pdf:
-                for page in pdf.pages:
-                    t = page.extract_text() or ""
-                    if t:
-                        parts.append(t)
-                        total += len(t)
-                    # Release this page's cached objects (chars, lines,
-                    # rects, etc.) immediately — without this, memory grows
-                    # roughly linearly with page count across a large PDF.
-                    page.flush_cache()
-                    if total >= MAX_CHARS:
-                        break
-            return "\n\n".join(parts)[:MAX_CHARS]
-        except Exception as exc:
-            logger.warning("pdfplumber extraction failed for %s: %s", file_path, exc)
-            # fall through to unstructured
-
-    if extension in ("xlsx", "xls"):
-        try:
-            parts, total = [], 0
-            if extension == "xlsx":
-                import openpyxl
-                wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
-                for ws in wb.worksheets:
-                    for row in ws.iter_rows(values_only=True):
-                        line = "\t".join("" if c is None else str(c) for c in row)
-                        if line.strip():
-                            parts.append(line)
-                            total += len(line)
-                        if total >= MAX_CHARS:
-                            break
-                    if total >= MAX_CHARS:
-                        break
-                wb.close()
-            else:  # xls
-                import xlrd
-                book = xlrd.open_workbook(file_path)
-                for sheet in book.sheets():
-                    for r in range(sheet.nrows):
-                        line = "\t".join(str(c) for c in sheet.row_values(r))
-                        if line.strip():
-                            parts.append(line)
-                            total += len(line)
-                        if total >= MAX_CHARS:
-                            break
-                    if total >= MAX_CHARS:
-                        break
-            return "\n".join(parts)[:MAX_CHARS]
-        except Exception as exc:
-            logger.warning("spreadsheet extraction failed for %s: %s", file_path, exc)
-            # fall through to unstructured
-
-    try:
-        from unstructured.partition.auto import partition
-
-        elements = partition(filename=file_path)
-        text = "\n\n".join(str(el) for el in elements if str(el).strip())
-        return text[:MAX_CHARS]
-
-    except ImportError:
-        logger.warning(
-            "unstructured is not installed; '%s' files have no extracted_text. "
-            "Install with: pip install 'unstructured[all-docs]'", extension
-        )
-        return ""
-
-    except Exception as exc:
-        logger.warning("unstructured extraction failed for %s: %s", file_path, exc)
-        return ""
+# Map workflow_type / task_type → subset of tool names to expose
+WORKFLOW_TOOL_NAMES: dict[str, list[str]] = {
+    "ura_processing":       ["detect_file_type", "extract_ura_receipts", "flag_anomalies", "generate_report"],
+    "safaricom_processing": ["detect_file_type", "extract_safaricom_bill", "generate_report"],
+    "acon_processing":      ["detect_file_type", "clean_acon_export", "generate_report"],
+    "reconciliation":       ["detect_file_type", "extract_ura_receipts", "clean_acon_export",
+                              "reconcile_ura_vs_acon", "generate_report"],
+    "classification":       ["detect_file_type", "extract_ura_receipts", "flag_anomalies"],
+    "report_generation":    ["detect_file_type", "extract_ura_receipts", "extract_safaricom_bill",
+                              "clean_acon_export", "generate_report", "summarise_batch"],
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UploadService
+# System prompts
 # ─────────────────────────────────────────────────────────────────────────────
 
-class UploadService:
+BASE_SYSTEM_PROMPT = """You are an AI assistant for Kuehne + Nagel's finance team in Nairobi.
+You process invoice and receipt files using the tools available to you.
+
+When a user sends a file_id or batch_id:
+1. Call detect_file_type first to identify the document.
+2. Choose the correct extraction tool based on detected_type.
+3. If the user asked for anomaly detection, call flag_anomalies after extraction.
+4. Always call generate_report at the end to produce a downloadable file.
+5. Summarise what you found in plain English after all tool calls are complete.
+
+Be concise. Quote specific numbers from tool results. Never invent data."""
+
+
+def _build_system_prompt(workflow=None, user_intent: str = "") -> str:
+    prompt = BASE_SYSTEM_PROMPT
+    if workflow and workflow.system_prompt_prefix:
+        prompt = workflow.system_prompt_prefix.strip() + "\n\n" + prompt
+    if user_intent:
+        prompt += f"\n\nUser's specific request: {user_intent}"
+    return prompt
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Insight extraction
+# Walk tool results (already persisted as ToolCall rows by ToolService) and
+# write AIInsight rows for anything flag_anomalies / reconcile_ura_vs_acon /
+# summarise_batch found.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _persist_insights(job, tool_results: list[dict]) -> None:
+    from .models import AIInsight
+
+    for result in tool_results:
+        if not isinstance(result, dict) or not result.get("ok"):
+            continue
+
+        for anomaly in result.get("anomalies", []):
+            AIInsight.objects.create(
+                job=job,
+                insight_type="anomaly",
+                severity=anomaly.get("severity", "info"),
+                reference_key=anomaly.get("cu_invoice_number", "")[:100],
+                title=anomaly.get("anomaly_type", "Anomaly").replace("_", " ").title(),
+                detail=anomaly.get("detail", ""),
+            )
+
+        for vrow in result.get("variance_rows", []):
+            severity = "critical" if vrow.get("status") == "UNMATCHED — not in ACON" else "warning"
+            AIInsight.objects.create(
+                job=job,
+                insight_type="variance_explanation",
+                severity=severity,
+                reference_key=vrow.get("cu_invoice_number", "")[:100],
+                title=vrow.get("status", "Variance"),
+                detail=(
+                    f"URA total: {vrow.get('ura_total')} | "
+                    f"ACON amount: {vrow.get('acon_amount')} | "
+                    f"Difference: {vrow.get('difference')}"
+                ),
+            )
+
+        if result.get("batch_id") and result.get("summary"):
+            AIInsight.objects.create(
+                job=job,
+                insight_type="summary_point",
+                severity="info",
+                title=f"Batch summary — {result.get('batch_label', '')}",
+                detail=result.get("summary", ""),
+            )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AIEngineService
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AIEngineService:
+
+    # ── Create + dispatch ─────────────────────────────────────────────────
 
     @staticmethod
-    @transaction.atomic
-    def create_batch(*, label: str, description: str = "", user) -> UploadBatch:
-        """
-        Create a new UploadBatch owned by `user`.
-        """
-        return UploadBatch.objects.create(
-            label=label,
-            description=description,
-            uploaded_by=user,
-            status="pending",
+    def create_job(
+        *,
+        batch,
+        task_type: str,
+        user_intent: str = "",
+        user_prompt: str = "",
+        system_prompt: str = "",
+        target_file=None,
+        requested_by=None,
+    ):
+        """Create and persist an AIAnalysisJob in 'queued' state."""
+        from .models import AIAnalysisJob
+        return AIAnalysisJob.objects.create(
+            batch          = batch,
+            task_type      = task_type,
+            user_intent    = user_intent,
+            user_prompt    = user_prompt,
+            system_prompt  = system_prompt or BASE_SYSTEM_PROMPT,
+            target_file    = target_file,
+            requested_by   = requested_by,
+            status         = "queued",
         )
 
     @staticmethod
-    @transaction.atomic
-    def ingest_file(batch: UploadBatch, uploaded_file) -> UploadedFile:
+    def dispatch(job_id: int) -> None:
         """
-        Save one uploaded file into `batch`, extract its text, and (for
-        PDFs) record its page_count so callers can decide whether to route
-        processing through the async Celery pipeline.
-
-        Parameters
-        ----------
-        batch         UploadBatch to attach the file to.
-        uploaded_file Django InMemoryUploadedFile / TemporaryUploadedFile
-                      (from request.FILES) or any file-like with a .name attribute.
-
-        Returns
-        -------
-        UploadedFile  — the saved record with extracted_text (and, for
-                        PDFs, page_count) populated.
+        Run a queued job synchronously. Called from a Celery task
+        (ai_engine/tasks.py:run_ai_job_task) rather than directly from a
+        view, so this no longer blocks an HTTP request thread.
         """
-        original_name = Path(uploaded_file.name).name
-        extension     = Path(original_name).suffix.lstrip(".").lower()
-        mime_type, _  = mimetypes.guess_type(original_name)
-        file_size     = (
-            uploaded_file.size
-            if hasattr(uploaded_file, "size")
-            else uploaded_file.seek(0, 2) or uploaded_file.tell()
-        )
+        from .models import AIAnalysisJob
 
-        # 1. Create the DB record — Django saves the file to MEDIA_ROOT
-        record = UploadedFile.objects.create(
-            batch             = batch,
-            file              = uploaded_file,
-            original_filename = original_name,
-            file_size_bytes   = file_size or 0,
-            mime_type         = mime_type or "",
-            extension         = extension,
-            parse_status      = "pending",
-        )
-
-        # 2. Page count (PDF only) — cheap, separate pass, used purely for
-        #    the async-routing decision in chat/services.py.
-        if extension == "pdf":
-            try:
-                saved_path = record.file.path
-                page_count = _count_pdf_pages(saved_path)
-                if page_count is not None and hasattr(record, "page_count"):
-                    record.page_count = page_count
-                    record.save(update_fields=["page_count"])
-            except Exception as exc:
-                logger.warning("Page count failed for %s: %s", original_name, exc)
-
-        # 3. Extract text from the saved file (read from disk, not from memory)
         try:
-            saved_path = record.file.path
-            text = _extract_text(saved_path, extension)
-            record.extracted_text = text
-            record.parse_status   = "parsed" if text else "pending"
-            record.parsed_at      = timezone.now() if text else None
-            record.save(update_fields=["extracted_text", "parse_status", "parsed_at"])
-        except Exception as exc:
-            logger.exception("Text extraction failed for %s: %s", original_name, exc)
-            record.parse_status = "parse_error"
-            record.parse_error  = str(exc)
-            record.save(update_fields=["parse_status", "parse_error"])
+            job = AIAnalysisJob.objects.select_related("batch", "target_file").get(pk=job_id)
+        except AIAnalysisJob.DoesNotExist:
+            logger.error("AIAnalysisJob %s not found", job_id)
+            return
 
-        # 4. Update batch counters
-        UploadService._refresh_batch_counters(batch)
+        if job.status != "queued":
+            logger.warning("Job %s skipped — status is '%s'", job_id, job.status)
+            return
 
-        return record
+        AIEngineService._run_job(job)
 
     @staticmethod
-    @transaction.atomic
-    def ingest_many(batch: UploadBatch, uploaded_files: list, *, user=None) -> list[UploadedFile]:
-        """
-        Ingest a list of uploaded files into a batch in one call.
-        Returns the list of saved UploadedFile records.
-        """
-        records = []
-        for uf in uploaded_files:
-            try:
-                record = UploadService.ingest_file(batch, uf)
-                records.append(record)
-            except Exception as exc:
-                logger.exception(
-                    "Failed to ingest %s into batch %s: %s",
-                    getattr(uf, "name", "?"), batch.pk, exc,
+    def _run_job(job) -> None:
+        """Core execution — updates job status, runs the tool loop, saves results."""
+        from tools.services import ToolService
+
+        job.status     = "running"
+        job.started_at = datetime.now(tz.utc)
+        job.save(update_fields=["status", "started_at"])
+
+        try:
+            tool_names    = WORKFLOW_TOOL_NAMES.get(job.task_type, ALL_TOOL_NAMES)
+            system_prompt = job.system_prompt or BASE_SYSTEM_PROMPT
+            user_message  = job.user_prompt
+
+            if job.target_file and job.target_file.extracted_text:
+                user_message += (
+                    f"\n\n[Uploaded file: {job.target_file.original_filename} "
+                    f"(id={job.target_file.pk}, type={job.target_file.extension})]\n"
+                    f"{job.target_file.extracted_text[:8000]}"
                 )
-        return records
+
+            final_text, tool_call_pks = ToolService.run(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                tool_names=tool_names,
+                job=job,
+            )
+
+            tool_results = [
+                tc.result
+                for tc in job.tool_calls.filter(status="success").select_related("tool")
+                if tc.result
+            ]
+            _persist_insights(job, tool_results)
+
+            job.raw_response = final_text
+            job.status        = "done"
+            job.finished_at    = datetime.now(tz.utc)
+            job.save(update_fields=["raw_response", "status", "finished_at"])
+
+        except Exception as exc:
+            logger.exception("Job %s failed: %s", job.pk, exc)
+            job.status        = "error"
+            job.error_message = str(exc)
+            job.finished_at    = datetime.now(tz.utc)
+            job.save(update_fields=["status", "error_message", "finished_at"])
+
+    # ── Chat entry point ────────────────────────────────────────────────────
 
     @staticmethod
-    def get_batch_files(batch: UploadBatch) -> list[UploadedFile]:
-        """Return all UploadedFile records for a batch, ordered by upload time."""
-        return list(batch.files.order_by("uploaded_at"))
-
-    @staticmethod
-    def _refresh_batch_counters(batch: UploadBatch) -> None:
+    def handle_chat_message(
+        *,
+        user,
+        message: str,
+        batch=None,
+        workflow=None,
+        conversation_history: list[dict] | None = None,
+    ) -> tuple[str, int | None]:
         """
-        Recount file_count, processed_count, error_count from the DB
-        and update the batch status accordingly.
+        Called by the WebSocket consumer (and AIRunAnalysisView) for a
+        chat-style message. Creates an AIAnalysisJob, runs the tool loop
+        through ToolService, returns (response_text, job_id).
+
+        If no batch is attached, runs in conversational mode (no file tools).
         """
-        files         = batch.files.all()
-        total         = files.count()
-        parsed        = files.filter(parse_status="parsed").count()
-        errors        = files.filter(parse_status="parse_error").count()
+        from tools.services import ToolService
 
-        if total == 0:
-            new_status = "pending"
-        elif errors == total:
-            new_status = "failed"
-        elif parsed + errors == total:
-            new_status = "completed" if errors == 0 else "partial"
-        else:
-            new_status = "processing"
+        task_type  = workflow.workflow_type if workflow else "custom"
+        tool_names = WORKFLOW_TOOL_NAMES.get(task_type, ALL_TOOL_NAMES) if batch else []
 
-        UploadBatch.objects.filter(pk=batch.pk).update(
-            file_count      = total,
-            processed_count = parsed,
-            error_count     = errors,
-            status          = new_status,
+        target_file = None
+        files = []
+        if batch:
+            files = list(batch.files.order_by("uploaded_at"))
+            if len(files) == 1:
+                target_file = files[0]
+
+        user_prompt = message
+        if target_file and target_file.extracted_text:
+            user_prompt += (
+                f"\n\n[File: {target_file.original_filename} "
+                f"id={target_file.pk} type={target_file.detected_type or target_file.extension}]\n"
+                f"{target_file.extracted_text[:6000]}"
+            )
+        elif batch and files:
+            listing = "\n".join(
+                f"  - file_id={f.pk} '{f.original_filename}' "
+                f"(type={f.detected_type or f.extension})"
+                for f in files
+            )
+            user_prompt += (
+                f"\n\n[Batch id={batch.pk} has {len(files)} files. Call detect_file_type "
+                f"on each, then the matching extractor; for a URA/KRA-vs-ACON request call "
+                f"reconcile_ura_vs_acon with the fiscal file_id and the ACON file_id:\n{listing}]"
+            )
+        elif batch:
+            user_prompt += f"\n\n[Batch id={batch.pk}: {batch.label}]"
+
+        system_prompt = _build_system_prompt(workflow=workflow, user_intent=message)
+
+        job = AIEngineService.create_job(
+            batch         = batch or _get_or_create_dummy_batch(user),
+            task_type     = task_type,
+            user_intent   = message,
+            user_prompt   = user_prompt,
+            system_prompt = system_prompt,
+            target_file   = target_file,
+            requested_by  = user,
         )
-        batch.refresh_from_db()
+
+        job.status     = "running"
+        job.started_at = datetime.now(tz.utc)
+        job.save(update_fields=["status", "started_at"])
+
+        try:
+            final_text, tool_call_pks = ToolService.run(
+                system_prompt=system_prompt,
+                user_message=user_prompt,
+                tool_names=tool_names,
+                job=job,
+                conversation_history=conversation_history,
+            )
+
+            tool_results = [
+                tc.result for tc in job.tool_calls.filter(status="success") if tc.result
+            ]
+            _persist_insights(job, tool_results)
+
+            job.raw_response = final_text
+            job.status        = "done"
+            job.finished_at    = datetime.now(tz.utc)
+            job.save(update_fields=["raw_response", "status", "finished_at"])
+
+            return final_text, job.pk
+
+        except Exception as exc:
+            logger.exception("handle_chat_message failed: %s", exc)
+            job.status        = "error"
+            job.error_message = str(exc)
+            job.finished_at    = datetime.now(tz.utc)
+            job.save(update_fields=["status", "error_message", "finished_at"])
+            return f"Sorry, something went wrong: {exc}", job.pk
+
+    # ── Requeue ─────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def requeue(job_id: int) -> None:
+        """Reset a failed/done job back to queued and re-run it via Celery."""
+        from .models import AIAnalysisJob
+        from .tasks import run_ai_job_task
+
+        try:
+            job = AIAnalysisJob.objects.get(pk=job_id)
+        except AIAnalysisJob.DoesNotExist:
+            logger.error("Cannot requeue — job %s not found", job_id)
+            return
+
+        if job.status not in ("error", "done"):
+            logger.warning("Cannot requeue job %s — status is '%s'", job_id, job.status)
+            return
+
+        job.status         = "queued"
+        job.raw_response   = ""
+        job.error_message  = ""
+        job.input_tokens    = 0
+        job.output_tokens   = 0
+        job.started_at      = None
+        job.finished_at     = None
+        job.structured_output = None
+        job.save()
+        job.insights.all().delete()
+        job.tool_calls.all().delete()
+
+        run_ai_job_task.delay(job_id)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helper
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _get_or_create_dummy_batch(user):
+    """
+    Return a placeholder batch for chat messages that have no uploaded files.
+    This keeps the FK constraint on AIAnalysisJob.batch satisfied.
+
+    NOTE: UploadBatch lives in the `uploads` app — imported lazily here,
+    not at module level, to avoid a circular import between ai_engine and
+    uploads (and to avoid exactly the bug that crashed startup: importing
+    upload models from `.models` instead of `uploads.models`).
+    """
+    from uploads.models import UploadBatch
+    batch, _ = UploadBatch.objects.get_or_create(
+        label       = "Chat (no files)",
+        uploaded_by = user,
+        defaults    = {"status": "completed", "description": "Auto-created for file-less chat messages."},
+    )
+    return batch
