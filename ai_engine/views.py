@@ -398,7 +398,12 @@ class AIRunAnalysisView(APIView):
     POST /api/ai/run/
     Run a real AI Engine analysis: creates and executes an AIAnalysisJob through
     the agent (which picks and calls the right tools) over the user's most recent
-    uploaded batch, then returns the job id, summary, insights and tools used.
+    uploaded batch, then returns the job id, summary, insights, tools used, and
+    download links for any output files the tools produced.
+
+    Output files are persisted as ChatMessageAttachment records (same mechanism
+    the chat endpoint uses) so they're served by the existing, already-secured
+    chat/views.py:ChatAttachmentDownloadView rather than a second download path.
 
     Request: { "context": str, "pipeline": str (optional) }
     """
@@ -418,8 +423,8 @@ class AIRunAnalysisView(APIView):
         from ai_engine.services import AIEngineService
         from ai_engine.models import AIInsight
         from tools.models import ToolCall
+        from tools.services import ToolService
 
-        # Use the user's most recent batch that actually has files as the source.
         batch = (
             UploadBatch.objects
             .filter(uploaded_by=request.user, file_count__gt=0)
@@ -451,14 +456,66 @@ class AIRunAnalysisView(APIView):
             .values("tool__name", "status")
         ) if job_id else []
 
+        output_files_meta = []
+        if job_id:
+            output_files = ToolService.collect_output_files_for_job(job_id)
+            if output_files:
+                output_files_meta = self._persist_as_chat_attachments(
+                    request, output_files, job_id, summary,
+                )
+
         return Response({
-            "job_id":      job_id,
-            "summary":     summary,
-            "batch":       batch.label if batch else None,
-            "batch_id":    batch.pk if batch else None,
-            "insights":    insights,
-            "tools_used":  tools_used,
+            "job_id":       job_id,
+            "summary":      summary,
+            "batch":        batch.label if batch else None,
+            "batch_id":     batch.pk if batch else None,
+            "insights":     insights,
+            "tools_used":   tools_used,
+            "output_files": output_files_meta,
         })
+
+    @staticmethod
+    def _persist_as_chat_attachments(request, output_files, job_id, summary_text):
+        """
+        Save tool-produced output files as ChatMessageAttachment records on a
+        sentinel "__ai_engine__" conversation for this user, then return
+        download links pointing at chat/views.py:ChatAttachmentDownloadView
+        (GET /api/chat/attachments/<id>/download/) — NOT the raw file_url
+        from ChatMessageAttachmentSerializer, since that points directly at
+        obj.file.url and would skip ChatAttachmentDownloadView's ownership
+        check (att.message.conversation.user != request.user) if media is
+        ever served directly (e.g. via nginx) rather than through Django.
+
+        Reuses chat.views._save_output_attachments rather than re-implementing
+        file persistence here, so there is exactly one place in the codebase
+        that turns a tool output dict into a downloadable attachment.
+        """
+        from chat.models import ChatConversation, ChatMessage
+        from chat.views import _save_output_attachments
+
+        conversation, _ = ChatConversation.objects.get_or_create(
+            user=request.user,
+            title="__ai_engine__",
+            defaults={"is_active": False},
+        )
+        assistant_msg = ChatMessage.objects.create(
+            conversation=conversation,
+            role="assistant",
+            content=f"[AI Engine job {job_id}] {summary_text}",
+        )
+
+        saved_attachments = _save_output_attachments(output_files, assistant_msg)
+
+        return [
+            {
+                "filename": att.filename,
+                "download_url": request.build_absolute_uri(
+                    f"/api/chat/attachments/{att.pk}/download/"
+                ),
+                "content_type": att.file_type,
+            }
+            for att in saved_attachments
+        ]
 
 
 class AIEngineStatsView(APIView):
