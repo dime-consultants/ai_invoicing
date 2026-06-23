@@ -3,14 +3,17 @@
 Universal file extraction service.
 Handles any file type (TXT, CSV, XLSX, PDF, JSON, DOCX, etc.) and extracts
 structured or semi-structured data using Grok AI for intelligent parsing.
+
+NOTE: The tool-handler wrapper for this lives in tools/handlers.py
+(extract_file_universal), which is the function registered against the
+ToolDefinition row and called by ToolService. This module only exposes
+the UniversalFileExtractor class — do not add a duplicate module-level
+extract_file_universal() function here again.
 """
 import logging
 import json
 import re
-from io import BytesIO
 from pathlib import Path
-import csv
-from decimal import Decimal
 
 try:
     import openpyxl
@@ -54,19 +57,19 @@ class UniversalFileExtractor:
     def extract(file_obj, filename: str, context: str = "") -> dict:
         """
         Main entry point for universal file extraction.
-        
+
         Args:
             file_obj: File-like object opened in binary mode
             filename: Original filename (used to determine type)
             context: Optional domain context (e.g., "invoice", "financial report")
-            
+
         Returns:
             {
                 "success": bool,
                 "filename": str,
                 "file_type": str,
-                "raw_content": str,  # Raw extracted text
-                "structured_data": dict,  # AI-parsed structured data
+                "raw_content": str,
+                "structured_data": dict,
                 "metadata": dict,
                 "error": str (if success=False)
             }
@@ -74,12 +77,11 @@ class UniversalFileExtractor:
         try:
             ext = Path(filename).suffix.lower()
             file_type = UniversalFileExtractor.SUPPORTED_FORMATS.get(ext, 'unknown')
-            
-            # Step 1: Extract raw content based on file type
+
             raw_content = UniversalFileExtractor._extract_raw_content(
                 file_obj, filename, ext
             )
-            
+
             if not raw_content:
                 return {
                     "success": False,
@@ -87,17 +89,16 @@ class UniversalFileExtractor:
                     "file_type": file_type,
                     "error": f"Could not extract content from {ext} file",
                 }
-            
-            # Step 2: Use Grok to intelligently parse the content
+
             structured_data = UniversalFileExtractor._parse_with_grok(
                 raw_content, filename, context
             )
-            
+
             return {
                 "success": True,
                 "filename": filename,
                 "file_type": file_type,
-                "raw_content": raw_content[:10000],  # Truncate for storage
+                "raw_content": raw_content[:10000],
                 "structured_data": structured_data,
                 "metadata": {
                     "extension": ext,
@@ -121,12 +122,11 @@ class UniversalFileExtractor:
             if ext == '.txt':
                 file_obj.seek(0)
                 return file_obj.read().decode('utf-8', errors='replace')
-            
+
             elif ext == '.csv':
                 file_obj.seek(0)
-                raw = file_obj.read().decode('utf-8', errors='replace')
-                return raw
-            
+                return file_obj.read().decode('utf-8', errors='replace')
+
             elif ext in ('.xlsx', '.xls'):
                 if not openpyxl:
                     return "[XLSX format not supported - openpyxl not installed]"
@@ -140,7 +140,7 @@ class UniversalFileExtractor:
                         if any(c is not None for c in row):
                             parts.append("\t".join(str(c) if c is not None else "" for c in row))
                 return "\n".join(parts)
-            
+
             elif ext == '.pdf':
                 if not pdfplumber:
                     return "[PDF format not supported - pdfplumber not installed]"
@@ -156,11 +156,11 @@ class UniversalFileExtractor:
                             for row in table:
                                 parts.append("\t".join(str(c) if c is not None else "" for c in row))
                 return "\n".join(parts)
-            
+
             elif ext == '.json':
                 file_obj.seek(0)
                 return file_obj.read().decode('utf-8', errors='replace')
-            
+
             elif ext in ('.docx', '.doc'):
                 if not Document:
                     return "[DOCX format not supported - python-docx not installed]"
@@ -168,16 +168,15 @@ class UniversalFileExtractor:
                 doc = Document(file_obj)
                 parts = [p.text for p in doc.paragraphs if p.text.strip()]
                 return "\n".join(parts)
-            
+
             elif ext in ('.xml', '.html', '.htm'):
                 file_obj.seek(0)
                 return file_obj.read().decode('utf-8', errors='replace')
-            
+
             else:
-                # Fallback: try to read as text
                 file_obj.seek(0)
                 return file_obj.read().decode('utf-8', errors='replace')
-        
+
         except Exception as exc:
             logger.warning(f"Failed to extract raw content from {filename}: {exc}")
             return ""
@@ -193,10 +192,10 @@ class UniversalFileExtractor:
         except ImportError:
             logger.warning("Grok client not available - returning raw content as fallback")
             return {"raw_content": raw_content[:5000]}
-        
+
         system_prompt = """
-You are an expert data extraction specialist. Analyze the provided file content and extract 
-all structured information into clean JSON format. 
+You are an expert data extraction specialist. Analyze the provided file content and extract
+all structured information into clean JSON format.
 
 Return valid JSON only. Never add explanations outside the JSON.
 
@@ -209,7 +208,7 @@ For any file type, extract:
 
 Normalize all data types appropriately (numbers as numbers, dates as YYYY-MM-DD, etc).
 """
-        
+
         user_prompt = f"""
 File: {filename}
 Domain Context: {context or 'General data extraction'}
@@ -227,7 +226,7 @@ Extract all data into this JSON structure:
   "data_quality_issues": []
 }}
 """
-        
+
         try:
             client = _get_client()
             response = client.chat.completions.create(
@@ -239,11 +238,10 @@ Extract all data into this JSON structure:
                 temperature=0.0,
                 max_tokens=4096,
             )
-            
+
             raw_response = response.choices[0].message.content
-            structured = UniversalFileExtractor._safe_json_parse(raw_response)
-            return structured
-        
+            return UniversalFileExtractor._safe_json_parse(raw_response)
+
         except Exception as exc:
             logger.warning(f"Grok parsing failed for {filename}: {exc}")
             return {"error": str(exc), "raw_content": raw_content[:5000]}
@@ -255,7 +253,6 @@ Extract all data into this JSON structure:
             return {"raw_response": ""}
         s = text.strip()
 
-        # Pull JSON out of a ```json … ``` fence even if wrapped in prose.
         fence = re.search(r"```(?:json)?\s*(.*?)```", s, re.DOTALL)
         if fence:
             s = fence.group(1).strip()
@@ -265,7 +262,6 @@ Extract all data into this JSON structure:
         except json.JSONDecodeError:
             pass
 
-        # Fallback: parse the outermost {...} object found in the text.
         start, end = s.find("{"), s.rfind("}")
         if start != -1 and end > start:
             try:
@@ -275,68 +271,3 @@ Extract all data into this JSON structure:
 
         logger.warning("Failed to parse JSON response for output starting: %.120s", s)
         return {"raw_response": text[:1000]}
-
-
-def extract_file_universal(file_id: int, context: str = "") -> dict:
-    """
-    Tool handler: Extract any file using the universal extractor.
-    
-    Args:
-        file_id: ID of the UploadedFile record
-        context: Optional domain context for smarter parsing
-        
-    Returns:
-        {
-            "ok": bool,
-            "file_id": int,
-            "filename": str,
-            "file_type": str,
-            "structured_data": dict,
-            "summary": str,
-            "error": str (if ok=False)
-        }
-    """
-    try:
-        from uploads.models import UploadedFile
-        
-        uf = UploadedFile.objects.get(pk=file_id)
-        uf.file.open('rb')
-        
-        result = UniversalFileExtractor.extract(
-            uf.file,
-            uf.original_filename,
-            context=context
-        )
-        
-        uf.file.close()
-        
-        if result["success"]:
-            return {
-                "ok": True,
-                "file_id": file_id,
-                "filename": result["filename"],
-                "file_type": result["file_type"],
-                "structured_data": result["structured_data"],
-                "summary": f"Successfully extracted {result['file_type']} file with {len(result.get('structured_data', {}).get('records', []))} records",
-            }
-        else:
-            return {
-                "ok": False,
-                "file_id": file_id,
-                "filename": result["filename"],
-                "error": result.get("error", "Unknown error"),
-            }
-    
-    except UploadedFile.DoesNotExist:
-        return {
-            "ok": False,
-            "file_id": file_id,
-            "error": f"File {file_id} not found",
-        }
-    except Exception as exc:
-        logger.exception(f"extract_file_universal failed for file_id={file_id}: {exc}")
-        return {
-            "ok": False,
-            "file_id": file_id,
-            "error": str(exc),
-        }

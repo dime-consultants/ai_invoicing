@@ -2,6 +2,9 @@
 """
 ToolService — LLM tool-calling execution engine.
 
+This is the ONLY tool-calling loop in the codebase. Both chat/services.py
+and ai_engine/services.py call ToolService.run() — neither reimplements it.
+
 Flow
 ----
 1.  Load enabled ToolDefinition rows from the DB and convert them to
@@ -13,8 +16,11 @@ Flow
     or we hit AI_MAX_TOOL_ROUNDS.
 5.  Return the final text response + list of ToolCall PKs.
 
-The caller (ai_engine.services) passes in the AIAnalysisJob so every
-ToolCall can be linked to it for traceability.
+The caller (ai_engine.services or chat.services) passes in an
+AIAnalysisJob so every ToolCall can be linked to it for traceability —
+this is what makes ai_engine/signals.py's WebSocket notifications and
+the admin's audit trail work regardless of which front door (chat UI,
+REST job API) the request came in through.
 """
 
 from __future__ import annotations
@@ -23,6 +29,8 @@ import importlib
 import json
 import logging
 from datetime import datetime, timezone as tz
+from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 from django.conf import settings
@@ -125,9 +133,9 @@ class ToolService:
         ----------
         system_prompt        System instruction for the LLM.
         user_message         The user's request (may include extracted file text).
-        tool_names           Whitelist of tool names to expose. None = all enabled.
-        job                  AIAnalysisJob to link ToolCall records to.
-        conversation_history Previous turns [{role, content}, ...].
+        tool_names            Whitelist of tool names to expose. None = all enabled.
+        job                   AIAnalysisJob to link ToolCall records to.
+        conversation_history  Previous turns [{role, content}, ...].
 
         Returns
         -------
@@ -169,12 +177,9 @@ class ToolService:
             try:
                 response = client.chat.completions.create(**kwargs)
             except Exception as exc:
-                # Log full context for debugging (API errors, HTTP details)
                 logger.exception("Grok API call failed on round %d: %s", round_num + 1, exc)
-                # Surface a readable error to the caller
                 raise RuntimeError(f"Grok API call failed: {exc}") from exc
 
-            # Record token usage if provided
             try:
                 input_tokens  += response.usage.prompt_tokens
                 output_tokens += response.usage.completion_tokens
@@ -186,7 +191,6 @@ class ToolService:
 
             # ── No tool call → final answer ───────────────────────────
             if not message.tool_calls:
-                # Update job token counts if we have one
                 if job is not None:
                     job.input_tokens  = (job.input_tokens  or 0) + input_tokens
                     job.output_tokens = (job.output_tokens or 0) + output_tokens
@@ -217,7 +221,6 @@ class ToolService:
                 tool_name = tc.function.name
                 tool_def  = tool_map.get(tool_name)
 
-                # Unknown tool
                 if tool_def is None:
                     error_msg = f"Tool '{tool_name}' is not registered or not enabled."
                     logger.warning(error_msg)
@@ -229,7 +232,6 @@ class ToolService:
                     })
                     continue
 
-                # Unsafe tool — skip execution, tell Grok
                 if not tool_def.is_safe:
                     skip_msg = (
                         f"Tool '{tool_name}' requires explicit user confirmation. "
@@ -249,13 +251,11 @@ class ToolService:
                     })
                     continue
 
-                # Parse arguments
                 try:
                     arguments = json.loads(tc.function.arguments or "{}")
                 except json.JSONDecodeError:
                     arguments = {}
 
-                # Execute
                 started_at = datetime.now(tz.utc)
                 try:
                     handler = _resolve_handler(tool_def.handler)
@@ -280,7 +280,6 @@ class ToolService:
                 )
                 tool_call_pks.append(tc_record.pk)
 
-                # Feed result back to Grok
                 messages.append({
                     "role":         "tool",
                     "tool_call_id": tc.id,
@@ -301,7 +300,92 @@ class ToolService:
                 max_tokens=max_tokens,
                 temperature=0.2,
             )
-            return final.choices[0].message.content or "", tool_call_pks
+            final_text = final.choices[0].message.content or ""
+            if job is not None:
+                job.raw_response = final_text
+                job.save(update_fields=["raw_response"])
+            return final_text, tool_call_pks
         except Exception as exc:
             logger.exception("Final Grok summarise call failed after max rounds: %s", exc)
             raise RuntimeError(f"Grok final call failed: {exc}") from exc
+
+    # ─────────────────────────────────────────────────────────────────
+    # Output file collection
+    # Shared by chat/services.py and ai_engine/views.py so both entry
+    # points surface tool-produced files (xlsx/pdf/csv) the same way.
+    # ─────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def collect_output_files(tool_call_pks: list[int]) -> list[dict]:
+        """
+        Walk the ToolCall records created during a ToolService.run() call
+        and surface any output files they produced.
+
+        Each tool handler stores the absolute path of its output file in
+        result["output_filename"]. We read those files from disk and
+        return them as {"filename", "content" (BytesIO), "content_type"}
+        dicts that callers can persist as attachments / return as
+        downloads.
+
+        Duplicate paths are deduplicated so that a detect + extract pair
+        doesn't return the same xlsx twice.
+        """
+        if not tool_call_pks:
+            return []
+
+        from .models import ToolCall
+
+        output_files = []
+        seen_paths: set[str] = set()
+
+        for pk in tool_call_pks:
+            try:
+                tc = ToolCall.objects.select_related("tool").get(pk=pk)
+            except ToolCall.DoesNotExist:
+                continue
+
+            result = tc.result or {}
+            if not result.get("ok"):
+                continue
+
+            out_path_str = result.get("output_filename")
+            if not out_path_str or out_path_str in seen_paths:
+                continue
+
+            out_path = Path(out_path_str)
+            if not out_path.exists():
+                logger.warning("Tool output file not found on disk: %s", out_path)
+                continue
+
+            seen_paths.add(out_path_str)
+            try:
+                content = out_path.read_bytes()
+                suffix  = out_path.suffix.lower()
+                output_files.append({
+                    "filename": out_path.name,
+                    "content":  BytesIO(content),
+                    "content_type": (
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        if suffix == ".xlsx"
+                        else "application/pdf"
+                        if suffix == ".pdf"
+                        else "text/csv"
+                        if suffix == ".csv"
+                        else "application/octet-stream"
+                    ),
+                })
+            except Exception as exc:
+                logger.warning("Could not read tool output %s: %s", out_path, exc)
+
+        return output_files
+
+    @staticmethod
+    def collect_output_files_for_job(job_id: int) -> list[dict]:
+        """
+        Convenience wrapper for callers that only have a job_id (e.g. a
+        view looking up a job after the fact) rather than the tool_call_pks
+        returned directly from .run().
+        """
+        from .models import ToolCall
+        pks = list(ToolCall.objects.filter(job_id=job_id).values_list("pk", flat=True))
+        return ToolService.collect_output_files(pks)
