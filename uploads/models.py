@@ -135,6 +135,11 @@ class UploadedFile(models.Model):
         blank=True,
         help_text="Plain-text representation of the file content used by the AI.",
     )
+    page_count = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Number of pages in the document, if applicable.",
+    )   
 
     uploaded_at = models.DateTimeField(auto_now_add=True)
 

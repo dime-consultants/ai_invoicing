@@ -41,7 +41,10 @@ class AIAnalysisJobListCreateView(generics.ListCreateAPIView):
         Filters: ?batch=<id>  ?task_type=flag_anomalies  ?status=done
 
     POST /api/ai/jobs/
-        Create a new job and dispatch it immediately.
+        Create a new job and dispatch it via Celery (asynchronously —
+        the job is returned in 'queued' state; poll GET /api/ai/jobs/<id>/
+        or listen on the WebSocket notifications fired by ai_engine/signals.py
+        for status updates).
 
         Request body:
             {
@@ -81,7 +84,6 @@ class AIAnalysisJobListCreateView(generics.ListCreateAPIView):
 
         vd = serializer.validated_data
 
-        # Build user_prompt from intent (services.py will enrich with file text)
         user_prompt = vd.get("user_intent") or vd["task_type"].replace("_", " ").title()
 
         job = AIEngineService.create_job(
@@ -94,10 +96,13 @@ class AIAnalysisJobListCreateView(generics.ListCreateAPIView):
             requested_by  = request.user,
         )
 
-        # Dispatch synchronously for now — swap for Celery task in production:
-        #   run_ai_job.delay(job.id)
-        AIEngineService.dispatch(job.id)
-        job.refresh_from_db()
+        # Dispatch via Celery rather than running inline — keeps the HTTP
+        # request fast and prevents large files from blocking a web worker.
+        # The job stays "queued" in the response; status transitions
+        # (running/done/error) are pushed via ai_engine/signals.py over
+        # the WebSocket layer, or can be polled via GET /api/ai/jobs/<id>/.
+        from .tasks import run_ai_job_task
+        run_ai_job_task.delay(job.id)
 
         return Response(
             AIAnalysisJobDetailSerializer(job).data,
@@ -129,8 +134,9 @@ class AIAnalysisJobRequeueView(APIView):
     """
     POST /api/ai/jobs/<id>/requeue/
 
-    Reset a failed or completed job back to 'queued' and re-dispatch it.
-    Deletes previous insights and tool calls so they are regenerated cleanly.
+    Reset a failed or completed job back to 'queued' and re-dispatch it
+    via Celery. Deletes previous insights and tool calls so they are
+    regenerated cleanly.
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -149,7 +155,26 @@ class AIAnalysisJobRequeueView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        AIEngineService.requeue(pk)
+        # AIEngineService.requeue() resets the job and calls
+        # AIEngineService.dispatch() directly (synchronously). For
+        # consistency with the create() path above, route requeues
+        # through Celery too.
+        from .models import AIAnalysisJob as _Job
+        from .tasks import run_ai_job_task
+
+        job.status         = "queued"
+        job.raw_response   = ""
+        job.error_message  = ""
+        job.input_tokens    = 0
+        job.output_tokens   = 0
+        job.started_at      = None
+        job.finished_at     = None
+        job.structured_output = None
+        job.save()
+        job.insights.all().delete()
+        job.tool_calls.all().delete()
+
+        run_ai_job_task.delay(job.id)
         job.refresh_from_db()
 
         return Response(AIAnalysisJobDetailSerializer(job).data)
@@ -171,7 +196,6 @@ class AIInsightListView(generics.ListAPIView):
     serializer_class   = AIInsightSerializer
 
     def get_queryset(self):
-        # Ensure the job belongs to this user
         job_qs = AIAnalysisJob.objects.filter(
             pk=self.kwargs["job_id"],
             requested_by=self.request.user,
@@ -213,7 +237,6 @@ class AIInsightActionView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Only the job owner may action insights
         if insight.job.requested_by_id != request.user.pk:
             return Response(
                 {"error": "You do not have permission to action this insight."},
@@ -278,9 +301,7 @@ class AIModelsView(APIView):
 
     def get(self, request):
         from django.conf import settings
-        from django.utils import timezone
 
-        # Static model registry — extend as new models are added
         models = [
             {
                 "id":          "grok-3",
@@ -331,9 +352,7 @@ class AIAnalyzeView(APIView):
         include_confidence = options.get("includeConfidence", True)
         threshold          = float(options.get("threshold", 0.7))
 
-        # Run analysis via the AI engine service
         try:
-            from django.conf import settings
             from ai_engine.services import _get_client, GROK_MODEL
 
             model_map = {
@@ -363,7 +382,6 @@ class AIAnalyzeView(APIView):
             raw = response.choices[0].message.content.strip()
 
             import json
-            # Strip markdown fences if present
             if raw.startswith("```"):
                 raw = raw.split("```", 2)[1]
                 if raw.startswith("json"):
@@ -374,13 +392,11 @@ class AIAnalyzeView(APIView):
             if not isinstance(results, list):
                 results = [results]
 
-            # Apply threshold filter if requested
             if threshold > 0:
                 results = [r for r in results if float(r.get("confidence", 1)) >= threshold]
 
         except Exception as exc:
             logger.exception("AIAnalyzeView failed: %s", exc)
-            # Return a graceful fallback
             results = [
                 {
                     "id":         "fallback-1",
@@ -570,7 +586,6 @@ class AIRecentInsightsView(APIView):
     def get(self, request):
         from .models import AIInsight
 
-        # AIInsight has no own timestamp; order by pk and borrow the job's time.
         rows = (
             AIInsight.objects
             .select_related("job")
