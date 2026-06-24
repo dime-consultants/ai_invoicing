@@ -36,6 +36,10 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 320M
 
   # ── Migrations & collectstatic (one-shot, runs then exits) ─────────────────
   migrate:
@@ -124,6 +128,10 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   # ── Celery monitoring (optional but cheap — recommended while you stabilise this) ─
   # Web UI at http://<host>:5555 showing live task status, failures, retries.

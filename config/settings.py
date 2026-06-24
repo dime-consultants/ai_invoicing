@@ -276,3 +276,28 @@ CELERY_RESULT_BACKEND = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 CELERY_TASK_TIME_LIMIT = 60 * 30        # hard kill at 30 min — a 1000-page doc should never need more
 CELERY_TASK_SOFT_TIME_LIMIT = 60 * 25   # raises a catchable exception 5 min before the hard kill
 CELERY_WORKER_MAX_TASKS_PER_CHILD = 20  # recycle worker processes periodically — caps memory creep
+
+# ── Reliability: survive worker crashes and broker blips without losing jobs ──
+# Without these, a task is acknowledged (removed from the queue) the moment a
+# worker picks it up — not when it finishes. If the worker dies mid-task (as
+# happened during the Redis disconnect above), the job is silently lost with
+# no error and no notification. late ack + prefetch=1 means a task is only
+# acknowledged after it completes successfully; if the worker dies first,
+# Celery redelivers it to another worker instead of losing it.
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+
+# Keep retrying the broker connection indefinitely on startup and during
+# normal operation, rather than giving up after a fixed number of attempts —
+# this is what let the worker recover automatically in the log above, but
+# make the policy explicit rather than relying on library defaults that can
+# change between Celery versions.
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_CONNECTION_RETRY = True
+CELERY_BROKER_CONNECTION_MAX_RETRIES = None  # retry forever, never give up
+
+# If a task is mid-execution when the connection drops, don't auto-cancel it
+# (this flips to True by default in Celery 6.0 per the deprecation warning
+# in your log — pin it explicitly so upgrading Celery doesn't silently
+# change this behavior under you).
+CELERY_WORKER_CANCEL_LONG_RUNNING_TASKS_ON_CONNECTION_LOSS = False
