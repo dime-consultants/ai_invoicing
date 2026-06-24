@@ -20,6 +20,8 @@ services:
       retries: 5
 
   # ── Redis ───────────────────────────────────────────────────────────────────
+  # Shared by both Django Channels (WebSocket notifications) and Celery
+  # (broker + result backend for async file processing).
   redis:
     image: redis:7-alpine
     container_name: invoicing-redis
@@ -53,7 +55,7 @@ services:
       sh -c "python manage.py migrate --noinput &&
              python manage.py collectstatic --noinput"
 
-  # ── Django / Daphne ─────────────────────────────────────────────────────────
+  # ── Django / Daphne (web) ────────────────────────────────────────────────────
   app:
     image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
     container_name: invoicing-app
@@ -66,11 +68,14 @@ services:
     volumes:
       - static_files:/app/staticfiles
       - media_files:/app/media
+      - outputs_files:/app/outputs     # shared with worker — see note below
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - invoicing-network
     healthcheck:
@@ -79,6 +84,66 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  # ── Celery worker ────────────────────────────────────────────────────────────
+  # Consumes ai_engine/tasks.py:run_ai_job_task jobs queued via .delay() from
+  # chat/services.py (large files) and ai_engine/views.py (job-create endpoint).
+  # MUST share the same media + outputs volumes as `app` — it reads uploaded
+  # files from /app/media and writes extraction output (xlsx/pdf/csv) to
+  # /app/outputs/converted/, which `app` then reads back when persisting
+  # ChatMessageAttachment records.
+  worker:
+    image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
+    container_name: invoicing-worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_HOST: db
+      REDIS_URL: redis://redis:6379/0
+      DEBUG: "False"
+    volumes:
+      - media_files:/app/media
+      - outputs_files:/app/outputs
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - invoicing-network
+    command: >
+      celery -A config worker
+      --loglevel=info
+      --concurrency=2
+      --max-tasks-per-child=20
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── Celery monitoring (optional but cheap — recommended while you stabilise this) ─
+  # Web UI at http://<host>:5555 showing live task status, failures, retries.
+  # Safe to delete this service later once things are stable; no other
+  # service depends on it.
+  flower:
+    image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
+    container_name: invoicing-flower
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - invoicing-network
+    command: celery -A config flower --port=5555
+    ports:
+      - "5555:5555"
 
   # ── Nginx ───────────────────────────────────────────────────────────────────
   nginx:
@@ -107,6 +172,7 @@ volumes:
   redis_data:
   static_files:
   media_files:
+  outputs_files:
 
 networks:
   invoicing-network:
