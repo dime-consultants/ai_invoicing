@@ -44,8 +44,22 @@ RUN groupadd -g 1001 django && useradd -u 1001 -g django -s /bin/bash -m django
 # Copy project
 COPY --chown=django:django . .
 
-# Create dirs for static/media
-RUN mkdir -p /app/staticfiles /app/media && chown -R django:django /app
+# Create dirs for static/media/outputs and fix ownership.
+#
+# /app/outputs/converted is where tools/handlers.py writes generated
+# xlsx/csv reports (extract_ura_receipts, extract_safaricom_bill,
+# clean_acon_export, reconcile_ura_vs_acon, generate_report). It's mounted
+# as a separate named volume (outputs_files) shared between the `app` and
+# `worker` services so the Celery worker can write extraction output that
+# the web process later reads back when persisting ChatMessageAttachments.
+#
+# Creating it here — owned by django:django — BEFORE the volume is first
+# attached means Docker preserves this ownership on the mount point even
+# when the named volume is brand new, instead of defaulting to root:root
+# (which is what caused the original PermissionError: the volume was
+# created fresh and nothing had ever chowned it for the django user).
+RUN mkdir -p /app/staticfiles /app/media /app/outputs/converted \
+    && chown -R django:django /app
 
 # Copy entrypoint script
 COPY --chown=django:django docker-entrypoint.sh /app/docker-entrypoint.sh
