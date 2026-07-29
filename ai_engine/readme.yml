@@ -1,0 +1,535 @@
+# AI Invoicing — Frontend API Reference
+
+**Base URL:** `http://localhost:8000` (dev) / `https://invoicing.dimeconsultants.africa` (prod)  
+**Auth:** All endpoints require `Authorization: Bearer <token>` except `/api/auth/login/`  
+**Content-Type:** `application/json` on all POST requests
+
+---
+
+## Authentication
+
+### POST `/api/auth/login/`
+
+Obtain a JWT access token.
+
+**Request**
+```json
+{
+  "email": "user@example.com",
+  "password": "yourpassword"
+}
+```
+
+**Response `200`**
+```json
+{
+  "message": "Welcome back user@example.com",
+  "token": "<jwt_access_token>",
+  "user": {
+    "id": 1,
+    "username": "user@example.com",
+    "email": "user@example.com",
+    "first_name": "Luther",
+    "last_name": "Isaboke",
+    "name": "Luther Isaboke",
+    "role": "admin",
+    "role_display": "Admin",
+    "status": "active",
+    "lastActive": "2026-07-29T11:48:56.399630+03:00",
+    "department": "",
+    "phone": "",
+    "is_active": true,
+    "created_at": "2026-07-29T11:48:56.399568+03:00"
+  }
+}
+```
+
+**Response `400`** — wrong credentials.
+
+> Store the `token` value and send it as `Authorization: Bearer <token>` on every subsequent request.
+
+---
+
+## AI Engine
+
+### GET `/api/ai/models/`
+
+List available AI models and their status.
+
+**Response `200`**
+```json
+{
+  "models": [
+    {
+      "id": "grok-3",
+      "name": "Grok 3",
+      "description": "xAI Grok 3 — primary model for invoice extraction, reconciliation, and anomaly detection.",
+      "status": "active",
+      "accuracy": 94.5,
+      "lastTrained": "2025-01-01T00:00:00Z"
+    },
+    {
+      "id": "grok-3-mini",
+      "name": "Grok 3 Mini",
+      "description": "Faster, lighter model for classification and quick summaries.",
+      "status": "active",
+      "accuracy": 91.2,
+      "lastTrained": "2025-01-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+`status` is `"active"` when `XAI_API_KEY` is configured, `"inactive"` otherwise.
+
+---
+
+### GET `/api/ai/stats/`
+
+Headline stats for the AI Engine dashboard.
+
+**Response `200`**
+```json
+{
+  "analyses_today": 4,
+  "analyses_today_delta_pct": 33,
+  "insights_this_week": 12,
+  "avg_processing_seconds": 18.4
+}
+```
+
+| Field | Description |
+|---|---|
+| `analyses_today` | Jobs created today |
+| `analyses_today_delta_pct` | % change vs yesterday (`null` if no jobs yesterday) |
+| `insights_this_week` | Insights generated in the last 7 days |
+| `avg_processing_seconds` | Average job runtime over the last 200 completed jobs |
+
+---
+
+### GET `/api/ai/insights/recent/`
+
+Most recent AI insights across all jobs (latest 10), shaped for the AI Engine page.
+
+**Response `200`**
+```json
+{
+  "insights": [
+    {
+      "id": 5,
+      "title": "Zero Tax Amount",
+      "description": "Invoice INV-002 has a tax amount of 0.",
+      "severity": "warning",
+      "source": "Anomaly",
+      "created_at": "2026-07-29T14:09:25.694777+03:00"
+    }
+  ]
+}
+```
+
+`severity` values: `"error"` (critical), `"warning"`, `"success"` (info).
+
+---
+
+### POST `/api/ai/analyze/`
+
+Run a one-shot AI analysis on arbitrary data without creating a job or uploading files. Useful for quick checks from the UI.
+
+**Request**
+```json
+{
+  "modelId": "grok-3",
+  "data": {
+    "invoices": [
+      {"id": "INV-001", "amount": 5000, "tax": 800},
+      {"id": "INV-002", "amount": 12000, "tax": 0}
+    ]
+  },
+  "options": {
+    "includeConfidence": true,
+    "threshold": 0.5
+  }
+}
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `modelId` | No | `"grok-3"` (default) or `"grok-3-mini"` |
+| `data` | **Yes** | Any JSON object — invoice lines, batch summaries, etc. |
+| `options.includeConfidence` | No | Include confidence scores (default `true`) |
+| `options.threshold` | No | Drop results below this confidence (default `0.7`) |
+
+**Response `200`**
+```json
+{
+  "results": [
+    {
+      "id": "INV-001",
+      "prediction": "Total including tax: 5800",
+      "confidence": 0.9,
+      "metadata": {
+        "tax_rate": 0.16,
+        "total": 5800
+      }
+    }
+  ]
+}
+```
+
+**Response `400`** — `data` field missing.
+
+> On AI service failure the endpoint returns a graceful fallback result with `confidence: 0.0` rather than a 500, so the UI always gets a parseable response.
+
+---
+
+### POST `/api/ai/run/`
+
+Full agent analysis. Finds the user's most recently uploaded batch, runs Grok with the appropriate tools, and returns a summary, insights, tools used, and download links for any output files produced.
+
+**Request**
+```json
+{
+  "context": "Extract all URA receipts and flag any with zero tax.",
+  "pipeline": "ura_processing"
+}
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `context` | **Yes** | Natural-language instruction for the AI |
+| `pipeline` | No | Hint for which tool set to use. One of: `ura_processing`, `safaricom_processing`, `acon_processing`, `reconciliation`, `classification`, `report_generation` |
+
+**Response `200`**
+```json
+{
+  "job_id": 1,
+  "summary": "Processed 3 URA receipts. Found 1 anomaly: INV-003 has zero tax.",
+  "batch": "April 10–16 upload",
+  "batch_id": 2,
+  "insights": [
+    {
+      "insight_type": "anomaly",
+      "severity": "warning",
+      "title": "Zero Tax Amount",
+      "detail": "INV-003 has tax=0 on amount=45000"
+    }
+  ],
+  "tools_used": [
+    {"tool__name": "detect_file_type", "status": "success"},
+    {"tool__name": "extract_ura_receipts", "status": "success"},
+    {"tool__name": "flag_anomalies", "status": "success"}
+  ],
+  "output_files": [
+    {
+      "filename": "anomaly_report.xlsx",
+      "download_url": "http://localhost:8000/api/chat/attachments/3/download/",
+      "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    }
+  ]
+}
+```
+
+> If the user has no uploaded files, `batch` and `batch_id` are `null` and Grok responds conversationally without calling file tools.
+
+**Response `400`** — `context` missing.  
+**Response `500`** — AI service error.
+
+---
+
+## Jobs
+
+### GET `/api/ai/jobs/`
+
+List all jobs belonging to the authenticated user, newest first.
+
+**Query parameters**
+
+| Param | Example | Description |
+|---|---|---|
+| `status` | `?status=done` | Filter by status: `queued`, `running`, `done`, `error` |
+| `task_type` | `?task_type=flag_anomalies` | Filter by task type (see values below) |
+| `batch` | `?batch=2` | Filter by batch id |
+
+**Task type values**
+
+| Value | Label |
+|---|---|
+| `detect_and_extract` | Detect & Extract |
+| `reconcile` | Reconcile |
+| `summarise_batch` | Summarise Batch |
+| `flag_anomalies` | Flag Anomalies |
+| `explain_variance` | Explain Variance |
+| `classify_lines` | Classify Line Items |
+| `generate_report` | Generate Report |
+| `custom` | Custom Prompt |
+
+**Response `200`** — array of job list objects:
+```json
+[
+  {
+    "id": 2,
+    "task_type": "flag_anomalies",
+    "task_type_display": "Flag Anomalies",
+    "status": "done",
+    "status_display": "Done",
+    "batch": 1,
+    "batch_label": "April 10–16 upload",
+    "target_file": null,
+    "target_filename": null,
+    "requested_by_username": "user@example.com",
+    "user_intent": "Flag any receipts where tax amount is zero or negative.",
+    "input_tokens": 420,
+    "output_tokens": 88,
+    "total_tokens": 508,
+    "duration_seconds": 18.4,
+    "insight_count": 3,
+    "tool_call_count": 4,
+    "created_at": "2026-07-29T14:12:31.433400+03:00",
+    "started_at": "2026-07-29T14:12:32.100000+03:00",
+    "finished_at": "2026-07-29T14:12:50.500000+03:00"
+  }
+]
+```
+
+---
+
+### POST `/api/ai/jobs/`
+
+Create a new job and dispatch it via Celery. Returns immediately in `queued` status — poll `GET /api/ai/jobs/<id>/` or listen on the WebSocket for status updates.
+
+> **Requires Redis + Celery worker running.** Returns `500` if Redis is unavailable.
+
+**Request**
+```json
+{
+  "batch": 1,
+  "target_file": 3,
+  "task_type": "flag_anomalies",
+  "user_intent": "Flag any receipts where tax amount is zero or negative.",
+  "system_prompt": ""
+}
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `batch` | **Yes** | ID of the `UploadBatch` to process |
+| `target_file` | No | ID of a specific `UploadedFile` within the batch |
+| `task_type` | **Yes** | One of the task type values above |
+| `user_intent` | No | Natural-language description of what to do |
+| `system_prompt` | No | Override the default system prompt |
+
+**Response `201`** — full job detail object (same shape as `GET /api/ai/jobs/<id>/`).
+
+---
+
+### GET `/api/ai/jobs/<id>/`
+
+Full detail for a single job.
+
+**Response `200`**
+```json
+{
+  "id": 1,
+  "task_type": "custom",
+  "task_type_display": "Custom Prompt",
+  "status": "done",
+  "status_display": "Done",
+  "batch": 1,
+  "batch_label": "Chat (no files)",
+  "target_file": null,
+  "target_filename": null,
+  "requested_by_username": "user@example.com",
+  "user_intent": "Summarise any recent invoice anomalies.",
+  "input_tokens": 363,
+  "output_tokens": 16,
+  "total_tokens": 379,
+  "duration_seconds": 106.96,
+  "insight_count": 0,
+  "tool_call_count": 0,
+  "created_at": "2026-07-29T14:09:25.694777+03:00",
+  "started_at": "2026-07-29T14:09:25.719856+03:00",
+  "finished_at": "2026-07-29T14:11:12.683373+03:00",
+  "system_prompt": "You are an AI assistant for Kuehne + Nagel...",
+  "user_prompt": "Summarise any recent invoice anomalies.",
+  "raw_response": "No file_id or batch_id provided...",
+  "structured_output": null,
+  "error_message": "",
+  "insights": [],
+  "tool_calls": []
+}
+```
+
+**Response `404`** — job doesn't exist or belongs to another user.
+
+---
+
+### POST `/api/ai/jobs/<id>/requeue/`
+
+Reset a `done` or `error` job back to `queued` and re-dispatch via Celery. Clears all previous insights and tool calls.
+
+> **Requires Redis + Celery worker running.**
+
+**Request** — empty body `{}`
+
+**Response `200`** — full job detail with `status: "queued"`.
+
+**Response `400`**
+```json
+{"error": "Cannot requeue a job with status 'running'."}
+```
+
+**Response `404`** — job not found.
+
+---
+
+## Insights
+
+### GET `/api/ai/jobs/<job_id>/insights/`
+
+All insights produced by a specific job.
+
+**Query parameters**
+
+| Param | Example | Description |
+|---|---|---|
+| `severity` | `?severity=critical` | `critical`, `warning`, `info` |
+| `type` | `?type=anomaly` | `anomaly`, `variance_explanation`, `summary_point`, `classification`, `recommendation` |
+| `actioned` | `?actioned=false` | `true` or `false` |
+
+**Response `200`** — array:
+```json
+[
+  {
+    "id": 5,
+    "insight_type": "anomaly",
+    "insight_type_display": "Anomaly",
+    "severity": "warning",
+    "severity_display": "Warning",
+    "reference_key": "INV-002",
+    "title": "Zero Tax Amount",
+    "detail": "Invoice INV-002 has tax amount of 0 on a gross of 12000.",
+    "source_tool_call": 3,
+    "is_actioned": false,
+    "actioned_by_username": null,
+    "actioned_at": null,
+    "resolution_note": "",
+    "created_at": "2026-07-29T14:12:50.500000+03:00"
+  }
+]
+```
+
+---
+
+### POST `/api/ai/insights/<id>/action/`
+
+Mark an insight as actioned by the current user.
+
+**Request**
+```json
+{
+  "resolution_note": "Reviewed with finance lead — zero-tax invoices are for exempt goods."
+}
+```
+
+`resolution_note` is optional.
+
+**Response `200`** — full insight object with `is_actioned: true`, `actioned_at`, `actioned_by_username`, and `resolution_note` populated.
+
+**Response `400`**
+```json
+{"error": "Insight is already actioned."}
+```
+
+**Response `403`** — insight belongs to another user's job.
+
+**Response `404`** — insight not found.
+
+---
+
+## Batch Shortcut
+
+### GET `/api/ai/batches/<batch_id>/jobs/`
+
+All jobs for a specific batch. Equivalent to `GET /api/ai/jobs/?batch=<id>` but scoped directly to the batch.
+
+**Response `200`** — same shape as `GET /api/ai/jobs/`.
+
+---
+
+## WebSocket Notifications
+
+Jobs push real-time status updates over WebSocket when Celery transitions them between states. The frontend should connect on login and listen for two event types.
+
+**Connection URL**
+```
+ws://localhost:8000/ws/notifications/
+```
+(Include the JWT token per your WS middleware — check `config/ws_middleware.py` for the exact mechanism.)
+
+**Event: job status update**
+```json
+{
+  "type": "job_update",
+  "job_id": 2,
+  "status": "done",
+  "title": "Flag Anomalies — done"
+}
+```
+
+**Event: job complete toast**
+```json
+{
+  "type": "notification",
+  "title": "AI Job Complete",
+  "message": "AI job 'Flag Anomalies' completed. 3 insights generated."
+}
+```
+
+**Event: job failed toast**
+```json
+{
+  "type": "notification",
+  "title": "AI Job Failed",
+  "message": "'Flag Anomalies' failed: XAI_API_KEY is not set in settings / .env"
+}
+```
+
+> WS events are only fired when Celery + Redis are running. Without them, poll `GET /api/ai/jobs/<id>/` on an interval instead.
+
+---
+
+## Error Reference
+
+| Status | Meaning |
+|---|---|
+| `400` | Validation error — check the response body for field-level errors |
+| `401` | Missing or expired token — re-login |
+| `403` | Authenticated but not authorised for this resource |
+| `404` | Resource not found or belongs to another user |
+| `500` | Server error — most commonly Redis/Celery unavailable when dispatching jobs |
+
+---
+
+## Local Dev Notes
+
+**What works without Redis/Celery:**
+- `GET /api/ai/models/`, `GET /api/ai/stats/`, `GET /api/ai/insights/recent/`
+- `POST /api/ai/analyze/` — runs Grok inline, no queue
+- `POST /api/ai/run/` — runs Grok inline via `handle_chat_message`, no queue
+- All `GET` endpoints for jobs, insights, batches
+
+**What requires Redis + Celery:**
+- `POST /api/ai/jobs/` — will 500 without Redis
+- `POST /api/ai/jobs/<id>/requeue/` — will 500 without Redis
+- WebSocket job notifications
+
+**Start Redis + Celery locally (WSL or Docker recommended on Windows):**
+```bash
+# Terminal 1 — Redis
+docker run -p 6379:6379 redis:7-alpine
+
+# Terminal 2 — Celery worker
+cd ai_invoicing
+source .venv/Scripts/activate
+celery -A config worker --loglevel=info --pool=solo   # --pool=solo required on Windows
+```
