@@ -1026,7 +1026,7 @@ def summarise_batch(batch_id: int) -> dict:
     except Exception as exc:
         logger.exception("summarise_batch(%s): %s", batch_id, exc)
         return {"ok": False, "error": str(exc)}
-        return {"ok": False, "error": str(exc)}
+        
 
 
 # ─────────────────────────────────────────────────────────────────────────────

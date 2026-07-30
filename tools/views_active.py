@@ -79,7 +79,7 @@ class JobActiveToolsView(APIView):
                     "name": call.tool.name,
                     "status": call.status,  # pending, running, completed, error
                     "started_at": call.created_at.isoformat() if call.created_at else None,
-                    "completed_at": call.updated_at.isoformat() if call.updated_at else None,
+                    "completed_at": call.finished_at.isoformat() if call.finished_at else None,
                     "error": call.error_message if call.status == "error" else None,
                 }
             )
@@ -113,7 +113,7 @@ class ToolUsageStatsView(APIView):
         # Count tool calls by status
         total_calls = ToolCall.objects.filter(created_at__gte=thirty_days_ago).count()
         completed_calls = ToolCall.objects.filter(
-            created_at__gte=thirty_days_ago, status="completed"
+            created_at__gte=thirty_days_ago, status="success"
         ).count()
         failed_calls = ToolCall.objects.filter(
             created_at__gte=thirty_days_ago, status="error"
