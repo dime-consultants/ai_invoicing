@@ -69,6 +69,24 @@ class ToolDefinition(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    TOOL_TYPE_CHOICES = [
+    ("builtin",          "Built-in Handler"),
+    ("webhook",          "Webhook"),
+    ("prompt_transform", "Prompt Transform"),
+    ]
+    tool_type = models.CharField(
+        max_length=20,
+        choices=TOOL_TYPE_CHOICES,
+        default="builtin",
+    )
+    created_by = models.ForeignKey(
+        "users.User",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="defined_tools",
+        help_text="Null = system built-in; set = user-defined.",
+    )
+    
 
     class Meta:
         verbose_name        = "Tool Definition"
@@ -165,3 +183,40 @@ class ToolCall(models.Model):
             delta = self.finished_at - self.started_at
             return int(delta.total_seconds() * 1000)
         return None
+
+
+class UserToolConfig(models.Model):
+    tool = models.OneToOneField(
+        ToolDefinition,
+        on_delete=models.CASCADE,
+        related_name="user_config",
+    )
+
+    # ── webhook ──────────────────────────────────────────────────────
+    webhook_url     = models.URLField(blank=True)
+    webhook_method  = models.CharField(
+        max_length=10,
+        choices=[("POST", "POST"), ("GET", "GET")],
+        default="POST",
+    )
+    webhook_headers = models.JSONField(
+        default=dict,
+        help_text="Extra headers to send with the webhook request (e.g. auth tokens).",
+    )
+    webhook_timeout_seconds = models.PositiveSmallIntegerField(default=30)
+
+    # ── prompt_transform ─────────────────────────────────────────────
+    system_prompt   = models.TextField(
+        blank=True,
+        help_text=(
+            "System prompt for prompt_transform tools. "
+            "Use {file_text} as the placeholder for the uploaded file's content."
+        ),
+    )
+    output_schema   = models.JSONField(
+        null=True, blank=True,
+        help_text="Optional JSON Schema the LLM output should conform to.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
