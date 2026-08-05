@@ -10,17 +10,14 @@ Flow
 1.  Load enabled ToolDefinition rows from the DB and convert them to
     Grok's `tools=[]` schema format.
 2.  Send the user message + tool list to Grok.
-3.  If Grok returns a tool_call, look up the handler, execute it,
-    write a ToolCall record, then feed the result back to Grok.
+3.  If Grok returns a tool_call, dispatch based on tool_type:
+        builtin          → _resolve_handler() → Python function in tools/handlers.py
+        webhook          → _call_webhook()    → HTTP POST/GET to user's URL
+        prompt_transform → _call_prompt_transform() → Grok sub-call with user prompt
+    Write a ToolCall record, then feed the result back to Grok.
 4.  Repeat until Grok returns a plain text response (no more tool calls)
     or we hit AI_MAX_TOOL_ROUNDS.
 5.  Return the final text response + list of ToolCall PKs.
-
-The caller (ai_engine.services or chat.services) passes in an
-AIAnalysisJob so every ToolCall can be linked to it for traceability —
-this is what makes ai_engine/signals.py's WebSocket notifications and
-the admin's audit trail work regardless of which front door (chat UI,
-REST job API) the request came in through.
 """
 
 from __future__ import annotations
@@ -65,10 +62,6 @@ def _resolve_handler(dotted_path: str):
 
 
 def _load_tool_schemas(tool_names: list[str] | None = None) -> list[dict]:
-    """
-    Return Grok-compatible tool schemas for all enabled ToolDefinitions.
-    If tool_names is provided, only include those tools.
-    """
     from .models import ToolDefinition
     qs = ToolDefinition.objects.filter(enabled=True)
     if tool_names:
@@ -77,14 +70,11 @@ def _load_tool_schemas(tool_names: list[str] | None = None) -> list[dict]:
 
 
 def _load_tool_map(tool_names: list[str] | None = None) -> dict:
-    """
-    Return {tool_name: ToolDefinition} for all enabled tools.
-    """
     from .models import ToolDefinition
     qs = ToolDefinition.objects.filter(enabled=True)
     if tool_names:
         qs = qs.filter(name__in=tool_names)
-    return {td.name: td for td in qs}
+    return {td.name: td for td in qs.select_related("user_config")}
 
 
 def _record_tool_call(
@@ -97,7 +87,6 @@ def _record_tool_call(
     finished_at=None,
     job=None,
 ) -> "ToolCall":
-    """Persist a ToolCall record and return it."""
     from .models import ToolCall
     return ToolCall.objects.create(
         job=job,
@@ -112,6 +101,160 @@ def _record_tool_call(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# User-defined tool dispatchers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _call_webhook(config, arguments: dict) -> dict:
+    """
+    Dispatch a webhook tool.
+
+    POSTs (or GETs) the tool arguments to the user's configured URL.
+    Expects the endpoint to return JSON. Any non-2xx response or timeout
+    is returned as {"ok": False, "error": "..."} so Grok can report it.
+
+    Security note: webhook_headers can contain auth tokens set by the
+    tool creator — these are sent as-is. The is_safe=False flag on webhook
+    tools means ToolService will ask for user confirmation before calling.
+    """
+    import urllib.request
+    import urllib.error
+
+    url     = config.webhook_url
+    method  = config.webhook_method.upper()
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent":   "ai-invoicing/1.0 (webhook-tool)",
+        **{k: str(v) for k, v in (config.webhook_headers or {}).items()},
+    }
+    timeout = config.webhook_timeout_seconds or 30
+
+    try:
+        body = json.dumps(arguments).encode("utf-8") if method == "POST" else None
+
+        if method == "GET" and arguments:
+            import urllib.parse
+            qs  = urllib.parse.urlencode(
+                {k: json.dumps(v) if isinstance(v, (dict, list)) else v
+                 for k, v in arguments.items()}
+            )
+            url = f"{url}?{qs}"
+
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw      = resp.read().decode("utf-8", errors="replace")
+            status   = resp.status
+
+        if status >= 400:
+            return {
+                "ok":     False,
+                "error":  f"Webhook returned HTTP {status}",
+                "detail": raw[:500],
+            }
+
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            # Non-JSON response — wrap it so the LLM gets something useful
+            payload = {"raw_response": raw[:2000]}
+
+        return {"ok": True, **payload}
+
+    except urllib.error.URLError as exc:
+        logger.warning("Webhook call to %s failed: %s", url, exc)
+        return {"ok": False, "error": f"Webhook connection error: {exc.reason}"}
+    except TimeoutError:
+        return {"ok": False, "error": f"Webhook timed out after {timeout}s"}
+    except Exception as exc:
+        logger.exception("Webhook dispatch failed: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
+def _call_prompt_transform(config, arguments: dict) -> dict:
+    """
+    Dispatch a prompt_transform tool.
+
+    Builds a Grok sub-call using the user's system_prompt with two
+    placeholder substitutions:
+        {file_text}   — extracted text of the target file (if file_id in arguments)
+        {arguments}   — the full arguments dict as a JSON string
+
+    The LLM response is returned as {"ok": True, "result": <text>,
+    "structured": <parsed JSON if output_schema is set>}.
+
+    This lets users define powerful extraction or transformation tools
+    without writing any Python — just a good prompt.
+    """
+    client = _get_grok_client()
+    model  = getattr(settings, "GROK_MODEL", "grok-3")
+
+    # ── Resolve file_text if file_id is in arguments ──────────────────────────
+    file_text = ""
+    file_id   = arguments.get("file_id")
+    if file_id:
+        try:
+            from uploads.models import UploadedFile
+            uf        = UploadedFile.objects.get(pk=file_id)
+            file_text = uf.extracted_text or ""
+        except Exception as exc:
+            logger.warning("prompt_transform: could not load file_id=%s: %s", file_id, exc)
+
+    system_prompt = (config.system_prompt or "").format(
+        file_text=file_text[:8000],
+        arguments=json.dumps(arguments, indent=2),
+    )
+
+    # If the user supplied an output_schema, ask the LLM to return JSON only
+    output_schema = config.output_schema
+    if output_schema:
+        system_prompt += (
+            "\n\nRespond ONLY with valid JSON that matches this schema:\n"
+            + json.dumps(output_schema, indent=2)
+            + "\nDo not include any text outside the JSON."
+        )
+
+    user_message = json.dumps(arguments, indent=2) if arguments else "Process the file."
+
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_message},
+            ],
+            temperature=0.1,
+            max_tokens=4096,
+        )
+        raw_text = response.choices[0].message.content or ""
+
+        # ── Try to parse as JSON if output_schema was provided ────────────────
+        structured = None
+        if output_schema:
+            import re
+            s = raw_text.strip()
+            fence = re.search(r"```(?:json)?\s*(.*?)```", s, re.DOTALL)
+            if fence:
+                s = fence.group(1).strip()
+            try:
+                structured = json.loads(s)
+            except json.JSONDecodeError:
+                # Best effort — return raw text alongside the parse failure note
+                structured = {"parse_error": "Response was not valid JSON", "raw": s[:1000]}
+
+        return {
+            "ok":        True,
+            "result":    raw_text,
+            "structured": structured,
+            "input_tokens":  getattr(response.usage, "prompt_tokens", 0),
+            "output_tokens": getattr(response.usage, "completion_tokens", 0),
+        }
+
+    except Exception as exc:
+        logger.exception("prompt_transform dispatch failed: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ToolService
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -123,7 +266,7 @@ class ToolService:
         system_prompt: str,
         user_message: str,
         tool_names: list[str] | None = None,
-        job=None,                          # ai_engine.models.AIAnalysisJob | None
+        job=None,
         conversation_history: list[dict] | None = None,
     ) -> tuple[str, list[int]]:
         """
@@ -140,18 +283,15 @@ class ToolService:
         Returns
         -------
         (response_text, tool_call_pks)
-        response_text   — final plain-text response from Grok
-        tool_call_pks   — PKs of every ToolCall record created this run
         """
         client      = _get_grok_client()
-        model       = getattr(settings, "GROK_MODEL",          "grok-3")
-        max_tokens  = getattr(settings, "AI_MAX_TOKENS",        4096)
-        max_rounds  = getattr(settings, "AI_MAX_TOOL_ROUNDS",   10)
+        model       = getattr(settings, "GROK_MODEL",         "grok-3")
+        max_tokens  = getattr(settings, "AI_MAX_TOKENS",       4096)
+        max_rounds  = getattr(settings, "AI_MAX_TOOL_ROUNDS",  10)
 
         tool_schemas = _load_tool_schemas(tool_names)
         tool_map     = _load_tool_map(tool_names)
 
-        # ── Build initial message list ────────────────────────────────
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
         if conversation_history:
             messages.extend(conversation_history)
@@ -160,7 +300,6 @@ class ToolService:
         tool_call_pks: list[int] = []
         input_tokens = output_tokens = 0
 
-        # ── Tool-calling loop ─────────────────────────────────────────
         for round_num in range(max_rounds):
             logger.debug("Tool loop round %d/%d", round_num + 1, max_rounds)
 
@@ -184,22 +323,21 @@ class ToolService:
                 input_tokens  += response.usage.prompt_tokens
                 output_tokens += response.usage.completion_tokens
             except Exception:
-                logger.debug("Grok response missing usage fields; skipping token accounting")
+                pass
 
             choice  = response.choices[0]
             message = choice.message
 
-            # ── No tool call → final answer ───────────────────────────
+            # ── No tool call → final answer ───────────────────────────────────
             if not message.tool_calls:
                 if job is not None:
                     job.input_tokens  = (job.input_tokens  or 0) + input_tokens
                     job.output_tokens = (job.output_tokens or 0) + output_tokens
                     job.raw_response  = message.content or ""
                     job.save(update_fields=["input_tokens", "output_tokens", "raw_response"])
-
                 return message.content or "", tool_call_pks
 
-            # ── Append assistant message with tool_calls to history ───
+            # ── Append assistant message ──────────────────────────────────────
             messages.append({
                 "role":       "assistant",
                 "content":    message.content or "",
@@ -216,7 +354,7 @@ class ToolService:
                 ],
             })
 
-            # ── Execute each tool call ────────────────────────────────
+            # ── Execute each tool call ────────────────────────────────────────
             for tc in message.tool_calls:
                 tool_name = tc.function.name
                 tool_def  = tool_map.get(tool_name)
@@ -258,10 +396,35 @@ class ToolService:
 
                 started_at = datetime.now(tz.utc)
                 try:
-                    handler = _resolve_handler(tool_def.handler)
-                    result  = handler(**arguments)
-                    status  = "success" if result.get("ok", True) else "error"
+                    # ── Three-way dispatch ────────────────────────────────────
+                    tool_type = tool_def.tool_type
+
+                    if tool_type == "builtin":
+                        handler = _resolve_handler(tool_def.handler)
+                        result  = handler(**arguments)
+
+                    elif tool_type == "webhook":
+                        try:
+                            cfg = tool_def.user_config
+                        except Exception:
+                            result = {"ok": False, "error": "Webhook tool has no config."}
+                        else:
+                            result = _call_webhook(cfg, arguments)
+
+                    elif tool_type == "prompt_transform":
+                        try:
+                            cfg = tool_def.user_config
+                        except Exception:
+                            result = {"ok": False, "error": "Prompt transform tool has no config."}
+                        else:
+                            result = _call_prompt_transform(cfg, arguments)
+
+                    else:
+                        result = {"ok": False, "error": f"Unknown tool_type '{tool_type}'."}
+
+                    status        = "success" if result.get("ok", True) else "error"
                     error_message = result.get("error", "") if not result.get("ok", True) else ""
+
                 except Exception as exc:
                     result        = {"ok": False, "error": str(exc)}
                     status        = "error"
@@ -287,18 +450,16 @@ class ToolService:
                     "content":      json.dumps(result),
                 })
 
-        # ── Max rounds hit — ask Grok to summarise what it found ──────
+        # ── Max rounds — force final answer ──────────────────────────────────
         logger.warning("Tool loop hit max rounds (%d) — forcing final answer", max_rounds)
         messages.append({
             "role":    "user",
             "content": "Please provide your final answer based on the tool results so far.",
         })
         try:
-            final = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=0.2,
+            final      = client.chat.completions.create(
+                model=model, messages=messages,
+                max_tokens=max_tokens, temperature=0.2,
             )
             final_text = final.choices[0].message.content or ""
             if job is not None:
@@ -306,30 +467,15 @@ class ToolService:
                 job.save(update_fields=["raw_response"])
             return final_text, tool_call_pks
         except Exception as exc:
-            logger.exception("Final Grok summarise call failed after max rounds: %s", exc)
+            logger.exception("Final Grok call failed after max rounds: %s", exc)
             raise RuntimeError(f"Grok final call failed: {exc}") from exc
 
-    # ─────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # Output file collection
-    # Shared by chat/services.py and ai_engine/views.py so both entry
-    # points surface tool-produced files (xlsx/pdf/csv) the same way.
-    # ─────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     @staticmethod
     def collect_output_files(tool_call_pks: list[int]) -> list[dict]:
-        """
-        Walk the ToolCall records created during a ToolService.run() call
-        and surface any output files they produced.
-
-        Each tool handler stores the absolute path of its output file in
-        result["output_filename"]. We read those files from disk and
-        return them as {"filename", "content" (BytesIO), "content_type"}
-        dicts that callers can persist as attachments / return as
-        downloads.
-
-        Duplicate paths are deduplicated so that a detect + extract pair
-        doesn't return the same xlsx twice.
-        """
         if not tool_call_pks:
             return []
 
@@ -381,11 +527,6 @@ class ToolService:
 
     @staticmethod
     def collect_output_files_for_job(job_id: int) -> list[dict]:
-        """
-        Convenience wrapper for callers that only have a job_id (e.g. a
-        view looking up a job after the fact) rather than the tool_call_pks
-        returned directly from .run().
-        """
         from .models import ToolCall
         pks = list(ToolCall.objects.filter(job_id=job_id).values_list("pk", flat=True))
         return ToolService.collect_output_files(pks)
