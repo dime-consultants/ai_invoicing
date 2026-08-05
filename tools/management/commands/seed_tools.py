@@ -1,28 +1,39 @@
 # tools/management/commands/seed_tools.py
 """
 python manage.py seed_tools
+python manage.py seed_tools --export /app/tools_export.json
+python manage.py seed_tools --export-only /app/tools_export.json
 
-Creates (or updates) every ToolDefinition the system ships with.
+Replaces both `register_tools` and `sync_tools_to_ui`.
 
-Builtin tools (tool_type="builtin") point to a Python handler in
-tools/handlers.py — these are domain-agnostic primitives.
+What it does
+------------
+1. Creates / updates every built-in ToolDefinition (tool_type="builtin")
+   pointing to an abstract primitive in tools/handlers.py.
+2. Creates / updates every domain ToolDefinition (tool_type="prompt_transform")
+   with its system_prompt stored in UserToolConfig — editable from Django admin
+   without a code deploy.
+3. Disables any ToolDefinition that is no longer in this manifest but was
+   previously seeded by this command (created_by=None, tool_type != "webhook")
+   so stale rows don't confuse Grok.
+4. Optionally writes a JSON export of all enabled tools for the frontend
+   (--export or --export-only flags).
 
-Domain tools (tool_type="prompt_transform") carry a system_prompt
-that tells Grok how to perform the business task. They are editable
-by admin users without touching Python code, and serve as the
-reference implementation that users can clone to create their own
-variants.
-
-Running this command is idempotent — existing rows are updated in-place
-so job history and ToolCall audit trails are preserved.
+Idempotent — safe to run on every deploy.
 """
+
+import json
+from pathlib import Path
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool manifest
+# ─────────────────────────────────────────────────────────────────────────────
+
 BUILTIN_TOOLS = [
-    # ── Primitives ────────────────────────────────────────────────────────────
     {
         "name":         "read_file",
         "display_name": "Read File",
@@ -38,7 +49,10 @@ BUILTIN_TOOLS = [
         "parameters_schema": {
             "type": "object",
             "properties": {
-                "file_id":   {"type": "integer", "description": "PK of the UploadedFile record."},
+                "file_id":   {
+                    "type": "integer",
+                    "description": "PK of the UploadedFile record.",
+                },
                 "max_chars": {
                     "type": "integer",
                     "description": "Truncate returned text to this many characters. Default 12000.",
@@ -63,7 +77,10 @@ BUILTIN_TOOLS = [
         "parameters_schema": {
             "type": "object",
             "properties": {
-                "file_id": {"type": "integer", "description": "PK of the UploadedFile record."},
+                "file_id": {
+                    "type": "integer",
+                    "description": "PK of the UploadedFile record.",
+                },
             },
             "required": ["file_id"],
         },
@@ -83,10 +100,25 @@ BUILTIN_TOOLS = [
         "parameters_schema": {
             "type": "object",
             "properties": {
-                "filename":   {"type": "string",  "description": "Output filename, e.g. 'ura_report.xlsx'."},
-                "headers":    {"type": "array",   "items": {"type": "string"}, "description": "Column header labels."},
-                "rows":       {"type": "array",   "items": {"type": "array"},  "description": "List of row arrays."},
-                "sheet_name": {"type": "string",  "description": "Worksheet tab name. Default 'Sheet1'.", "default": "Sheet1"},
+                "filename":   {
+                    "type": "string",
+                    "description": "Output filename, e.g. 'ura_report.xlsx'.",
+                },
+                "headers":    {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Column header labels.",
+                },
+                "rows":       {
+                    "type": "array",
+                    "items": {"type": "array"},
+                    "description": "List of row arrays.",
+                },
+                "sheet_name": {
+                    "type": "string",
+                    "description": "Worksheet tab name. Default 'Sheet1'.",
+                    "default": "Sheet1",
+                },
             },
             "required": ["filename", "headers", "rows"],
         },
@@ -106,12 +138,19 @@ BUILTIN_TOOLS = [
         ),
         "category": "utility",
         "handler":  "tools.handlers.run_python",
-        "is_safe":  False,   # requires user confirmation
+        "is_safe":  False,
         "parameters_schema": {
             "type": "object",
             "properties": {
-                "code":    {"type": "string", "description": "Python source code to execute."},
-                "context": {"type": "object", "description": "Values injected into the snippet namespace.", "default": {}},
+                "code":    {
+                    "type": "string",
+                    "description": "Python source code to execute.",
+                },
+                "context": {
+                    "type": "object",
+                    "description": "Values injected into the snippet namespace.",
+                    "default": {},
+                },
             },
             "required": ["code"],
         },
@@ -126,15 +165,34 @@ BUILTIN_TOOLS = [
         ),
         "category": "utility",
         "handler":  "tools.handlers.call_webhook",
-        "is_safe":  False,   # posts to external systems
+        "is_safe":  False,
         "parameters_schema": {
             "type": "object",
             "properties": {
-                "url":             {"type": "string",  "description": "Endpoint URL."},
-                "payload":         {"type": "object",  "description": "Request body (POST) or query params (GET).", "default": {}},
-                "method":          {"type": "string",  "description": "'POST' or 'GET'. Default 'POST'.", "default": "POST"},
-                "headers":         {"type": "object",  "description": "Extra HTTP headers.", "default": {}},
-                "timeout_seconds": {"type": "integer", "description": "Timeout in seconds (1–120). Default 30.", "default": 30},
+                "url":             {
+                    "type": "string",
+                    "description": "Endpoint URL.",
+                },
+                "payload":         {
+                    "type": "object",
+                    "description": "Request body (POST) or query params (GET).",
+                    "default": {},
+                },
+                "method":          {
+                    "type": "string",
+                    "description": "'POST' or 'GET'. Default 'POST'.",
+                    "default": "POST",
+                },
+                "headers":         {
+                    "type": "object",
+                    "description": "Extra HTTP headers.",
+                    "default": {},
+                },
+                "timeout_seconds": {
+                    "type": "integer",
+                    "description": "Timeout in seconds (1–120). Default 30.",
+                    "default": 30,
+                },
             },
             "required": ["url"],
         },
@@ -143,7 +201,6 @@ BUILTIN_TOOLS = [
 
 
 PROMPT_TRANSFORM_TOOLS = [
-    # ── Domain tools — editable by admins, cloneable by users ─────────────────
     {
         "name":         "extract_invoice_data",
         "display_name": "Extract Invoice Data",
@@ -158,7 +215,10 @@ PROMPT_TRANSFORM_TOOLS = [
         "parameters_schema": {
             "type": "object",
             "properties": {
-                "file_id": {"type": "integer", "description": "PK of the UploadedFile to extract."},
+                "file_id": {
+                    "type": "integer",
+                    "description": "PK of the UploadedFile to extract.",
+                },
                 "context": {
                     "type": "string",
                     "description": (
@@ -197,7 +257,7 @@ Output format:
       "total": <number or null>,
       "tax": <number or null>,
       "net": <number or null>,
-      "extra": {}   // any other fields found
+      "extra": {}
     }
   ],
   "summary": {
@@ -221,15 +281,14 @@ Context hint: {arguments}
             },
         },
     },
-
     {
         "name":         "flag_anomalies",
         "display_name": "Flag Anomalies",
         "description": (
             "Scan a set of invoice or transaction records for anomalies: "
-            "duplicate IDs, zero values, unusually large amounts (statistical outlier), "
+            "duplicate IDs, zero values, unusually large amounts, "
             "missing tax on taxable amounts, round-number estimates. "
-            "Pass the file content or a JSON array of records."
+            "Pass a file_id or a JSON array of already-extracted records."
         ),
         "category": "analysis",
         "is_safe":  True,
@@ -257,15 +316,14 @@ You have been given either:
 (a) the raw text of a fiscal file, or
 (b) a JSON array of already-extracted invoice records.
 
-Your job — scan every record and flag anomalies. Apply these checks:
-
-1. DUPLICATE_ID       — same invoice/CU/FDN number appears more than once
-2. ZERO_TOTAL         — total amount is 0 or null on a non-credit-note entry
-3. ZERO_TAX           — fiscal receipt with a positive total but zero tax
-4. STATISTICAL_OUTLIER — total is more than 3 standard deviations above the mean
-5. ROUND_NUMBER       — total is an exact multiple of 1000 (possible estimate)
-6. MISSING_DATE       — date field is empty or unparseable
-7. NEGATIVE_AMOUNT    — total or tax is negative on a non-credit entry
+Scan every record and flag anomalies using these checks:
+1. DUPLICATE_ID        — same invoice/CU/FDN number appears more than once
+2. ZERO_TOTAL          — total is 0 or null on a non-credit-note entry
+3. ZERO_TAX            — fiscal receipt with positive total but zero tax
+4. STATISTICAL_OUTLIER — total more than 3 standard deviations above the mean
+5. ROUND_NUMBER        — total is an exact multiple of 1000 (possible estimate)
+6. MISSING_DATE        — date field is empty or unparseable
+7. NEGATIVE_AMOUNT     — total or tax is negative on a non-credit entry
 
 Return ONLY valid JSON — no prose, no markdown.
 
@@ -302,7 +360,6 @@ Records (if provided directly):
             },
         },
     },
-
     {
         "name":         "reconcile_datasets",
         "display_name": "Reconcile Datasets",
@@ -316,35 +373,18 @@ Records (if provided directly):
         "parameters_schema": {
             "type": "object",
             "properties": {
-                "file_id_a": {
-                    "type": "integer",
-                    "description": "PK of the first file (e.g. URA/KRA fiscal export).",
-                },
-                "file_id_b": {
-                    "type": "integer",
-                    "description": "PK of the second file (e.g. ACON export).",
-                },
-                "join_key": {
+                "file_id_a":   {"type": "integer", "description": "PK of the first file."},
+                "file_id_b":   {"type": "integer", "description": "PK of the second file."},
+                "join_key":    {
                     "type": "string",
-                    "description": (
-                        "The field name to join on, e.g. 'fiscal_number', 'invoice_id'. "
-                        "Default: the tool will infer the best join key."
-                    ),
+                    "description": "Field to join on. Default: inferred.",
                     "default": "",
                 },
-                "amount_key_a": {
-                    "type": "string",
-                    "description": "Amount field in file A. Default: inferred.",
-                    "default": "",
-                },
-                "amount_key_b": {
-                    "type": "string",
-                    "description": "Amount field in file B. Default: inferred.",
-                    "default": "",
-                },
-                "tolerance": {
+                "amount_key_a": {"type": "string", "description": "Amount field in file A. Default: inferred.", "default": ""},
+                "amount_key_b": {"type": "string", "description": "Amount field in file B. Default: inferred.", "default": ""},
+                "tolerance":   {
                     "type": "number",
-                    "description": "Variance tolerance — differences below this are considered matched. Default 1.0.",
+                    "description": "Variance tolerance. Default 1.0.",
                     "default": 1.0,
                 },
             },
@@ -353,17 +393,17 @@ Records (if provided directly):
         "system_prompt": """\
 You are a financial reconciliation specialist.
 
-You have been given the text content of TWO files. Your job is to reconcile them.
+You have been given the text content of TWO files. Reconcile them.
 
 Steps:
 1. Parse each file and extract its records. Identify the natural join key
-   (invoice number, fiscal number, CU number, FDN, or whatever is common to both).
-   If join_key is specified in the arguments, use that.
+   (invoice number, fiscal number, CU number, FDN, or whatever is common).
+   If join_key is specified in arguments, use that.
 2. Match records from file A to file B on the join key.
-3. For matched pairs, compute the variance (amount_A - amount_B).
-   Tolerance for considering a pair "matched" is in the arguments (default 1.0).
-4. List records in A that have no match in B (MISSING_IN_B).
-5. List records in B that have no match in A (MISSING_IN_A).
+3. For matched pairs, compute variance (amount_A - amount_B).
+   Tolerance: differences below tolerance are "MATCH", above are "VARIANCE".
+4. List records in A with no match in B: MISSING_IN_B.
+5. List records in B with no match in A: MISSING_IN_A.
 
 Return ONLY valid JSON — no prose, no markdown.
 
@@ -407,15 +447,13 @@ Arguments (file_id_b, join_key, tolerance, etc.):
             },
         },
     },
-
     {
         "name":         "summarise_batch",
         "display_name": "Summarise Batch",
         "description": (
             "Produce a plain-English and structured summary of an upload batch: "
-            "how many files, what types, parse status breakdown, any errors, "
-            "and a high-level overview of the data inside. "
-            "Accepts batch_id."
+            "file count, types, parse status breakdown, errors, and high-level "
+            "overview of the data inside. Accepts batch_id."
         ),
         "category": "analysis",
         "is_safe":  True,
@@ -432,15 +470,14 @@ Arguments (file_id_b, join_key, tolerance, etc.):
         "system_prompt": """\
 You are a data analyst summarising an upload batch for a finance team.
 
-You have been given metadata about an upload batch and the text content
-of its files.
+You have been given metadata and text content of files in a batch.
 
 Your job:
 1. Count files by type and parse status.
-2. Identify any files with errors and describe the errors briefly.
-3. For successfully parsed files, give a one-sentence summary of what
-   each file contains (record count, date range, total amounts if visible).
-4. Produce an overall batch summary: total records, total amount, date range.
+2. Identify files with errors and describe them briefly.
+3. For parsed files, give a one-sentence summary of each
+   (record count, date range, total amounts if visible).
+4. Produce an overall batch summary.
 
 Return ONLY valid JSON — no prose, no markdown.
 
@@ -448,8 +485,8 @@ Output format:
 {
   "batch_label": "<str>",
   "total_files": <int>,
-  "by_type": {"<type>": <count>, ...},
-  "by_status": {"parsed": <n>, "parse_error": <n>, ...},
+  "by_type": {"<type>": <count>},
+  "by_status": {"parsed": <n>, "parse_error": <n>},
   "error_files": [{"filename": "...", "error": "..."}],
   "file_summaries": [{"filename": "...", "summary": "..."}],
   "overall": {
@@ -469,22 +506,21 @@ Arguments:
         "output_schema": {
             "type": "object",
             "properties": {
-                "batch_label":    {"type": "string"},
-                "total_files":    {"type": "integer"},
-                "by_type":        {"type": "object"},
-                "by_status":      {"type": "object"},
-                "narrative":      {"type": "string"},
+                "batch_label": {"type": "string"},
+                "total_files": {"type": "integer"},
+                "by_type":     {"type": "object"},
+                "by_status":   {"type": "object"},
+                "narrative":   {"type": "string"},
             },
         },
     },
-
     {
         "name":         "clean_dataset",
         "display_name": "Clean Dataset",
         "description": (
             "Normalise and clean any tabular dataset: strip empty rows, "
-            "standardise date formats, fix float artefacts (trailing .0 on IDs), "
-            "deduplicate, and return a clean JSON array of records ready for "
+            "standardise date formats, fix float artefacts on IDs, "
+            "deduplicate, and return clean JSON records ready for "
             "downstream processing or write_xlsx."
         ),
         "category": "transformation",
@@ -500,13 +536,14 @@ Arguments:
                     "type": "array",
                     "items": {"type": "string"},
                     "description": (
-                        "List of cleaning operations to apply. "
-                        "Options: 'strip_empty', 'deduplicate', 'normalise_dates', "
-                        "'fix_ids', 'normalise_numbers'. "
-                        "Default: all operations."
+                        "Cleaning operations to apply. Options: strip_empty, "
+                        "deduplicate, normalise_dates, fix_ids, normalise_numbers. "
+                        "Default: all."
                     ),
-                    "default": ["strip_empty", "deduplicate", "normalise_dates",
-                                "fix_ids", "normalise_numbers"],
+                    "default": [
+                        "strip_empty", "deduplicate", "normalise_dates",
+                        "fix_ids", "normalise_numbers",
+                    ],
                 },
             },
             "required": ["file_id"],
@@ -518,8 +555,8 @@ Apply the requested cleaning operations:
 - strip_empty:       remove rows where all fields are blank
 - deduplicate:       remove rows with identical ID fields
 - normalise_dates:   convert all date strings to YYYY-MM-DD
-- fix_ids:           strip trailing ".0" from numeric ID strings (e.g. "1234.0" → "1234")
-- normalise_numbers: strip commas and spaces from numeric strings, convert to numbers
+- fix_ids:           strip trailing ".0" from numeric ID strings
+- normalise_numbers: strip commas/spaces from numeric strings, convert to numbers
 
 Operations requested: {arguments}
 
@@ -531,9 +568,7 @@ Output format:
   "cleaned_count": <int>,
   "removed_count": <int>,
   "operations_applied": ["..."],
-  "records": [
-    { <field>: <cleaned value>, ... }
-  ],
+  "records": [{ <field>: <cleaned value> }],
   "notes": "<any data quality observations>"
 }
 
@@ -552,19 +587,60 @@ File content:
     },
 ]
 
+# All names this command owns — used to disable stale seeded rows
+ALL_SEEDED_NAMES = (
+    {t["name"] for t in BUILTIN_TOOLS}
+    | {t["name"] for t in PROMPT_TRANSFORM_TOOLS}
+)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Command
+# ─────────────────────────────────────────────────────────────────────────────
 
 class Command(BaseCommand):
-    help = "Seed or update all built-in ToolDefinitions and domain prompt_transform tools."
+    help = (
+        "Seed / update all built-in ToolDefinitions. "
+        "Replaces both register_tools and sync_tools_to_ui."
+    )
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--export",
+            metavar="PATH",
+            help=(
+                "After seeding, write a JSON export of all enabled tools to PATH. "
+                "Used by the frontend to load tool metadata without an API call."
+            ),
+        )
+        parser.add_argument(
+            "--export-only",
+            metavar="PATH",
+            help="Skip seeding; only export the current tool list to PATH.",
+        )
 
     @transaction.atomic
     def handle(self, *args, **options):
         from tools.models import ToolDefinition, UserToolConfig
 
-        created_count = updated_count = 0
+        export_path  = options.get("export")
+        export_only  = options.get("export_only")
 
-        # ── Builtin tools ─────────────────────────────────────────────────────
+        if not export_only:
+            self._seed(ToolDefinition, UserToolConfig)
+
+        if export_path or export_only:
+            target = export_only or export_path
+            self._export(ToolDefinition, target)
+
+    # ── Seed ──────────────────────────────────────────────────────────────────
+
+    def _seed(self, ToolDefinition, UserToolConfig):
+        created = updated = disabled = 0
+
+        # ── Builtin primitives ────────────────────────────────────────────────
         for spec in BUILTIN_TOOLS:
-            obj, created = ToolDefinition.objects.update_or_create(
+            _, was_created = ToolDefinition.objects.update_or_create(
                 name=spec["name"],
                 defaults={
                     "display_name":      spec["display_name"],
@@ -578,31 +654,29 @@ class Command(BaseCommand):
                     "created_by":        None,
                 },
             )
-            if created:
-                created_count += 1
-                self.stdout.write(f"  [created] builtin: {spec['name']}")
+            label = "created" if was_created else "updated"
+            self.stdout.write(f"  [{label}] builtin: {spec['name']}")
+            if was_created:
+                created += 1
             else:
-                updated_count += 1
-                self.stdout.write(f"  [updated] builtin: {spec['name']}")
+                updated += 1
 
         # ── Prompt transform tools ────────────────────────────────────────────
         for spec in PROMPT_TRANSFORM_TOOLS:
-            obj, created = ToolDefinition.objects.update_or_create(
+            obj, was_created = ToolDefinition.objects.update_or_create(
                 name=spec["name"],
                 defaults={
                     "display_name":      spec["display_name"],
                     "description":       spec["description"],
                     "category":          spec["category"],
                     "tool_type":         "prompt_transform",
-                    "handler":           "",   # not used
+                    "handler":           "",
                     "parameters_schema": spec["parameters_schema"],
                     "is_safe":           spec.get("is_safe", True),
                     "enabled":           True,
                     "created_by":        None,
                 },
             )
-
-            # Upsert UserToolConfig (holds the prompt + output schema)
             UserToolConfig.objects.update_or_create(
                 tool=obj,
                 defaults={
@@ -611,16 +685,79 @@ class Command(BaseCommand):
                     "webhook_url":   "",
                 },
             )
-
-            if created:
-                created_count += 1
-                self.stdout.write(f"  [created] prompt_transform: {spec['name']}")
+            label = "created" if was_created else "updated"
+            self.stdout.write(f"  [{label}] prompt_transform: {spec['name']}")
+            if was_created:
+                created += 1
             else:
-                updated_count += 1
-                self.stdout.write(f"  [updated] prompt_transform: {spec['name']}")
+                updated += 1
+
+        # ── Disable stale system tools no longer in the manifest ──────────────
+        # Only touches rows where created_by=None and tool_type != "webhook"
+        # (user-defined webhook tools are never auto-disabled).
+        stale_qs = ToolDefinition.objects.filter(
+            created_by=None,
+            enabled=True,
+        ).exclude(
+            name__in=ALL_SEEDED_NAMES,
+        ).exclude(
+            tool_type="webhook",
+        )
+        for stale in stale_qs:
+            stale.enabled = False
+            stale.save(update_fields=["enabled"])
+            self.stdout.write(
+                self.style.WARNING(f"  [disabled] stale tool: {stale.name}")
+            )
+            disabled += 1
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"\nDone. {created_count} created, {updated_count} updated."
+                f"\nSeed complete — {created} created, {updated} updated, "
+                f"{disabled} disabled."
+            )
+        )
+
+    # ── Export ────────────────────────────────────────────────────────────────
+
+    def _export(self, ToolDefinition, path: str):
+        """
+        Write a JSON file consumed by the frontend at build/startup time.
+        Only uses real ToolDefinition model fields — no phantom attributes.
+        """
+        tools = (
+            ToolDefinition.objects
+            .filter(enabled=True)
+            .select_related("user_config")
+            .order_by("category", "name")
+        )
+
+        payload = []
+        for tool in tools:
+            entry = {
+                "id":           tool.id,
+                "name":         tool.name,
+                "display_name": tool.display_name,
+                "description":  tool.description,
+                "category":     tool.category,
+                "tool_type":    tool.tool_type,
+                "is_safe":      tool.is_safe,
+                "version":      tool.version,
+                "grok_schema":  tool.to_grok_schema(),
+                "parameters_schema": tool.parameters_schema,
+                # Include prompt summary for prompt_transform so the UI can
+                # show the user what the tool does without hitting the API.
+                "has_prompt":   tool.tool_type == "prompt_transform",
+                "is_custom":    tool.created_by_id is not None,
+            }
+            payload.append(entry)
+
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(payload, indent=2))
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Exported {len(payload)} tools → {out}"
             )
         )

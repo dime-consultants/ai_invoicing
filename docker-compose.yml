@@ -20,8 +20,6 @@ services:
       retries: 5
 
   # ── Redis ───────────────────────────────────────────────────────────────────
-  # Shared by both Django Channels (WebSocket notifications) and Celery
-  # (broker + result backend for async file processing).
   redis:
     image: redis:7-alpine
     container_name: invoicing-redis
@@ -41,38 +39,59 @@ services:
         limits:
           memory: 320M
 
-  # ── Migrations & collectstatic (one-shot, runs then exits) ─────────────────
+  # ── Migrations + seed (one-shot, runs then exits) ───────────────────────────
+  #
+  # Runs in order:
+  #   1. migrate          — apply any pending Django migrations
+  #   2. seed_tools       — upsert builtin + prompt_transform ToolDefinitions
+  #                         and write /app/tools_export.json for the frontend
+  #   3. collectstatic    — gather static assets into /app/staticfiles
+  #
+  # register_tools and sync_tools_to_ui are removed — seed_tools replaces both.
+  # seed_tools is idempotent: re-running on deploy only updates changed rows.
   migrate:
     image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
     container_name: invoicing-migrate
     restart: "no"
     env_file: .env
     environment:
-      DB_HOST: db
+      DB_HOST:   db
       REDIS_URL: redis://redis:6379/0
     depends_on:
       db:
         condition: service_healthy
     networks:
       - invoicing-network
+    volumes:
+      - tools_export:/app  # shares tools_export.json with app container
     command: >
-      sh -c "python manage.py migrate --noinput &&
-             python manage.py collectstatic --noinput"
+      sh -c "
+        echo '[migrate] Applying migrations...' &&
+        python manage.py migrate --noinput &&
+        echo '[migrate] Seeding tools...' &&
+        python manage.py seed_tools --export /app/tools_export.json &&
+        echo '[migrate] Collecting static files...' &&
+        python manage.py collectstatic --noinput &&
+        echo '[migrate] Done.'
+      "
 
-  # ── Django / Daphne (web) ────────────────────────────────────────────────────
+  # ── Django / Daphne (web) ───────────────────────────────────────────────────
   app:
     image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
     container_name: invoicing-app
     restart: unless-stopped
     env_file: .env
     environment:
-      DB_HOST: db
-      REDIS_URL: redis://redis:6379/0
-      DEBUG: "False"
+      DB_HOST:            db
+      REDIS_URL:          redis://redis:6379/0
+      DEBUG:              "False"
+      # Entrypoint skips startup tasks — migrate service handled them
+      RUN_STARTUP_TASKS:  "false"
     volumes:
       - static_files:/app/staticfiles
       - media_files:/app/media
-      - outputs_files:/app/outputs     # shared with worker — see note below
+      - outputs_files:/app/outputs
+      - tools_export:/app/tools_export_shared  # read tools_export.json if needed
     depends_on:
       db:
         condition: service_healthy
@@ -87,24 +106,25 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
   # ── Celery worker ────────────────────────────────────────────────────────────
-  # Consumes ai_engine/tasks.py:run_ai_job_task jobs queued via .delay() from
-  # chat/services.py (large files) and ai_engine/views.py (job-create endpoint).
-  # MUST share the same media + outputs volumes as `app` — it reads uploaded
-  # files from /app/media and writes extraction output (xlsx/pdf/csv) to
-  # /app/outputs/converted/, which `app` then reads back when persisting
-  # ChatMessageAttachment records.
+  #
+  # Shares media_files and outputs_files with `app`:
+  #   - reads uploaded files from /app/media (written by the web process)
+  #   - writes extracted xlsx/csv to /app/outputs/converted/ (read back by web
+  #     process when persisting ChatMessageAttachment records)
+  #
+  # Does NOT run startup tasks — migrations + seeding happen in `migrate`.
   worker:
     image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
     container_name: invoicing-worker
     restart: unless-stopped
     env_file: .env
     environment:
-      DB_HOST: db
+      DB_HOST:   db
       REDIS_URL: redis://redis:6379/0
-      DEBUG: "False"
+      DEBUG:     "False"
     volumes:
       - media_files:/app/media
       - outputs_files:/app/outputs
@@ -133,10 +153,8 @@ services:
         limits:
           memory: 512M
 
-  # ── Celery monitoring (optional but cheap — recommended while you stabilise this) ─
-  # Web UI at http://<host>:5555 showing live task status, failures, retries.
-  # Safe to delete this service later once things are stable; no other
-  # service depends on it.
+  # ── Flower (Celery monitoring) ───────────────────────────────────────────────
+  # Web UI at http://<host>:5555 — safe to remove once things are stable.
   flower:
     image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
     container_name: invoicing-flower
@@ -181,6 +199,7 @@ volumes:
   static_files:
   media_files:
   outputs_files:
+  tools_export:     # carries tools_export.json from migrate → app
 
 networks:
   invoicing-network:
