@@ -7,8 +7,8 @@ if [ "${RUN_STARTUP_TASKS}" = "true" ]; then
     echo "Collecting static files..."
     python manage.py collectstatic --noinput
 
-    echo "Registering tools..."
-    python manage.py register_tools 2>/dev/null || true
+    echo "Seeding tools..."
+    python manage.py seed_tools 2>/dev/null || true
 
     echo "Syncing tools to UI..."
     python manage.py sync_tools_to_ui --output /app/tools_export.json 2>/dev/null || true
