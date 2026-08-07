@@ -111,11 +111,15 @@ def run_chat_turn_task(
             return
 
         try:
+            # Resolve any attachments saved on the user message so tools
+            # invoked by the agent can access the saved file records.
+            from chat.models import ChatMessageAttachment
+            file_attachments = list(ChatMessageAttachment.objects.filter(message=user_msg))
+
             response_text, output_files = ChatService.get_response(
                 message=content,
                 user=user,
-                file_attachments=None,   # files already ingested in REST path;
-                                         # WS path sends text-only messages
+                file_attachments=file_attachments,
                 workflow_id=workflow_id,
                 conversation_history=conversation_history or [],
             )
