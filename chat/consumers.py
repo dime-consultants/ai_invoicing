@@ -1,17 +1,31 @@
 # chat/consumers.py
 """
-WebSocket consumers for the K+N Finance Automation backend.
+WebSocket consumers for the ai_invoicing backend.
 
 WS /ws/notifications/
-    Real-time notifications pushed to the authenticated user.
-    Each user has their own group: "notifications_<user_id>"
-    The backend pushes to this group whenever a relevant event occurs
-    (file parsed, AI job done, report ready, etc.).
+    Per-user notification channel. The backend pushes to this group whenever
+    a relevant event occurs (file parsed, AI job done, report ready, etc.).
+    Group name: "notifications_<user_id>"
 
 WS /ws/chat/<conversation_id>/
-    Real-time streaming of AI assistant responses for a conversation.
-    Messages sent by the client are processed and the AI response is
-    streamed back token-by-token (or in chunks).
+    Real-time chat for a specific conversation.
+
+    Key design decisions vs. the old implementation
+    ------------------------------------------------
+    1. NO fake streaming — the consumer dispatches the turn to a Celery task
+       (`run_chat_turn_task`) and returns immediately with a "processing" ack.
+       The Celery worker calls push_chat_chunk / push_chat_done on the channel
+       group as the LLM produces output, so the client sees real progress.
+
+    2. NO synchronous heavy work on the ASGI event loop — DB writes and Grok
+       calls happen in the Celery worker process, not inside database_sync_to_async
+       on the WS thread.
+
+    3. Cancellation — the client can send {"type": "cancel"} and the worker
+       will stop processing (checked via a Redis flag).
+
+    The consumers themselves are now very thin: authenticate, validate
+    ownership, ack the message, fire the task, done.
 """
 import json
 import logging
@@ -22,11 +36,7 @@ from django.contrib.auth.models import AnonymousUser
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _notifications_group(user_id) -> str:
+def _notifications_group(user_id: int) -> str:
     return f"notifications_{user_id}"
 
 
@@ -43,29 +53,12 @@ class NotificationsConsumer(AsyncWebsocketConsumer):
     Per-user notification channel.
 
     Connect:  ws://host/ws/notifications/?token=<jwt>
-    Receive:  { "type": "ping" }  → responds with { "type": "pong" }
-    Send:     { "type": "notification", "data": { id, title, message, timestamp } }
-
-    The backend pushes notifications by calling:
-        from channels.layers import get_channel_layer
-        from asgiref.sync import async_to_sync
-
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"notifications_{user_id}",
-            {
-                "type":    "push_notification",
-                "id":      str(uuid),
-                "title":   "...",
-                "message": "...",
-                "timestamp": timezone.now().isoformat(),
-            }
-        )
+    Client→server: { "type": "ping" }
+    Server→client: { "type": "notification" | "job_update" | "file_processed", "data": {...} }
     """
 
     async def connect(self):
         user = self.scope.get("user")
-
         if not user or isinstance(user, AnonymousUser) or not user.is_authenticated:
             logger.warning("WS /ws/notifications/ — unauthenticated, closing.")
             await self.close(code=4001)
@@ -76,44 +69,29 @@ class NotificationsConsumer(AsyncWebsocketConsumer):
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
-
-        # Send a welcome message so the client knows the connection is live
         await self.send(text_data=json.dumps({
             "type":    "connected",
-            "message": f"Notifications channel open for user {user.username}.",
+            "message": f"Notifications open for {user.username}.",
         }))
-        logger.info("WS notifications connected: user=%s group=%s", user.username, self.group_name)
+        logger.info("WS notifications connected: user=%s", user.username)
 
     async def disconnect(self, close_code):
         if hasattr(self, "group_name"):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
-        logger.info("WS notifications disconnected: code=%s", close_code)
 
     async def receive(self, text_data=None, bytes_data=None):
-        """Handle messages from the client (e.g. ping/ack)."""
         if not text_data:
             return
         try:
             data = json.loads(text_data)
         except json.JSONDecodeError:
             return
-
-        msg_type = data.get("type", "")
-
-        if msg_type == "ping":
+        if data.get("type") == "ping":
             await self.send(text_data=json.dumps({"type": "pong"}))
-
-        elif msg_type == "ack":
-            # Client acknowledging receipt of a notification — no-op for now
-            pass
 
     # ── Group message handlers ────────────────────────────────────────────────
 
     async def push_notification(self, event):
-        """
-        Called when the backend sends a notification to this user's group.
-        Forwards it to the WebSocket client in the contract shape.
-        """
         await self.send(text_data=json.dumps({
             "type": "notification",
             "data": {
@@ -125,7 +103,6 @@ class NotificationsConsumer(AsyncWebsocketConsumer):
         }))
 
     async def job_update(self, event):
-        """Push an AI job status update."""
         await self.send(text_data=json.dumps({
             "type": "job_update",
             "data": {
@@ -136,7 +113,6 @@ class NotificationsConsumer(AsyncWebsocketConsumer):
         }))
 
     async def file_processed(self, event):
-        """Push a file-processed notification."""
         await self.send(text_data=json.dumps({
             "type": "file_processed",
             "data": {
@@ -159,22 +135,31 @@ class ChatStreamConsumer(AsyncWebsocketConsumer):
 
     Client → server:
         { "type": "message", "content": "user text", "workflow_id": null }
+        { "type": "cancel" }   — cancel the in-progress turn
+        { "type": "ping"   }
 
-    Server → client (streaming):
-        { "type": "text",  "content": "<chunk>" }   (one or more)
-        { "type": "done",  "conversationId": "<id>", "messageId": "<id>" }
+    Server → client:
+        { "type": "ack",         "turnId": "<uuid>" }          immediately after message received
+        { "type": "processing",  "turnId": "<uuid>" }          Celery task accepted
+        { "type": "text",        "content": "<chunk>",
+                                 "turnId": "<uuid>" }          streamed from worker
+        { "type": "done",        "conversationId": "...",
+                                 "messageId": "...",
+                                 "turnId":    "<uuid>",
+                                 "attachments": [...] }        final
+        { "type": "error",       "message": "...",
+                                 "turnId": "<uuid>" }
+        { "type": "cancelled",   "turnId": "<uuid>" }
 
-    Server → client (error):
-        { "type": "error", "message": "..." }
-
-    The consumer also joins the conversation group so other processes
-    (e.g. a Celery worker finishing an AI job) can push updates:
-        channel_layer.group_send(f"chat_{conversation_id}", { "type": "stream_chunk", ... })
+    The consumer is intentionally thin — it only:
+      1. Authenticates the user and verifies conversation ownership.
+      2. Saves the user message to the DB.
+      3. Fires run_chat_turn_task.delay(turn_id, ...) and acks the client.
+      4. Forwards group messages from the worker back to the client.
     """
 
     async def connect(self):
         user = self.scope.get("user")
-
         if not user or isinstance(user, AnonymousUser) or not user.is_authenticated:
             logger.warning("WS /ws/chat/ — unauthenticated, closing.")
             await self.close(code=4001)
@@ -183,18 +168,19 @@ class ChatStreamConsumer(AsyncWebsocketConsumer):
         self.user            = user
         self.conversation_id = self.scope["url_route"]["kwargs"]["conversation_id"]
         self.group_name      = _chat_group(self.conversation_id)
+        self._active_turn_id = None
 
-        # Verify the conversation belongs to this user
+        # Verify ownership without blocking the event loop too long
         from channels.db import database_sync_to_async
 
         @database_sync_to_async
-        def _check_ownership():
+        def _check():
             from chat.models import ChatConversation
             return ChatConversation.objects.filter(
                 pk=self.conversation_id, user=user
             ).exists()
 
-        if not await _check_ownership():
+        if not await _check():
             logger.warning(
                 "WS /ws/chat/%s — user %s does not own this conversation.",
                 self.conversation_id, user.username,
@@ -204,15 +190,12 @@ class ChatStreamConsumer(AsyncWebsocketConsumer):
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
-
         await self.send(text_data=json.dumps({
             "type":           "connected",
             "conversationId": str(self.conversation_id),
         }))
-        logger.info(
-            "WS chat connected: user=%s conversation=%s",
-            user.username, self.conversation_id,
-        )
+        logger.info("WS chat connected: user=%s conversation=%s",
+                    user.username, self.conversation_id)
 
     async def disconnect(self, close_code):
         if hasattr(self, "group_name"):
@@ -221,23 +204,23 @@ class ChatStreamConsumer(AsyncWebsocketConsumer):
                     getattr(self, "conversation_id", "?"), close_code)
 
     async def receive(self, text_data=None, bytes_data=None):
-        """Handle a message from the client and stream the AI response back."""
         if not text_data:
             return
 
         try:
             data = json.loads(text_data)
         except json.JSONDecodeError:
-            await self.send(text_data=json.dumps({
-                "type":    "error",
-                "message": "Invalid JSON.",
-            }))
+            await self._send_error("Invalid JSON.", turn_id=None)
             return
 
         msg_type = data.get("type", "message")
 
         if msg_type == "ping":
             await self.send(text_data=json.dumps({"type": "pong"}))
+            return
+
+        if msg_type == "cancel":
+            await self._handle_cancel()
             return
 
         if msg_type != "message":
@@ -247,122 +230,122 @@ class ChatStreamConsumer(AsyncWebsocketConsumer):
         workflow_id = data.get("workflow_id")
 
         if not content:
-            await self.send(text_data=json.dumps({
-                "type":    "error",
-                "message": "content is required.",
-            }))
+            await self._send_error("content is required.", turn_id=None)
             return
 
-        # Run the AI response in a thread (ChatService is synchronous)
+        import uuid
+        turn_id = str(uuid.uuid4())
+        self._active_turn_id = turn_id
+
+        # Ack immediately so the client can render the user bubble
+        await self.send(text_data=json.dumps({"type": "ack", "turnId": turn_id}))
+
+        # Save user message and fire Celery task — all in one sync call
         from channels.db import database_sync_to_async
 
         @database_sync_to_async
-        def _get_ai_response():
+        def _save_and_dispatch():
             from chat.models import ChatConversation, ChatMessage
-            from chat.services import ChatService
+            from chat.tasks import run_chat_turn_task
 
-            # Load conversation history (last 20 turns)
             try:
                 conv = ChatConversation.objects.get(
                     pk=self.conversation_id, user=self.user
                 )
             except ChatConversation.DoesNotExist:
-                return None, None, "Conversation not found."
+                return False, "Conversation not found."
 
+            # Build history snapshot before saving the new message
             history = list(
-                ChatMessage.objects.filter(conversation=conv)
-                .order_by("created_at")
-                .values("role", "content")
-            )[-20:]
+                ChatMessage.objects
+                .filter(conversation=conv)
+                .exclude(role="system")
+                .order_by("-created_at")
+                .values("role", "content")[:20]
+            )
+            history.reverse()
             conv_history = [{"role": m["role"], "content": m["content"]} for m in history]
 
-            # Save user message
             user_msg = ChatMessage.objects.create(
                 conversation=conv,
                 role="user",
                 content=content,
             )
 
-            # Get AI response
-            try:
-                response_text, _ = ChatService.get_response(
-                    message=content,
-                    user=self.user,
-                    workflow_id=int(workflow_id) if workflow_id else None,
-                    conversation_history=conv_history,
-                )
-            except Exception as exc:
-                logger.exception("ChatService failed in WS consumer: %s", exc)
-                return None, user_msg.pk, str(exc)
+            # Dispatch to Celery — worker will push chunks to the group
+            run_chat_turn_task.delay(
+                turn_id=turn_id,
+                conversation_id=self.conversation_id,
+                user_message_id=user_msg.pk,
+                user_id=self.user.pk,
+                workflow_id=int(workflow_id) if workflow_id else None,
+                conversation_history=conv_history,
+            )
+            return True, None
 
-            # Save assistant message — mark as WS-origin so the post_save
-            # signal doesn't push a second time (we stream directly below).
-            from chat.signals import mark_ws_origin, clear_ws_origin
-            mark_ws_origin()
-            try:
-                assistant_msg = ChatMessage.objects.create(
-                    conversation=conv,
-                    role="assistant",
-                    content=response_text,
-                )
-            finally:
-                clear_ws_origin()
-
-            # Auto-title
-            from django.utils import timezone as tz
-            if conv.title in ("Untitled Conversation", ""):
-                conv.title = content[:50]
-            conv.updated_at = tz.now()
-            conv.save(update_fields=["title", "updated_at"])
-
-            return response_text, assistant_msg.pk, None
-
-        response_text, message_id, error = await _get_ai_response()
-
-        if error:
-            await self.send(text_data=json.dumps({
-                "type":    "error",
-                "message": error,
-            }))
+        ok, err = await _save_and_dispatch()
+        if not ok:
+            await self._send_error(err, turn_id=turn_id)
             return
 
-        # Stream the response in chunks (simulate token streaming)
-        # In production, replace with actual streaming from the LLM API
-        chunk_size = 80
-        for i in range(0, len(response_text), chunk_size):
-            chunk = response_text[i: i + chunk_size]
-            await self.send(text_data=json.dumps({
-                "type":    "text",
-                "content": chunk,
-            }))
-
-        # Signal completion
         await self.send(text_data=json.dumps({
-            "type":           "done",
-            "conversationId": str(self.conversation_id),
-            "messageId":      str(message_id),
+            "type":    "processing",
+            "turnId":  turn_id,
+            "message": "Your message is being processed.",
         }))
 
-    # ── Group message handlers (pushed from other processes) ──────────────────
+    # ── Cancel ────────────────────────────────────────────────────────────────
+
+    async def _handle_cancel(self):
+        turn_id = self._active_turn_id
+        if not turn_id:
+            return
+        # Set a Redis flag the worker checks between tool calls
+        from channels.db import database_sync_to_async
+
+        @database_sync_to_async
+        def _set_cancel():
+            from django.core.cache import cache
+            cache.set(f"chat_cancel_{turn_id}", True, timeout=300)
+
+        await _set_cancel()
+        self._active_turn_id = None
+        await self.send(text_data=json.dumps({
+            "type":    "cancelled",
+            "turnId":  turn_id,
+        }))
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    async def _send_error(self, message: str, turn_id):
+        payload = {"type": "error", "message": message}
+        if turn_id:
+            payload["turnId"] = turn_id
+        await self.send(text_data=json.dumps(payload))
+
+    # ── Group message handlers (pushed from Celery worker) ────────────────────
 
     async def stream_chunk(self, event):
-        """Forward a streamed chunk from a background worker."""
         await self.send(text_data=json.dumps({
             "type":    "text",
             "content": event.get("content", ""),
+            "turnId":  event.get("turn_id", ""),
         }))
 
     async def stream_done(self, event):
-        """Signal that streaming is complete."""
+        self._active_turn_id = None
         await self.send(text_data=json.dumps({
             "type":           "done",
             "conversationId": str(self.conversation_id),
             "messageId":      event.get("message_id", ""),
+            "turnId":         event.get("turn_id", ""),
+            "attachments":    event.get("attachments", []),
         }))
 
     async def stream_error(self, event):
-        """Forward an error from a background worker."""
+        self._active_turn_id = None
         await self.send(text_data=json.dumps({
             "type":    "error",
             "message": event.get("message", "An error occurred."),
+            "turnId":  event.get("turn_id", ""),
         }))
