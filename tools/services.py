@@ -1,4 +1,3 @@
-# tools/services.py
 """
 ToolService — LLM tool-calling execution engine.
 
@@ -25,6 +24,7 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+import re
 from datetime import datetime, timezone as tz
 from io import BytesIO
 from pathlib import Path
@@ -98,6 +98,27 @@ def _record_tool_call(
         started_at=started_at,
         finished_at=finished_at,
     )
+
+
+def _safe_prompt_substitute(template: str, **placeholders: str) -> str:
+    """
+    Replace {name} placeholders without using str.format().
+
+    System prompts often contain JSON examples with curly braces
+    (e.g. {"document_type": "..."}). str.format() treats those as
+    format fields and raises KeyError. This helper only substitutes
+    the explicitly provided placeholder names and leaves every other
+    brace pair untouched.
+    """
+    if not template:
+        return ""
+
+    result = template
+    for key, value in placeholders.items():
+        # Support both {key} and {{key}} styles used in stored prompts
+        result = result.replace("{" + key + "}", value)
+        result = result.replace("{{" + key + "}}", value)
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -174,16 +195,16 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
     """
     Dispatch a prompt_transform tool.
 
-    Builds a Grok sub-call using the user's system_prompt with two
+    Builds a Grok sub-call using the user's system_prompt with safe
     placeholder substitutions:
         {file_text}   — extracted text of the target file (if file_id in arguments)
         {arguments}   — the full arguments dict as a JSON string
 
+    JSON examples inside the prompt (e.g. {"document_type": "..."}) are
+    left intact — we never call str.format() on the whole template.
+
     The LLM response is returned as {"ok": True, "result": <text>,
     "structured": <parsed JSON if output_schema is set>}.
-
-    This lets users define powerful extraction or transformation tools
-    without writing any Python — just a good prompt.
     """
     client = _get_grok_client()
     model  = getattr(settings, "GROK_MODEL", "grok-3")
@@ -196,12 +217,33 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
             from uploads.models import UploadedFile
             uf        = UploadedFile.objects.get(pk=file_id)
             file_text = uf.extracted_text or ""
+            # If still pending / empty, try a live page-range extract for PDFs
+            # so prompt_transform tools still get content on large deferred files.
+            if not file_text and (uf.extension or "").lower() == "pdf" and uf.file:
+                try:
+                    from uploads.services import extract_pdf_page_range
+                    live = extract_pdf_page_range(
+                        uf.file.path,
+                        page_from=1,
+                        page_to=min(10, uf.page_count or 10),
+                        max_chars=8000,
+                    )
+                    if live.get("ok"):
+                        file_text = live.get("text") or ""
+                except Exception as live_exc:
+                    logger.warning(
+                        "prompt_transform: live PDF extract failed file_id=%s: %s",
+                        file_id, live_exc,
+                    )
         except Exception as exc:
             logger.warning("prompt_transform: could not load file_id=%s: %s", file_id, exc)
 
-    system_prompt = (config.system_prompt or "").format(
+    args_json = json.dumps(arguments, indent=2, default=str)
+
+    system_prompt = _safe_prompt_substitute(
+        config.system_prompt or "",
         file_text=file_text[:8000],
-        arguments=json.dumps(arguments, indent=2),
+        arguments=args_json,
     )
 
     # If the user supplied an output_schema, ask the LLM to return JSON only
@@ -213,7 +255,7 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
             + "\nDo not include any text outside the JSON."
         )
 
-    user_message = json.dumps(arguments, indent=2) if arguments else "Process the file."
+    user_message = args_json if arguments else "Process the file."
 
     try:
         response = client.chat.completions.create(
@@ -230,7 +272,6 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
         # ── Try to parse as JSON if output_schema was provided ────────────────
         structured = None
         if output_schema:
-            import re
             s = raw_text.strip()
             fence = re.search(r"```(?:json)?\s*(.*?)```", s, re.DOTALL)
             if fence:
@@ -242,8 +283,8 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
                 structured = {"parse_error": "Response was not valid JSON", "raw": s[:1000]}
 
         return {
-            "ok":        True,
-            "result":    raw_text,
+            "ok":         True,
+            "result":     raw_text,
             "structured": structured,
             "input_tokens":  getattr(response.usage, "prompt_tokens", 0),
             "output_tokens": getattr(response.usage, "completion_tokens", 0),
