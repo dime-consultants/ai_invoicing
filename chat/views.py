@@ -295,45 +295,75 @@ class ChatMessageSendView(APIView):
             user_attachments.append(att)
 
         workflow_id_int, _ = _parse_workflow_id(request.data.get("workflow_id"))
+        conversation_history = _build_conv_history(conversation, exclude_pk=user_msg.pk)
 
-        try:
-            response_text, output_files = ChatService.get_response(
-                message=user_input,
-                user=request.user,
-                file_attachments=user_attachments or None,
-                workflow_id=workflow_id_int,
-                conversation_history=_build_conv_history(conversation, user_msg.pk),
+        sync_flag = request.query_params.get("sync") or request.data.get("sync")
+        sync = str(sync_flag).lower() in ("1", "true", "yes")
+
+        if sync:
+            try:
+                response_text, output_files = ChatService.get_response(
+                    message=user_input,
+                    user=request.user,
+                    file_attachments=user_attachments or None,
+                    workflow_id=workflow_id_int,
+                    conversation_history=conversation_history,
+                )
+            except Exception as exc:
+                logger.exception("ChatService.get_response failed: %s", exc)
+                return Response(
+                    {"error": f"Failed to generate response: {exc}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            applied_workflow = None
+            if workflow_id_int:
+                applied_workflow = Workflow.objects.filter(pk=workflow_id_int).first()
+
+            assistant_msg = ChatMessage.objects.create(
+                conversation=conversation,
+                role="assistant",
+                content=response_text,
+                applied_workflow=applied_workflow,
             )
-        except Exception as exc:
-            logger.exception("ChatService.get_response failed: %s", exc)
+
+            output_attachments = _save_output_attachments(output_files, assistant_msg)
+            _auto_title(conversation, user_input)
+
+            ctx = {"request": request}
             return Response(
-                {"error": f"Failed to generate response: {exc}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                {
+                    "user_message":       ChatMessageSerializer(user_msg, context=ctx).data,
+                    "assistant_message":  ChatMessageSerializer(assistant_msg, context=ctx).data,
+                    "user_attachments":   ChatMessageAttachmentSerializer(user_attachments, many=True, context=ctx).data,
+                    "output_attachments": ChatMessageAttachmentSerializer(output_attachments, many=True, context=ctx).data,
+                },
+                status=status.HTTP_201_CREATED,
             )
 
-        applied_workflow = None
-        if workflow_id_int:
-            applied_workflow = Workflow.objects.filter(pk=workflow_id_int).first()
+        import uuid
+        from chat.tasks import run_chat_turn_task
 
-        assistant_msg = ChatMessage.objects.create(
-            conversation=conversation,
-            role="assistant",
-            content=response_text,
-            applied_workflow=applied_workflow,
+        turn_id = uuid.uuid4().hex
+        run_chat_turn_task.delay(
+            turn_id=turn_id,
+            conversation_id=conversation.pk,
+            user_message_id=user_msg.pk,
+            user_id=request.user.pk,
+            workflow_id=workflow_id_int,
+            conversation_history=conversation_history,
         )
-
-        output_attachments = _save_output_attachments(output_files, assistant_msg)
-        _auto_title(conversation, user_input)
 
         ctx = {"request": request}
         return Response(
             {
-                "user_message":       ChatMessageSerializer(user_msg, context=ctx).data,
-                "assistant_message":  ChatMessageSerializer(assistant_msg, context=ctx).data,
-                "user_attachments":   ChatMessageAttachmentSerializer(user_attachments, many=True, context=ctx).data,
-                "output_attachments": ChatMessageAttachmentSerializer(output_attachments, many=True, context=ctx).data,
+                "status": "accepted",
+                "turn_id": turn_id,
+                "conversation_id": conversation.pk,
+                "user_message": ChatMessageSerializer(user_msg, context=ctx).data,
+                "message": "Turn accepted. Listen on the conversation WebSocket or poll messages.",
             },
-            status=status.HTTP_201_CREATED,
+            status=status.HTTP_202_ACCEPTED,
         )
 
 
