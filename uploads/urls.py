@@ -1,4 +1,3 @@
-# uploads/urls.py
 from django.urls import path
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -7,9 +6,13 @@ from rest_framework import permissions
 from .views import (
     UploadBatchListCreateView,
     UploadBatchDetailView,
+    FileListView,
+    FileUploadView,
+    FileDownloadView,
+    FileDeleteView,
+    FileReextractView,
 )
 from .models import UploadBatch
-from .serializers import UploadBatchSerializer
 
 
 class UploadBatchSummaryView(APIView):
@@ -42,11 +45,13 @@ class UploadBatchSummaryView(APIView):
             "error_count":     batch.error_count,
             "files": [
                 {
-                    "id":           f.pk,
-                    "name":         f.original_filename,
-                    "parse_status": f.parse_status,
-                    "detected_type": f.detected_type,
-                    "parse_error":  f.parse_error or None,
+                    "id":                  f.pk,
+                    "name":                f.original_filename,
+                    "parse_status":        f.parse_status,
+                    "detected_type":       f.detected_type,
+                    "parse_error":         f.parse_error or None,
+                    "page_count":          f.page_count,
+                    "extraction_deferred": f.extraction_deferred,
                 }
                 for f in files.order_by("uploaded_at")
             ],
@@ -64,4 +69,11 @@ urlpatterns = [
 
     # GET /api/uploads/batches/<id>/summary/
     path("batches/<int:pk>/summary/", UploadBatchSummaryView.as_view(),  name="upload-batch-summary"),
+
+    # File-level endpoints (also mountable under /api/files/)
+    path("files/",                  FileListView.as_view(),              name="file-list"),
+    path("files/upload/",           FileUploadView.as_view(),            name="file-upload"),
+    path("files/<int:pk>/download/", FileDownloadView.as_view(),         name="file-download"),
+    path("files/<int:pk>/",         FileDeleteView.as_view(),            name="file-delete"),
+    path("files/<int:pk>/reextract/", FileReextractView.as_view(),       name="file-reextract"),
 ]
