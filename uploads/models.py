@@ -1,4 +1,3 @@
-# uploads/models.py
 import os
 from django.db import models
 from django.utils import timezone
@@ -28,7 +27,7 @@ class UploadBatch(models.Model):
 
     STATUS_CHOICES = [
         ("pending",    "Pending"),       # files uploaded, no processing started
-        ("processing", "Processing"),    # AI jobs running
+        ("processing", "Processing"),    # AI jobs / extraction running
         ("completed",  "Completed"),     # all jobs finished successfully
         ("partial",    "Partial"),       # some jobs failed
         ("failed",     "Failed"),        # all jobs failed
@@ -55,9 +54,9 @@ class UploadBatch(models.Model):
     )
 
     # Denormalised counters — updated by signals / service layer
-    file_count     = models.PositiveIntegerField(default=0)
+    file_count      = models.PositiveIntegerField(default=0)
     processed_count = models.PositiveIntegerField(default=0)
-    error_count    = models.PositiveIntegerField(default=0)
+    error_count     = models.PositiveIntegerField(default=0)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -82,12 +81,17 @@ class UploadedFile(models.Model):
     parse_status tracks where this specific file is in the pipeline.
     detected_type is populated by the AI after it inspects the file content,
     e.g. 'ura_fiscal_receipt', 'safaricom_bill', 'acon_export', 'unknown'.
+
+    For large PDFs (page_count > ASYNC_PAGE_THRESHOLD):
+      - ingest_file sets parse_status="pending" and queues extract_file_text_task
+      - the Celery task extracts page-by-page and moves status to "parsed" / "parse_error"
+      - the agent uses read_file(file_id, page_from, page_to) for chunked access
     """
 
     PARSE_STATUS_CHOICES = [
-        ("pending",     "Pending"),
-        ("parsing",     "Parsing"),
-        ("parsed",      "Parsed"),
+        ("pending",     "Pending"),      # queued for (or waiting on) extraction
+        ("parsing",     "Parsing"),      # Celery worker currently extracting
+        ("parsed",      "Parsed"),       # extracted_text ready (or page-range ready)
         ("parse_error", "Parse Error"),
         ("skipped",     "Skipped"),
     ]
@@ -130,7 +134,9 @@ class UploadedFile(models.Model):
     parse_error   = models.TextField(blank=True)
     parsed_at     = models.DateTimeField(null=True, blank=True)
 
-    # Raw text extracted from the file (stored for AI context window injection)
+    # Raw text extracted from the file (stored for AI context window injection).
+    # For large PDFs this may be a truncated preview; full content is obtained
+    # via read_file(file_id, page_from=..., page_to=...).
     extracted_text = models.TextField(
         blank=True,
         help_text="Plain-text representation of the file content used by the AI.",
@@ -139,7 +145,13 @@ class UploadedFile(models.Model):
         null=True,
         blank=True,
         help_text="Number of pages in the document, if applicable.",
-    )   
+    )
+
+    # True when extraction was deferred to Celery (large PDF path)
+    extraction_deferred = models.BooleanField(
+        default=False,
+        help_text="True if text extraction was queued to a background worker.",
+    )
 
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
@@ -158,3 +170,13 @@ class UploadedFile(models.Model):
     @property
     def is_parsed(self) -> bool:
         return self.parse_status == "parsed"
+
+    @property
+    def is_large_pdf(self) -> bool:
+        from django.conf import settings
+        threshold = getattr(settings, "ASYNC_PAGE_THRESHOLD", 20)
+        return (
+            self.extension == "pdf"
+            and self.page_count is not None
+            and self.page_count > threshold
+        )

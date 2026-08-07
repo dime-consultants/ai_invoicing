@@ -1,4 +1,3 @@
-# uploads/views.py
 import mimetypes
 
 from django.http import FileResponse
@@ -29,10 +28,6 @@ class CanUpload(permissions.BasePermission):
 
 
 def _user_owns_or_is_admin(request, uploaded_file: UploadedFile) -> bool:
-    """
-    Return True if the requesting user owns the file's batch or has the
-    admin role. Avoids referencing a non-existent `is_admin` attribute.
-    """
     if uploaded_file.batch.uploaded_by == request.user:
         return True
     return getattr(request.user, "role", None) == "admin"
@@ -88,8 +83,6 @@ class FileListView(generics.ListAPIView):
     """
     GET /api/files/
     List uploaded files with pagination and optional filters.
-
-    Query params: page, limit, type, search
     """
     permission_classes = [permissions.IsAuthenticated]
     serializer_class   = UploadedFileSerializer
@@ -131,9 +124,8 @@ class FileListView(generics.ListAPIView):
 class FileUploadView(APIView):
     """
     POST /api/files/upload
-    Upload a single file. Creates a new batch automatically and runs text
-    extraction via UploadService so the file is immediately ready for the
-    tool handlers.
+    Upload a single file. Creates a new batch and runs (or queues) extraction.
+    Large PDFs return immediately with status=pending / extractionDeferred=true.
     """
     permission_classes = [CanUpload]
     parser_classes     = [MultiPartParser, FormParser]
@@ -145,36 +137,30 @@ class FileUploadView(APIView):
         uploaded  = serializer.validated_data["file"]
         file_type = serializer.validated_data.get("type", "")
 
-        # Create a batch then ingest — this populates extracted_text,
-        # sets parse_status correctly, and refreshes all batch counters.
         batch = UploadService.create_batch(
             label=uploaded.name,
             user=request.user,
         )
         uf = UploadService.ingest_file(batch, uploaded)
 
-        # Allow the caller to hint at the document type (e.g. from the UI
-        # file-type picker). Only write it if it's non-empty; the tool handler
-        # detect_file_type will overwrite it with a more accurate value.
         if file_type and not uf.detected_type:
             uf.detected_type = file_type
             uf.save(update_fields=["detected_type"])
 
         return Response({
-            "id":         uf.pk,
-            "name":       uf.original_filename,
-            "type":       uf.mime_type,
-            "size":       uf.file_size_bytes,
-            "status":     uf.parse_status,
-            "uploadedAt": uf.uploaded_at,
+            "id":                  uf.pk,
+            "name":                uf.original_filename,
+            "type":                uf.mime_type,
+            "size":                uf.file_size_bytes,
+            "status":              uf.parse_status,
+            "pageCount":           uf.page_count,
+            "extractionDeferred":  uf.extraction_deferred,
+            "uploadedAt":          uf.uploaded_at,
         }, status=status.HTTP_200_OK)
 
 
 class FileDownloadView(APIView):
-    """
-    GET /api/files/<id>/download
-    Stream the file to the client.
-    """
+    """GET /api/files/<id>/download — stream the file."""
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, pk):
@@ -208,10 +194,7 @@ class FileDownloadView(APIView):
 
 
 class FileDeleteView(APIView):
-    """
-    DELETE /api/files/<id>/
-    Delete a file record and its stored file.
-    """
+    """DELETE /api/files/<id>/ — delete a file record and its stored file."""
     permission_classes = [CanUpload]
 
     def delete(self, request, pk):
@@ -229,6 +212,7 @@ class FileDeleteView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        batch = uf.batch
         if uf.file:
             try:
                 uf.file.storage.delete(uf.file.name)
@@ -237,10 +221,41 @@ class FileDeleteView(APIView):
 
         uf.delete()
 
-        # Refresh batch counters now that a file has been removed
         try:
-            UploadService._refresh_batch_counters(uf.batch)
+            UploadService._refresh_batch_counters(batch)
         except Exception:
             pass
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class FileReextractView(APIView):
+    """
+    POST /api/files/<id>/reextract/
+    Force re-queue of text extraction (useful after parse_error or for large PDFs).
+    """
+    permission_classes = [CanUpload]
+
+    def post(self, request, pk):
+        try:
+            uf = UploadedFile.objects.select_related("batch").get(pk=pk)
+        except UploadedFile.DoesNotExist:
+            return Response(
+                {"error": {"code": "not_found", "message": "File not found.", "details": None}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not _user_owns_or_is_admin(request, uf):
+            return Response(
+                {"error": {"code": "forbidden", "message": "Access denied.", "details": None}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        from uploads.tasks import reextract_file_task
+        reextract_file_task.delay(uf.pk)
+
+        return Response({
+            "id":     uf.pk,
+            "status": "pending",
+            "message": "Re-extraction queued.",
+        })

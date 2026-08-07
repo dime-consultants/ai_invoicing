@@ -1,4 +1,3 @@
-# uploads/serializers.py
 from rest_framework import serializers
 from .models import UploadBatch, UploadedFile
 
@@ -8,16 +7,18 @@ def _get_user_display(user):
     if not user:
         return None
     full = f"{user.first_name} {user.last_name}".strip()
-    return full or user.email
+    return full or getattr(user, "email", None) or str(user)
 
 
 class UploadedFileSerializer(serializers.ModelSerializer):
-    status     = serializers.CharField(source="parse_status", read_only=True)
-    name       = serializers.CharField(source="original_filename", read_only=True)
-    size       = serializers.IntegerField(source="file_size_bytes", read_only=True)
-    type       = serializers.CharField(source="mime_type", read_only=True)
-    uploadedAt = serializers.DateTimeField(source="uploaded_at", read_only=True)
-    uploadedBy = serializers.SerializerMethodField()
+    status              = serializers.CharField(source="parse_status", read_only=True)
+    name                = serializers.CharField(source="original_filename", read_only=True)
+    size                = serializers.IntegerField(source="file_size_bytes", read_only=True)
+    type                = serializers.CharField(source="mime_type", read_only=True)
+    uploadedAt          = serializers.DateTimeField(source="uploaded_at", read_only=True)
+    uploadedBy          = serializers.SerializerMethodField()
+    pageCount           = serializers.IntegerField(source="page_count", read_only=True)
+    extractionDeferred  = serializers.BooleanField(source="extraction_deferred", read_only=True)
 
     class Meta:
         model  = UploadedFile
@@ -25,6 +26,7 @@ class UploadedFileSerializer(serializers.ModelSerializer):
             "id", "name", "type", "size",
             "extension", "detected_type", "detection_confidence",
             "status", "parse_error",
+            "pageCount", "extractionDeferred",
             "uploadedAt", "uploadedBy",
         ]
         read_only_fields = fields
@@ -75,6 +77,3 @@ class UploadBatchListSerializer(serializers.ModelSerializer):
 class FileUploadSerializer(serializers.Serializer):
     file = serializers.FileField()
     type = serializers.CharField(required=False, allow_blank=True, default="")
-
-
-# Note: We could add more validation here (e.g. allowed file types, max size) if needed.
