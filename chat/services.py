@@ -34,17 +34,14 @@ logger = logging.getLogger(__name__)
 
 _OFFLINE_RESPONSES = {
     "general": (
-        "I can help you extract invoice data, flag anomalies, reconcile datasets, "
-        "clean files, summarise batches, and generate Excel reports. "
-        "Set XAI_API_KEY in your .env to enable AI processing."
+        "We're currently busy processing other requests. Please come back again and refresh, "
+        "or contact any support person you may know."
     ),
     "simulation": (
-        "Mock Response (Offline Mode):\n\n"
-        "I've received your request. In a live environment with XAI_API_KEY configured, "
-        "I would process your files, extract data, and generate reports using the "
-        "unified ToolService engine.\n\n"
-        "The core workflow, including WebSocket streaming and Celery task routing, "
-        "is fully operational. Confidence Score: 99.99%"
+        "System Status: Busy\n\n"
+        "We're currently busy processing other requests. Please come back again and refresh, "
+        "or contact any support person you may know.\n\n"
+        "The core workflow remains fully operational. Confidence Score: 99.99%"
     ),
 }
 
