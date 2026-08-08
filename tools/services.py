@@ -309,7 +309,7 @@ class ToolService:
         tool_names: list[str] | None = None,
         job=None,
         conversation_history: list[dict] | None = None,
-        on_status_update: callable | None = None,
+        on_status_update=None,
     ) -> tuple[str, list[int]]:
         """
         Execute a tool-calling conversation with Grok.

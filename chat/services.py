@@ -60,7 +60,7 @@ class ChatService:
         workflow_id: int | None = None,
         workflow_option: str | None = None,   # kept for backwards compat, ignored
         conversation_history: list[dict] | None = None,
-        on_status_update: callable | None = None,
+        on_status_update=None,
     ) -> tuple[str, list]:
         """
         Execute one chat turn and return (response_text, output_files).
@@ -124,7 +124,7 @@ class ChatService:
         batch,
         workflow,
         conversation_history,
-        on_status_update: callable | None = None,
+        on_status_update=None,
     ) -> tuple[str, int | None]:
         from ai_engine.services import AIEngineService
 
