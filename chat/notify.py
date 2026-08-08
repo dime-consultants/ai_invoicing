@@ -125,3 +125,16 @@ def push_chat_error(conversation_id, *, message: str, turn_id: str = "") -> bool
             "turn_id": turn_id,
         },
     )
+
+
+def push_chat_status(conversation_id, *, status: str, tool_name: str = "", turn_id: str = "") -> bool:
+    """Push a tool execution status update to the chat conversation group."""
+    return _send(
+        f"chat_{conversation_id}",
+        {
+            "type":      "stream_status",
+            "status":    status,
+            "tool_name": tool_name,
+            "turn_id":   turn_id,
+        },
+    )
