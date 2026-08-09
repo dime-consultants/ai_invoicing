@@ -115,9 +115,11 @@ def _safe_prompt_substitute(template: str, **placeholders: str) -> str:
 
     result = template
     for key, value in placeholders.items():
-        # Support both {key} and {{key}} styles used in stored prompts
-        result = result.replace("{" + key + "}", value)
+        # Support both {key} and {{key}} styles used in stored prompts.
+        # {{key}} MUST be replaced first: replacing {key} first turns "{{key}}"
+        # into "{<value>}" and the {{key}} branch can then never match.
         result = result.replace("{{" + key + "}}", value)
+        result = result.replace("{" + key + "}", value)
     return result
 
 
@@ -191,60 +193,195 @@ def _call_webhook(config, arguments: dict) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+def _resolve_file_text(file_id, *, max_chars: int, page_from=None, page_to=None) -> dict:
+    """
+    Load the text of one UploadedFile for injection into a prompt.
+
+    Prefers the cached extracted_text; falls back to reading the stored PDF
+    directly so large deferred files still yield content. Returns
+    {"text", "full_length", "truncated", "meta"} and never raises.
+    """
+    text: str = ""
+    meta: dict = {}
+    try:
+        from uploads.models import UploadedFile
+        uf   = UploadedFile.objects.get(pk=file_id)
+        text = uf.extracted_text or ""
+        if not text and (uf.extension or "").lower() == "pdf" and uf.file:
+            try:
+                from uploads.services import extract_pdf_page_range
+                # Honour an explicit range from the caller; otherwise read the
+                # whole document rather than assuming the first few pages.
+                live = extract_pdf_page_range(
+                    uf.file.path,
+                    page_from=int(page_from or 1),
+                    page_to=int(page_to) if page_to else None,
+                    max_chars=max_chars,
+                )
+                if live.get("ok"):
+                    text = live.get("text") or ""
+                    meta = {
+                        "page_from":  live.get("page_from"),
+                        "page_to":    live.get("page_to"),
+                        "page_count": live.get("page_count"),
+                    }
+            except Exception as live_exc:
+                logger.warning(
+                    "prompt_transform: live PDF extract failed file_id=%s: %s",
+                    file_id, live_exc,
+                )
+    except Exception as exc:
+        logger.warning("prompt_transform: could not load file_id=%s: %s", file_id, exc)
+
+    full_length = len(text)
+    truncated   = full_length > max_chars
+    if truncated:
+        text = text[:max_chars] + (
+            f"\n\n[TRUNCATED: showing the first {max_chars:,} of "
+            f"{full_length:,} characters. This is a PARTIAL document — "
+            f"say so in your answer and do not present totals as complete.]"
+        )
+    return {"text": text, "full_length": full_length,
+            "truncated": truncated, "meta": meta}
+
+
+def _resolve_batch_text(batch_id, *, max_chars: int) -> dict:
+    """Concatenate the text of every file in a batch, labelled by file."""
+    try:
+        from uploads.models import UploadedFile
+        files = list(
+            UploadedFile.objects.filter(batch_id=batch_id).order_by("uploaded_at")
+        )
+    except Exception as exc:
+        logger.warning("prompt_transform: could not load batch_id=%s: %s", batch_id, exc)
+        return {"text": "", "full_length": 0, "truncated": False, "meta": {}}
+
+    if not files:
+        return {"text": "", "full_length": 0, "truncated": False,
+                "meta": {"batch_file_count": 0}}
+
+    per_file = max(1, max_chars // len(files))
+    parts, full = [], 0
+    for uf in files:
+        got = _resolve_file_text(uf.pk, max_chars=per_file)
+        full += got["full_length"]
+        parts.append(
+            f"--- file_id={uf.pk} '{uf.original_filename}' "
+            f"({uf.detected_type or uf.extension}) ---\n{got['text']}"
+        )
+    return {
+        "text":        "\n\n".join(parts),
+        "full_length": full,
+        "truncated":   any(len(p) for p in parts) and full > max_chars,
+        "meta":        {"batch_file_count": len(files)},
+    }
+
+
 def _call_prompt_transform(config, arguments: dict) -> dict:
     """
     Dispatch a prompt_transform tool.
 
     Builds a Grok sub-call using the user's system_prompt with safe
-    placeholder substitutions:
-        {file_text}   — extracted text of the target file (if file_id in arguments)
-        {arguments}   — the full arguments dict as a JSON string
+    placeholder substitutions, driven by which ids the arguments carry:
+        {file_text}    — content of `file_id` (falls back to file A / the batch)
+        {file_a_text}  — content of `file_id_a`
+        {file_b_text}  — content of `file_id_b`
+        {batch_text}   — every file in `batch_id`, labelled per file
+        {arguments}    — the full arguments dict as a JSON string
 
     JSON examples inside the prompt (e.g. {"document_type": "..."}) are
     left intact — we never call str.format() on the whole template.
 
     The LLM response is returned as {"ok": True, "result": <text>,
-    "structured": <parsed JSON if output_schema is set>}.
+    "structured": <parsed JSON if output_schema is set>}, plus
+    "input_truncated" / "input_full_length" (and page_from/page_to/page_count
+    for a live PDF read) so a partial-input run is distinguishable from a
+    whole-document one.
+
+    Input size is capped by settings.PROMPT_TRANSFORM_MAX_CHARS (default 60 000).
     """
     client = _get_grok_client()
     model  = getattr(settings, "GROK_MODEL", "grok-3")
 
-    # ── Resolve file_text if file_id is in arguments ──────────────────────────
-    file_text = ""
-    file_id   = arguments.get("file_id")
-    if file_id:
-        try:
-            from uploads.models import UploadedFile
-            uf        = UploadedFile.objects.get(pk=file_id)
-            file_text = uf.extracted_text or ""
-            # If still pending / empty, try a live page-range extract for PDFs
-            # so prompt_transform tools still get content on large deferred files.
-            if not file_text and (uf.extension or "").lower() == "pdf" and uf.file:
-                try:
-                    from uploads.services import extract_pdf_page_range
-                    live = extract_pdf_page_range(
-                        uf.file.path,
-                        page_from=1,
-                        page_to=min(10, uf.page_count or 10),
-                        max_chars=8000,
-                    )
-                    if live.get("ok"):
-                        file_text = live.get("text") or ""
-                except Exception as live_exc:
-                    logger.warning(
-                        "prompt_transform: live PDF extract failed file_id=%s: %s",
-                        file_id, live_exc,
-                    )
-        except Exception as exc:
-            logger.warning("prompt_transform: could not load file_id=%s: %s", file_id, exc)
+    # ── Resolve document content referenced by the arguments ──────────────────
+    # A tool declares which files it wants via its parameters_schema. Only
+    # "file_id" used to be honoured, so every multi-file tool (reconcile_datasets
+    # with file_id_a/file_id_b, summarise_batch with batch_id) silently received
+    # an EMPTY {file_text} and answered from nothing at all.
+    #
+    # The cap is the only limit on how much of a document a tool sees, and it is
+    # split across sources so adding a second file doubles neither the prompt nor
+    # the cost. Truncation is always recorded, never silent.
+    max_file_chars = getattr(settings, "PROMPT_TRANSFORM_MAX_CHARS", 60_000)
+
+    # placeholder name -> (kind, argument value)
+    wanted: list[tuple[str, str, object]] = []
+    if arguments.get("file_id") is not None:
+        wanted.append(("file_text",   "file",  arguments["file_id"]))
+    if arguments.get("file_id_a") is not None:
+        wanted.append(("file_a_text", "file",  arguments["file_id_a"]))
+    if arguments.get("file_id_b") is not None:
+        wanted.append(("file_b_text", "file",  arguments["file_id_b"]))
+    if arguments.get("batch_id") is not None:
+        wanted.append(("batch_text",  "batch", arguments["batch_id"]))
+
+    per_source = max(1, max_file_chars // max(1, len(wanted)))
+
+    resolved: dict[str, str] = {}
+    file_meta: dict = {}
+    total_full_length = 0
+    any_truncated     = False
+
+    for placeholder, kind, value in wanted:
+        if kind == "batch":
+            got = _resolve_batch_text(value, max_chars=per_source)
+        else:
+            got = _resolve_file_text(
+                value,
+                max_chars=per_source,
+                page_from=arguments.get("page_from"),
+                page_to=arguments.get("page_to"),
+            )
+        resolved[placeholder] = got["text"]
+        total_full_length += got["full_length"]
+        any_truncated = any_truncated or got["truncated"]
+        if got["truncated"]:
+            logger.warning(
+                "prompt_transform: %s truncated from %d to %d chars for tool '%s'",
+                placeholder, got["full_length"], per_source, getattr(config, "name", "?"),
+            )
+        # Page metadata is only meaningful for a single-document read.
+        if got["meta"] and len(wanted) == 1:
+            file_meta = got["meta"]
+
+        if not got["text"]:
+            logger.warning(
+                "prompt_transform: %s resolved to EMPTY for tool '%s' (%s=%s)",
+                placeholder, getattr(config, "name", "?"), kind, value,
+            )
+
+    # The primary placeholder stays populated for single-file prompts written
+    # against the original {file_text} contract.
+    if "file_text" not in resolved and "file_a_text" in resolved:
+        resolved["file_text"] = resolved["file_a_text"]
+    if "file_text" not in resolved and "batch_text" in resolved:
+        resolved["file_text"] = resolved["batch_text"]
 
     args_json = json.dumps(arguments, indent=2, default=str)
 
     system_prompt = _safe_prompt_substitute(
         config.system_prompt or "",
-        file_text=file_text[:8000],
         arguments=args_json,
+        # Every placeholder a prompt may reference must be passed, even when
+        # empty — an unsubstituted "{file_b_text}" would reach the model as
+        # literal text and read as content.
+        file_text=resolved.get("file_text", ""),
+        file_a_text=resolved.get("file_a_text", ""),
+        file_b_text=resolved.get("file_b_text", ""),
+        batch_text=resolved.get("batch_text", ""),
     )
+    file_truncated   = any_truncated
+    file_full_length = total_full_length
 
     # If the user supplied an output_schema, ask the LLM to return JSON only
     output_schema = config.output_schema
@@ -288,6 +425,11 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
             "structured": structured,
             "input_tokens":  getattr(response.usage, "prompt_tokens", 0),
             "output_tokens": getattr(response.usage, "completion_tokens", 0),
+            # Provenance of the input this result was derived from — a caller
+            # (or the audit log) can tell a whole-document run from a partial one.
+            "input_truncated":   file_truncated,
+            "input_full_length": file_full_length,
+            **file_meta,
         }
 
     except Exception as exc:
@@ -416,12 +558,21 @@ class ToolService:
                         f"Tool '{tool_name}' requires explicit user confirmation. "
                         "Please ask the user to confirm before proceeding."
                     )
-                    _record_tool_call(
-                        tool_def, {}, None,
+                    # Record what was actually attempted. This is the one case
+                    # that most needs auditing — an unsafe tool (call_webhook,
+                    # run_python) the model tried to invoke — and it used to log
+                    # arguments={}, so the attempted URL/payload was unknowable.
+                    try:
+                        attempted_args = json.loads(tc.function.arguments or "{}")
+                    except json.JSONDecodeError:
+                        attempted_args = {"_unparsed": (tc.function.arguments or "")[:2000]}
+                    tc_record = _record_tool_call(
+                        tool_def, attempted_args, None,
                         status="skipped",
                         error_message=skip_msg,
                         job=job,
                     )
+                    tool_call_pks.append(tc_record.pk)
                     messages.append({
                         "role":         "tool",
                         "tool_call_id": tc.id,

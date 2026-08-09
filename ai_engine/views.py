@@ -102,7 +102,16 @@ class AIAnalysisJobListCreateView(generics.ListCreateAPIView):
         # (running/done/error) are pushed via ai_engine/signals.py over
         # the WebSocket layer, or can be polled via GET /api/ai/jobs/<id>/.
         from .tasks import run_ai_job_task
-        run_ai_job_task.delay(job.id)
+        from config.dispatch import dispatch
+        if dispatch(run_ai_job_task, job.id) is None:
+            # Nothing will ever pick this up — don't leave it sitting at "queued".
+            job.status        = "error"
+            job.error_message = "Could not queue the job — the task broker is unavailable."
+            job.save(update_fields=["status", "error_message"])
+            return Response(
+                AIAnalysisJobDetailSerializer(job).data,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         return Response(
             AIAnalysisJobDetailSerializer(job).data,
@@ -174,7 +183,19 @@ class AIAnalysisJobRequeueView(APIView):
         job.insights.all().delete()
         job.tool_calls.all().delete()
 
-        run_ai_job_task.delay(job.id)
+        # This path has already deleted the previous insights and tool_calls, so a
+        # dispatch failure here destroys prior results and queues nothing. Record
+        # it on the job rather than 500-ing with the job stuck at "queued".
+        from config.dispatch import dispatch
+        if dispatch(run_ai_job_task, job.id) is None:
+            job.status        = "error"
+            job.error_message = "Could not queue the job — the task broker is unavailable."
+            job.save(update_fields=["status", "error_message"])
+            return Response(
+                AIAnalysisJobDetailSerializer(job).data,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
         job.refresh_from_db()
 
         return Response(AIAnalysisJobDetailSerializer(job).data)

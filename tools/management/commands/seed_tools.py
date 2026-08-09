@@ -38,10 +38,14 @@ BUILTIN_TOOLS = [
         "name":         "read_file",
         "display_name": "Read File",
         "description": (
-            "Open an uploaded file and return its extracted text content. "
+            "Open an uploaded file and return its text content. "
             "Use this before any prompt_transform tool that needs to analyse file content. "
-            "Returns: filename, extension, detected_type, text (up to max_chars), "
-            "full_length, truncated."
+            "For a large PDF, pass page_from/page_to to read it in chunks — this reads the "
+            "document directly and works even while background extraction is still running. "
+            "Check 'truncated' and 'page_count' to see whether more content remains, and page "
+            "through the rest before drawing conclusions. "
+            "Returns ok=false if the file has no readable text (e.g. a scanned image-only PDF) — "
+            "in that case say so rather than inferring the contents."
         ),
         "category": "utility",
         "handler":  "tools.handlers.read_file",
@@ -57,6 +61,20 @@ BUILTIN_TOOLS = [
                     "type": "integer",
                     "description": "Truncate returned text to this many characters. Default 12000.",
                     "default": 12000,
+                },
+                "page_from": {
+                    "type": "integer",
+                    "description": (
+                        "First PDF page to read (1-indexed, inclusive). PDFs only. "
+                        "Omit to read from the start."
+                    ),
+                },
+                "page_to": {
+                    "type": "integer",
+                    "description": (
+                        "Last PDF page to read (1-indexed, inclusive). PDFs only. "
+                        "Omit to read to the end."
+                    ),
                 },
             },
             "required": ["file_id"],
@@ -83,6 +101,70 @@ BUILTIN_TOOLS = [
                 },
             },
             "required": ["file_id"],
+        },
+    },
+    # ── Domain builtins ───────────────────────────────────────────────────────
+    # These parse the document in Python and write the .xlsx themselves. They
+    # exist because the generic prompt_transform equivalents cannot reliably do
+    # what they do: join a Safaricom bill's summary section to its per-subscriber
+    # detail pages, and reconcile on the fiscal/statutory column specifically.
+    # Prefer these whenever the file is one of these known shapes.
+    {
+        "name":         "extract_safaricom_bill",
+        "display_name": "Extract Safaricom Bill",
+        "description": (
+            "Extract a per-line telephone billing report from a Safaricom PostPay bill PDF. "
+            "Joins the TAX INVOICE SUMMARY rows to each subscriber's TAX INVOICE page on "
+            "invoice number, so every line gets its CU Invoice Number, then writes an .xlsx "
+            "mapping telephone user → department → phone → invoice → CU number → amounts. "
+            "Use this for any Safaricom bill instead of a generic extractor — the CU number "
+            "and the amounts live in different sections and must be joined. "
+            "Returns: record_count, headers, rows (preview), output_filename."
+        ),
+        "category": "extraction",
+        "handler":  "tools.handlers.extract_safaricom_bill",
+        "is_safe":  True,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "file_id": {
+                    "type": "integer",
+                    "description": "PK of the UploadedFile record (a Safaricom PostPay PDF).",
+                },
+            },
+            "required": ["file_id"],
+        },
+    },
+    {
+        "name":         "reconcile_ura_vs_acon",
+        "display_name": "Reconcile URA/KRA vs ACON",
+        "description": (
+            "Reconcile a URA/KRA fiscal sales file against an ACON export and write a "
+            "variance workpaper (.xlsx). Joins on the FISCAL number — the URA/KRA FDN or "
+            "CU Invoice Number matched against ACON's statutory column ('Statutory Item "
+            "No(For Download VAT)' for Kenya, 'FDN' for Uganda) — NOT ACON's internal Item "
+            "Number. Identifiers are normalised before matching, so values Excel stored as "
+            "'12345.0' still match '12345'. Use this in preference to the generic "
+            "reconcile_datasets whenever both sides are a fiscal file and an ACON export. "
+            "Returns: matched_count, variance_count, missing_in_acon, missing_in_ura, "
+            "output_filename."
+        ),
+        "category": "reconciliation",
+        "handler":  "tools.handlers.reconcile_ura_vs_acon",
+        "is_safe":  True,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "ura_file_id": {
+                    "type": "integer",
+                    "description": "PK of the URA/KRA fiscal file (.txt periodical report or .xls/.xlsx sales table).",
+                },
+                "acon_file_id": {
+                    "type": "integer",
+                    "description": "PK of the ACON export (.xlsx).",
+                },
+            },
+            "required": ["ura_file_id", "acon_file_id"],
         },
     },
     {
@@ -428,11 +510,17 @@ Output format:
   "summary": "<one paragraph plain English summary>"
 }
 
-File A content:
-{file_text}
+File A content (file_id_a):
+{file_a_text}
 
-Arguments (file_id_b, join_key, tolerance, etc.):
+File B content (file_id_b):
+{file_b_text}
+
+Arguments (join_key, amount_key_a, amount_key_b, tolerance):
 {arguments}
+
+If either file's content above is empty, do NOT invent records — return
+"count_a"/"count_b" of 0 for that side and say so in the summary.
 """,
         "output_schema": {
             "type": "object",
@@ -497,11 +585,14 @@ Output format:
   "narrative": "<two to three sentence plain English summary>"
 }
 
-Batch metadata and file contents:
-{file_text}
+Batch file contents (one labelled block per file in the batch):
+{batch_text}
 
 Arguments:
 {arguments}
+
+If the batch content above is empty, do NOT invent records — report
+"file_count": 0 and say the batch had no readable content.
 """,
         "output_schema": {
             "type": "object",
