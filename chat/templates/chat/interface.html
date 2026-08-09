@@ -346,10 +346,12 @@ async function sendMessage() {
     appendThinking();
 
     try {
-        const r = await fetch(`${API}/conversations/${currentConvId}/send/`, {
+        // Force sync mode so the assistant response is returned directly in the HTTP body.
+        // The UI currently lacks WebSocket streaming support, so this is the reliable path.
+        const r = await fetch(`${API}/conversations/${currentConvId}/send/?sync=true`, {
             method: 'POST',
             credentials: 'include',
-            headers: authHeaders(),  // no Content-Type — let browser set multipart boundary
+            headers: authHeaders(),
             body: fd,
         });
 
