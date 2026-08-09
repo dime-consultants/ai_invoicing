@@ -116,12 +116,17 @@ def run_chat_turn_task(
             from chat.models import ChatMessageAttachment
             file_attachments = list(ChatMessageAttachment.objects.filter(message=user_msg))
 
+            def _on_status_update(status, tool_name):
+                from chat.notify import push_chat_status
+                push_chat_status(conversation_id, status=status, tool_name=tool_name, turn_id=turn_id)
+
             response_text, output_files = ChatService.get_response(
                 message=content,
                 user=user,
                 file_attachments=file_attachments,
                 workflow_id=workflow_id,
                 conversation_history=conversation_history or [],
+                on_status_update=_on_status_update,
             )
         except SoftTimeLimitExceeded:
             push_chat_error(

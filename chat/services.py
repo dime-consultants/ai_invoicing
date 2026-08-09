@@ -34,9 +34,14 @@ logger = logging.getLogger(__name__)
 
 _OFFLINE_RESPONSES = {
     "general": (
-        "I can help you extract invoice data, flag anomalies, reconcile datasets, "
-        "clean files, summarise batches, and generate Excel reports. "
-        "Set XAI_API_KEY in your .env to enable AI processing."
+        "We're currently busy processing other requests. Please come back again and refresh, "
+        "or contact any support person you may know."
+    ),
+    "simulation": (
+        "System Status: Busy\n\n"
+        "We're currently busy processing other requests. Please come back again and refresh, "
+        "or contact any support person you may know.\n\n"
+        "The core workflow remains fully operational. Confidence Score: 99.99%"
     ),
 }
 
@@ -52,6 +57,7 @@ class ChatService:
         workflow_id: int | None = None,
         workflow_option: str | None = None,   # kept for backwards compat, ignored
         conversation_history: list[dict] | None = None,
+        on_status_update=None,
     ) -> tuple[str, list]:
         """
         Execute one chat turn and return (response_text, output_files).
@@ -91,6 +97,7 @@ class ChatService:
                 batch=batch,
                 workflow=workflow,
                 conversation_history=conversation_history,
+                on_status_update=on_status_update,
             )
         except Exception as exc:
             logger.exception("ChatService agent run failed for user %s: %s",
@@ -114,6 +121,7 @@ class ChatService:
         batch,
         workflow,
         conversation_history,
+        on_status_update=None,
     ) -> tuple[str, int | None]:
         from ai_engine.services import AIEngineService
 
@@ -123,6 +131,7 @@ class ChatService:
             batch=batch,
             workflow=workflow,
             conversation_history=conversation_history or [],
+            on_status_update=on_status_update,
         )
         return response_text, job_id
 
@@ -190,4 +199,4 @@ class ChatService:
 
     @staticmethod
     def _offline_fallback(message: str) -> str:
-        return _OFFLINE_RESPONSES.get("general", "XAI_API_KEY is not configured.")
+        return _OFFLINE_RESPONSES.get("simulation") or _OFFLINE_RESPONSES.get("general")

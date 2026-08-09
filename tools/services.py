@@ -309,6 +309,7 @@ class ToolService:
         tool_names: list[str] | None = None,
         job=None,
         conversation_history: list[dict] | None = None,
+        on_status_update=None,
     ) -> tuple[str, list[int]]:
         """
         Execute a tool-calling conversation with Grok.
@@ -400,6 +401,9 @@ class ToolService:
                 tool_name = tc.function.name
                 tool_def  = tool_map.get(tool_name)
 
+                if on_status_update:
+                    on_status_update("running", tool_name)
+
                 if tool_def is None:
                     error_msg = f"Tool '{tool_name}' is not registered or not enabled."
                     logger.warning(error_msg)
@@ -483,6 +487,9 @@ class ToolService:
                     job=job,
                 )
                 tool_call_pks.append(tc_record.pk)
+
+                if on_status_update:
+                    on_status_update("finished", tool_name)
 
                 messages.append({
                     "role":         "tool",

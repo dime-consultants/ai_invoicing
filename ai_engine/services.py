@@ -296,7 +296,7 @@ class AIEngineService:
         AIEngineService._run_job(job)
 
     @staticmethod
-    def _run_job(job) -> None:
+    def _run_job(job, on_status_update=None) -> None:
         from tools.services import ToolService
 
         job.status     = "running"
@@ -340,6 +340,7 @@ class AIEngineService:
                 user_message=user_message,
                 tool_names=tool_names,
                 job=job,
+                on_status_update=on_status_update,
             )
 
             tool_results = [
@@ -369,6 +370,7 @@ class AIEngineService:
         batch=None,
         workflow=None,
         conversation_history: list[dict] | None = None,
+        on_status_update=None,
     ) -> tuple[str, int | None]:
         from tools.services import ToolService
 
@@ -428,6 +430,7 @@ class AIEngineService:
                 tool_names=tool_names,
                 job=job,
                 conversation_history=conversation_history,
+                on_status_update=on_status_update,
             )
 
             tool_results = [

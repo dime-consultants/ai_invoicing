@@ -347,5 +347,13 @@ class ChatStreamConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({
             "type":    "error",
             "message": event.get("message", "An error occurred."),
-            "turnId":  event.get("turn_id", ""),
+            "turn_id":  event.get("turn_id", ""),
+        }))
+
+    async def stream_status(self, event):
+        await self.send(text_data=json.dumps({
+            "type":      "status",
+            "status":    event.get("status", ""),
+            "tool_name": event.get("tool_name", ""),
+            "turn_id":   event.get("turn_id", ""),
         }))

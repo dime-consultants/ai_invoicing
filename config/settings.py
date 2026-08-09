@@ -276,6 +276,7 @@ CELERY_RESULT_BACKEND = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 CELERY_TASK_TIME_LIMIT = 60 * 30        # hard kill at 30 min — a 1000-page doc should never need more
 CELERY_TASK_SOFT_TIME_LIMIT = 60 * 25   # raises a catchable exception 5 min before the hard kill
 CELERY_WORKER_MAX_TASKS_PER_CHILD = 20  # recycle worker processes periodically — caps memory creep
+CELERY_WORKER_AUTOSCALE = '4,2'         # Max 4, Min 2 workers — ensures auto addition of workers
 
 # ── Reliability: survive worker crashes and broker blips without losing jobs ──
 # Without these, a task is acknowledged (removed from the queue) the moment a
