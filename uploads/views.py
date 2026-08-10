@@ -252,7 +252,15 @@ class FileReextractView(APIView):
             )
 
         from uploads.tasks import reextract_file_task
-        reextract_file_task.delay(uf.pk)
+        from config.dispatch import dispatch
+        if dispatch(reextract_file_task, uf.pk) is None:
+            return Response(
+                {"error": {"code": "broker_unavailable",
+                           "message": "Could not queue re-extraction — the task "
+                                      "broker is unavailable. Please retry.",
+                           "details": None}},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         return Response({
             "id":     uf.pk,

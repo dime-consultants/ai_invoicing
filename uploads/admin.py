@@ -291,15 +291,29 @@ class UploadedFileAdmin(admin.ModelAdmin):
             )
             return
 
-        queued = 0
+        from config.dispatch import dispatch
+
+        queued = failed = 0
         for uf in queryset:
-            reextract_file_task.delay(uf.pk)
-            queued += 1
-        self.message_user(
-            request,
-            f"Queued re-extraction for {queued} file(s).",
-            messages.SUCCESS,
-        )
+            if dispatch(reextract_file_task, uf.pk) is None:
+                failed += 1
+            else:
+                queued += 1
+
+        if failed:
+            # Don't report every file as queued when the broker refused them.
+            self.message_user(
+                request,
+                f"Queued re-extraction for {queued} file(s); {failed} could not be "
+                f"queued (task broker unavailable).",
+                messages.WARNING if queued else messages.ERROR,
+            )
+        else:
+            self.message_user(
+                request,
+                f"Queued re-extraction for {queued} file(s).",
+                messages.SUCCESS,
+            )
 
     @admin.action(description="Mark as skipped")
     def mark_skipped(self, request, queryset):

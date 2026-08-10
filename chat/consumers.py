@@ -273,7 +273,9 @@ class ChatStreamConsumer(AsyncWebsocketConsumer):
             )
 
             # Dispatch to Celery — worker will push chunks to the group
-            run_chat_turn_task.delay(
+            from config.dispatch import dispatch
+            queued = dispatch(
+                run_chat_turn_task,
                 turn_id=turn_id,
                 conversation_id=self.conversation_id,
                 user_message_id=user_msg.pk,
@@ -281,6 +283,9 @@ class ChatStreamConsumer(AsyncWebsocketConsumer):
                 workflow_id=int(workflow_id) if workflow_id else None,
                 conversation_history=conv_history,
             )
+            if queued is None:
+                return False, ("Could not queue the message — the task broker "
+                               "is unavailable. Please retry.")
             return True, None
 
         ok, err = await _save_and_dispatch()

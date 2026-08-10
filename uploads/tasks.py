@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 
 from celery import shared_task
-from celery.exceptions import SoftTimeLimitExceeded
+from celery.exceptions import Retry, SoftTimeLimitExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -122,15 +122,23 @@ def extract_file_text_task(self, file_id: int):
 
     except Exception as exc:
         logger.exception("extract_file_text_task failed: file_id=%s error=%s", file_id, exc)
-        UploadService.complete_extraction(
-            file_id,
-            text="",
-            error=str(exc)[:2000],
-        )
-        # Retry on transient errors
+        # Retry FIRST. complete_extraction(error=...) is a terminal write — it
+        # flips the file to parse_error, wipes extracted_text, moves the batch to
+        # failed/partial and fires a "File processing failed" notification. Doing
+        # that before the retry meant a transient blip surfaced as a hard failure
+        # even though the retry 30s later succeeded.
         try:
             raise self.retry(exc=exc, countdown=30)
-        except self.MaxRetriesExceededError:
+        except Retry:
+            raise                       # scheduled — leave the row alone
+        except Exception:
+            # Retries exhausted, or retrying is impossible (task invoked
+            # synchronously). Only now is the failure terminal.
+            UploadService.complete_extraction(
+                file_id,
+                text="",
+                error=str(exc)[:2000],
+            )
             return {"ok": False, "error": str(exc), "file_id": file_id}
 
 
@@ -154,4 +162,10 @@ def reextract_file_task(self, file_id: int):
     uf.save(update_fields=["parse_status", "parse_error", "extracted_text"])
     UploadService._refresh_batch_counters(uf.batch)
 
-    return extract_file_text_task(file_id)
+    # Dispatch, don't call. A direct call runs in this worker with
+    # request.called_directly=True, which makes self.retry() re-raise instead of
+    # retrying (so max_retries=2 silently never applies) and bypasses that task's
+    # own soft_time_limit/time_limit — the limits that exist precisely because
+    # this is the long-running path.
+    async_result = extract_file_text_task.delay(file_id)
+    return {"ok": True, "file_id": file_id, "task_id": async_result.id}

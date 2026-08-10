@@ -129,15 +129,13 @@ jobs:
             echo "Running migrations..."
             timeout 180 docker compose run --rm migrate
 
-            # ── 5. Register & sync tools — bounded, non-fatal ────────────────
-            echo "Registering tools..."
-            timeout 60 docker compose run --rm app python manage.py register_tools || \
-              echo "register_tools failed or timed out — continuing deploy."
-
-            echo "Syncing tools to UI..."
-            timeout 60 docker compose run --rm app python manage.py sync_tools_to_ui \
-              --output /app/tools_export.json || \
-              echo "sync_tools_to_ui failed or timed out — continuing deploy."
+            # ── 5. Seed & export tools — bounded, non-fatal ──────────────────
+            # seed_tools replaced register_tools + sync_tools_to_ui (both deleted).
+            # It is idempotent: re-running only updates changed rows.
+            echo "Seeding tools..."
+            timeout 60 docker compose run --rm app python manage.py seed_tools \
+              --export /app/tools_export.json || \
+              echo "seed_tools failed or timed out — continuing deploy."
 
             # ── 6. Restart app (backgrounded by compose itself; -d is non-blocking)
             echo "Restarting services..."

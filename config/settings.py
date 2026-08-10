@@ -269,6 +269,30 @@ else:
         },
     }
 
+# ── Cache ─────────────────────────────────────────────────────────────────────
+# This must be shared across processes, not merely present. Chat turn
+# cancellation writes a flag from the Daphne/ASGI process (chat.consumers) that
+# the Celery worker polls (chat.tasks); Django's default LocMemCache is
+# per-process, so the worker never sees the flag, runs the turn to completion,
+# and pushes a reply the UI has already discarded.
+if _REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND':  'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': _REDIS_URL,
+        },
+    }
+else:
+    # Single-process dev only. Cancellation is best-effort here: with runserver
+    # and an eager/in-process worker the flag is visible, but a separate Celery
+    # worker will not see it. Set REDIS_URL for real cancellation support.
+    CACHES = {
+        'default': {
+            'BACKEND':  'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'ai-invoicing-dev',
+        },
+    }
+
 
 # Celery configuration
 CELERY_BROKER_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")

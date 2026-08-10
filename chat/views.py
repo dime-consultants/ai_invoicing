@@ -247,8 +247,13 @@ class ChatMessageSendView(APIView):
         files        file[]    — optional attachments
         workflow_id  int|str   — optional workflow selector
 
-    Returns:
-        user_message, assistant_message, user_attachments, output_attachments
+    Returns (default, synchronous):
+        201 — user_message, assistant_message, user_attachments, output_attachments
+
+    Returns (async, opt-in via ?sync=0 / ?async=1):
+        202 — status, turn_id, conversation_id, user_message. The assistant reply
+              is pushed over /ws/chat/<conversation_id>/; callers that cannot
+              listen there must use the default synchronous path.
     """
     authentication_classes = [SessionAuthentication, JWTAuthentication]
     permission_classes     = [permissions.IsAuthenticated]
@@ -297,8 +302,23 @@ class ChatMessageSendView(APIView):
         workflow_id_int, _ = _parse_workflow_id(request.data.get("workflow_id"))
         conversation_history = _build_conv_history(conversation, exclude_pk=user_msg.pk)
 
-        sync_flag = request.query_params.get("sync") or request.data.get("sync")
-        sync = str(sync_flag).lower() in ("1", "true", "yes")
+        # Synchronous is the default: REST callers read assistant_message straight
+        # off this response and have no WebSocket/polling fallback. The async path
+        # (202 + turn_id, result pushed over the conversation WS) is opt-in via
+        # ?sync=0 or ?async=1 — only use it from a client that listens on the WS.
+        sync_flag  = request.query_params.get("sync")
+        if sync_flag is None:
+            sync_flag = request.data.get("sync")
+        async_flag = request.query_params.get("async")
+        if async_flag is None:
+            async_flag = request.data.get("async")
+
+        if sync_flag is not None:
+            sync = str(sync_flag).lower() in ("1", "true", "yes")
+        elif async_flag is not None:
+            sync = str(async_flag).lower() not in ("1", "true", "yes")
+        else:
+            sync = True
 
         if sync:
             try:
@@ -343,9 +363,11 @@ class ChatMessageSendView(APIView):
 
         import uuid
         from chat.tasks import run_chat_turn_task
+        from config.dispatch import dispatch
 
         turn_id = uuid.uuid4().hex
-        run_chat_turn_task.delay(
+        queued = dispatch(
+            run_chat_turn_task,
             turn_id=turn_id,
             conversation_id=conversation.pk,
             user_message_id=user_msg.pk,
@@ -353,6 +375,15 @@ class ChatMessageSendView(APIView):
             workflow_id=workflow_id_int,
             conversation_history=conversation_history,
         )
+        if queued is None:
+            # user_msg is already committed; without a queued turn nothing will
+            # ever answer it. Say so instead of 500-ing on a kombu error.
+            return Response(
+                {"error": "Could not queue the message — the task broker is "
+                          "unavailable. Retry, or resend with ?sync=1.",
+                 "user_message": ChatMessageSerializer(user_msg, context={"request": request}).data},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         ctx = {"request": request}
         return Response(
@@ -548,7 +579,11 @@ class ChatHistoryView(APIView):
 
     def get(self, request):
         conversation_id = request.query_params.get("conversationId")
-        limit = min(int(request.query_params.get("limit", 50)), 200)
+        try:
+            limit = int(request.query_params.get("limit", 50))
+        except (TypeError, ValueError):
+            limit = 50          # ?limit=abc used to be an unhandled 500
+        limit = max(1, min(limit, 200))
 
         if conversation_id:
             try:

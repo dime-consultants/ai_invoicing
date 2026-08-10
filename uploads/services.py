@@ -292,21 +292,42 @@ class UploadService:
             record.save(update_fields=["extraction_deferred", "parse_status"])
             UploadService._refresh_batch_counters(batch)
 
-            # Queue background extraction (do not block the request)
-            try:
+            # Queue background extraction (do not block the request).
+            #
+            # This MUST run on_commit: ingest_file is atomic (and ingest_many wraps
+            # a whole batch in one transaction), so dispatching inline races the
+            # commit — Redis delivers in milliseconds and the worker's
+            # UploadedFile.objects.get(pk=...) raises DoesNotExist, which the task
+            # reports as "file_not_found" without retrying. The file would then sit
+            # at pending/extraction_deferred forever.
+            file_pk = record.pk
+
+            def _queue_extraction():
                 from uploads.tasks import extract_file_text_task
-                extract_file_text_task.delay(record.pk)
-                logger.info(
-                    "Queued async extraction for large PDF %s (%d pages, file_id=%s)",
-                    original_name, page_count, record.pk,
-                )
-            except Exception as exc:
-                logger.exception(
-                    "Failed to queue extract_file_text_task for file %s: %s",
-                    record.pk, exc,
-                )
-                # Fall back to inline so the file is still usable
-                UploadService._extract_and_save(record)
+                try:
+                    extract_file_text_task.delay(file_pk)
+                    logger.info(
+                        "Queued async extraction for large PDF %s (%d pages, file_id=%s)",
+                        original_name, page_count, file_pk,
+                    )
+                except Exception as exc:
+                    logger.exception(
+                        "Failed to queue extract_file_text_task for file %s: %s",
+                        file_pk, exc,
+                    )
+                    # Broker unreachable — fall back to inline so the file is still
+                    # usable. Re-read the row: we are past commit and outside the
+                    # original transaction.
+                    try:
+                        rec = UploadedFile.objects.select_related("batch").get(pk=file_pk)
+                    except UploadedFile.DoesNotExist:
+                        return
+                    rec.extraction_deferred = False
+                    rec.save(update_fields=["extraction_deferred"])
+                    UploadService._extract_and_save(rec)
+                    UploadService._refresh_batch_counters(rec.batch)
+
+            transaction.on_commit(_queue_extraction)
             return record
 
         # 4. Small file / non-PDF — extract inline
@@ -320,9 +341,18 @@ class UploadService:
         try:
             saved_path = record.file.path
             text = _extract_text(saved_path, record.extension)
+            if not text:
+                # Extraction ran to completion and legitimately found nothing
+                # (scanned/image-only PDF, or a missing parser backend). That is
+                # a terminal outcome, not "still queued" — leaving it "pending"
+                # pins the batch at "processing" forever with nothing to re-run it.
+                logger.warning(
+                    "Extraction produced no text for %s (file_id=%s); marking parsed with empty text.",
+                    record.original_filename, record.pk,
+                )
             record.extracted_text = text
-            record.parse_status   = "parsed" if text else "pending"
-            record.parsed_at      = timezone.now() if text else None
+            record.parse_status   = "parsed"
+            record.parsed_at      = timezone.now()
             record.parse_error    = ""
             record.save(update_fields=[
                 "extracted_text", "parse_status", "parsed_at", "parse_error",
@@ -364,6 +394,10 @@ class UploadService:
         total  = files.count()
         parsed = files.filter(parse_status="parsed").count()
         errors = files.filter(parse_status="parse_error").count()
+        # "skipped" is terminal too. Counting it toward `total` but toward none of
+        # the outcome buckets meant a skipped file could never satisfy the
+        # "everything finished" test, pinning the batch at "processing" forever.
+        skipped = files.filter(parse_status="skipped").count()
         pending_or_parsing = files.filter(
             parse_status__in=("pending", "parsing")
         ).count()
@@ -374,7 +408,7 @@ class UploadService:
             new_status = "failed"
         elif pending_or_parsing > 0:
             new_status = "processing"
-        elif parsed + errors == total:
+        elif parsed + errors + skipped == total:
             new_status = "completed" if errors == 0 else "partial"
         else:
             new_status = "processing"
@@ -421,8 +455,15 @@ class UploadService:
             uf.parse_error  = error[:2000]
             uf.extracted_text = ""
         else:
+            if not text:
+                # See _extract_and_save: a completed extraction that yielded no
+                # text is terminal. "pending" would strand the file and its batch.
+                logger.warning(
+                    "Background extraction produced no text for file_id=%s; "
+                    "marking parsed with empty text.", file_id,
+                )
             uf.extracted_text = text[:MAX_CHARS] if text else ""
-            uf.parse_status   = "parsed" if text else "pending"
+            uf.parse_status   = "parsed"
             uf.parse_error    = ""
             uf.parsed_at      = timezone.now()
             if page_count is not None:
@@ -432,5 +473,21 @@ class UploadService:
             "extracted_text", "parse_status", "parse_error",
             "parsed_at", "page_count",
         ])
+
+        # Detection may have run while extraction was still deferred, i.e. against
+        # empty text — that verdict is provisional and nothing else would ever
+        # recompute it. Now that real text exists, redo it. Only when the current
+        # verdict is absent or low-confidence, so a high-confidence or manually
+        # corrected label is never clobbered.
+        if not error and text and uf.detection_confidence in (None, "", "low"):
+            try:
+                from tools.handlers import detect_file_type
+                detect_file_type(uf.pk)
+                uf.refresh_from_db()
+            except Exception as exc:
+                logger.warning(
+                    "Re-detection after extraction failed for file %s: %s", uf.pk, exc,
+                )
+
         UploadService._refresh_batch_counters(uf.batch)
         return uf

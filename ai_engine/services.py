@@ -92,6 +92,12 @@ ALL_TOOL_NAMES: list[str] = [
     "write_xlsx",
     "call_webhook",
     "run_python",
+    # domain builtins — deterministic parsers for the known file shapes.
+    # Prefer these over the generic prompt_transform equivalents below when the
+    # file matches: they do the Safaricom summary→detail CU join and the
+    # URA/ACON statutory-column match, neither of which a prompt can do reliably.
+    "extract_safaricom_bill",
+    "reconcile_ura_vs_acon",
     # domain prompt_transform
     "extract_invoice_data",
     "flag_anomalies",
@@ -107,6 +113,7 @@ WORKFLOW_TOOL_NAMES: dict[str, list[str]] = {
     "extraction": [
         "detect_file_type",
         "read_file",
+        "extract_safaricom_bill",   # use for a Safaricom bill — joins CU numbers
         "extract_invoice_data",
         "write_xlsx",
     ],
@@ -114,8 +121,10 @@ WORKFLOW_TOOL_NAMES: dict[str, list[str]] = {
     "reconciliation": [
         "detect_file_type",
         "read_file",
+        "extract_safaricom_bill",
         "extract_invoice_data",
-        "reconcile_datasets",
+        "reconcile_ura_vs_acon",    # use when one side is ACON — statutory join
+        "reconcile_datasets",       # generic fallback for other file pairs
         "write_xlsx",
     ],
     # Anomaly detection: read, extract, flag
@@ -480,7 +489,13 @@ class AIEngineService:
         job.insights.all().delete()
         job.tool_calls.all().delete()
 
-        run_ai_job_task.delay(job_id)
+        # Prior insights/tool_calls are already gone; if nothing gets queued the
+        # job would sit at "queued" forever with its results destroyed.
+        from config.dispatch import dispatch
+        if dispatch(run_ai_job_task, job_id) is None:
+            job.status        = "error"
+            job.error_message = "Could not queue the job — the task broker is unavailable."
+            job.save(update_fields=["status", "error_message"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
