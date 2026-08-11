@@ -70,16 +70,25 @@ def notify_job_update(user_id, *, job_id, status: str, title: str = "") -> bool:
     )
 
 
-def notify_file_processed(user_id, *, file_id, filename: str, status: str = "parsed") -> bool:
-    return _send(
-        f"notifications_{user_id}",
-        {
-            "type":     "file_processed",
-            "file_id":  file_id,
-            "filename": filename,
-            "status":   status,
-        },
-    )
+def notify_file_processed(user_id, *, file_id, filename: str, status: str = "parsed", **extra) -> bool:
+    """
+    Notify that a file was processed. Accepts optional extra kwargs (e.g.
+    `page_count`, `extraction_deferred`) and includes them in the payload if
+    present. Backwards-compatible with older callers that only pass the core
+    arguments.
+    """
+    payload = {
+        "type":     "file_processed",
+        "file_id":  file_id,
+        "filename": filename,
+        "status":   status,
+    }
+    # Preserve commonly-sent extras, but allow any keys through for forward
+    # compatibility with other callers.
+    if extra:
+        payload.update(extra)
+
+    return _send(f"notifications_{user_id}", payload)
 
 
 # ── Chat streaming channel ────────────────────────────────────────────────────

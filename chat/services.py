@@ -146,19 +146,71 @@ class ChatService:
         """
         from uploads.services import UploadService
 
-        try:
-            batch = UploadService.create_batch(
-                label=f"Chat upload ({len(file_attachments)} file(s))",
-                user=user,
-            )
-        except Exception as exc:
-            logger.error("Could not create upload batch: %s", exc)
-            return None
+        from uploads.models import UploadedFile
 
+        # First, attempt to reuse any existing UploadedFile rows so we don't
+        # create duplicates. Only create a new batch if we actually need to
+        # ingest one or more files.
+        needs_ingest = False
         for att in file_attachments:
+            # If already linked, nothing to do for this attachment.
+            if getattr(att, "uploaded_file", None):
+                continue
+            # Try to find an existing UploadedFile that references the same
+            # stored file path/name. This covers cases where the media file was
+            # already ingested elsewhere but the ChatMessageAttachment wasn't
+            # cross-linked yet.
+            try:
+                existing = UploadedFile.objects.filter(file=att.file.name).first()
+                if existing:
+                    try:
+                        att.uploaded_file = existing
+                        att.save(update_fields=["uploaded_file"])
+                        continue
+                    except Exception:
+                        pass
+            except Exception:
+                # If any DB error occurs, fall back to ingesting below.
+                pass
+
+            needs_ingest = True
+
+        batch = None
+        if needs_ingest:
+            try:
+                batch = UploadService.create_batch(
+                    label=f"Chat upload ({len(file_attachments)} file(s))",
+                    user=user,
+                )
+            except Exception as exc:
+                logger.error("Could not create upload batch: %s", exc)
+                # If we cannot create a batch, proceed without one; already-
+                # linked UploadedFile records remain usable via read_file.
+                batch = None
+
+        # Now ingest any attachments that still lack an UploadedFile record.
+        for att in file_attachments:
+            if getattr(att, "uploaded_file", None):
+                continue
             try:
                 att.file.open("rb")
-                record = UploadService.ingest_file(batch, att.file)
+                # If we failed to create a batch above, fall back to ingesting
+                # into a fresh batch so the upload pipeline still runs.
+                target_batch = batch
+                if target_batch is None:
+                    try:
+                        target_batch = UploadService.create_batch(
+                            label=f"Chat upload ({att.filename})",
+                            user=user,
+                        )
+                        # If we created a per-file batch above, keep it for
+                        # subsequent unlinked files.
+                        if batch is None:
+                            batch = target_batch
+                    except Exception:
+                        target_batch = None
+
+                record = UploadService.ingest_file(target_batch, att.file)
                 # Cross-link so admin/UI can trace attachment → uploaded file
                 try:
                     att.uploaded_file = record
@@ -172,7 +224,8 @@ class ChatService:
                 )
 
         try:
-            batch.refresh_from_db()
+            if batch is not None:
+                batch.refresh_from_db()
         except Exception:
             pass
 

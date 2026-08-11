@@ -35,7 +35,16 @@ def dispatch(task, *args, **kwargs) -> Any | None:
     could not be reached. Never raises.
     """
     try:
-        return task.delay(*args, **kwargs)
+        # Celery's `delay` accepts positional and keyword args, but many
+        # callsites (and our tasks) prefer keyword-only signatures. To avoid
+        # accidental positional mis-mapping, prefer calling `apply_async`
+        # with an explicit `args` tuple and `kwargs` dict so callers can pass
+        # either form to `dispatch` and have semantics preserved.
+        if args and kwargs:
+            return task.apply_async(args=args, kwargs=kwargs)
+        if args:
+            return task.apply_async(args=args)
+        return task.apply_async(kwargs=kwargs)
     except Exception as exc:
         logger.exception(
             "Could not queue task %s: %s",
