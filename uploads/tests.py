@@ -242,6 +242,22 @@ class SafeDispatchTests(TestCase):
         from config.dispatch import dispatch
 
         task = MagicMock()
-        task.delay.return_value = "async-result"
+        task.apply_async.return_value = "async-result"
         self.assertEqual(dispatch(task, 1), "async-result")
-        task.delay.assert_called_once_with(1)
+        task.apply_async.assert_called_once_with(args=(1,))
+
+    def test_success_with_kwargs_uses_apply_async_kwargs(self):
+        from config.dispatch import dispatch
+
+        task = MagicMock()
+        task.apply_async.return_value = "async-result"
+        self.assertEqual(dispatch(task, 1, x=2), "async-result")
+        task.apply_async.assert_called_once_with(args=(1,), kwargs={"x": 2})
+
+    def test_success_with_only_kwargs_uses_apply_async_kwargs(self):
+        from config.dispatch import dispatch
+
+        task = MagicMock()
+        task.apply_async.return_value = "async-result"
+        self.assertEqual(dispatch(task, x=2), "async-result")
+        task.apply_async.assert_called_once_with(kwargs={"x": 2})
