@@ -152,13 +152,23 @@ class Workflow(models.Model):
     steps contains the ordered list of tool names, e.g.:
         ["detect_file_type", "extract_ura_receipts", "flag_anomalies", "generate_report"]
     """
+    # Must stay in sync with the types seeded by
+    # chat/management/commands/init_workflows.py — a value seeded but missing
+    # here makes the workflow uneditable in the admin ("Select a valid choice")
+    # and makes get_workflow_type_display() return the raw slug.
     WORKFLOW_TYPE_CHOICES = [
+        ("extraction",          "Document Extraction"),
+        ("reconciliation",      "Reconciliation & Variance Detection"),
+        ("anomaly_detection",   "Anomaly Detection"),
+        ("data_cleaning",       "Data Cleaning"),
+        ("batch_summary",       "Batch Summary"),
+        ("report_generation",   "Report Generation"),
+        ("classification",      "Line Item Classification"),
+        # Retained so pre-existing rows keep a valid, displayable type.
         ("ura_processing",      "URA Fiscal Receipt Processing"),
         ("safaricom_processing","Safaricom Bill Processing"),
         ("acon_processing",     "ACON Sales Invoice Processing"),
-        ("reconciliation",      "Reconciliation & Variance Detection"),
-        ("classification",      "Line Item Classification"),
-        ("report_generation",   "Report Generation"),
+        ("full_pipeline",       "Full Pipeline"),
         ("custom",              "Custom Workflow"),
     ]
 

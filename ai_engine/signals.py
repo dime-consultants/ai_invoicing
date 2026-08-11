@@ -1,7 +1,10 @@
 # ai_engine/signals.py
 """
 Django signals for the ai_engine app.
-Fires WebSocket notifications when an AIAnalysisJob status changes.
+Fires WebSocket notifications when an AIAnalysisJob status changes, and
+when a large async job reports incremental progress (e.g. "Processed
+450/1000 pages") so the user isn't staring at a silent spinner for a
+long-running Celery-backed job.
 """
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -11,13 +14,23 @@ from django.dispatch import receiver
 def on_job_saved(sender, instance, created, **kwargs):
     """
     Push a WS notification when a job transitions to done or error.
-    Also pushes a progress update when it moves to running.
+    Also pushes a progress update when it moves to running, and again
+    whenever progress_note changes while still running (e.g. large
+    multi-page PDF jobs processed via Celery).
     """
     if created:
         return
 
     status = instance.status
-    if status not in ("running", "done", "error"):
+    progress_note = getattr(instance, "progress_note", "") or ""
+
+    # Only notify on a real status transition, or a progress update while
+    # running. Anything else (e.g. a save that only touches raw_response)
+    # is noise we don't want to push to the client every time.
+    update_fields = kwargs.get("update_fields") or set()
+    is_progress_update = status == "running" and "progress_note" in update_fields
+
+    if status not in ("running", "done", "error") and not is_progress_update:
         return
 
     user = instance.requested_by
@@ -33,7 +46,11 @@ def on_job_saved(sender, instance, created, **kwargs):
             user.pk,
             job_id=instance.pk,
             status=status,
-            title=f"{task_label} — {status}",
+            title=(
+                f"{task_label} — {progress_note}"
+                if is_progress_update and progress_note
+                else f"{task_label} — {status}"
+            ),
         )
 
         if status == "done":

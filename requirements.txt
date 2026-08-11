@@ -28,7 +28,7 @@ pyasn1==0.6.3
 pyasn1_modules==0.4.2
 
 # ── Database ──────────────────────────────────────────────────────────────────
-psycopg2-binary==2.9.10
+psycopg[binary]==3.3.3
 
 # ── AI / OpenAI / xAI ────────────────────────────────────────────────────────
 openai==2.36.0
@@ -52,6 +52,8 @@ olefile==0.47
 lxml==6.1.1
 python-magic==0.4.27
 filetype==1.2.0
+celery
+redis
 
 # ── Unstructured (local, no API key) ─────────────────────────────────────────
 unstructured.pytesseract==0.3.15

@@ -10,3 +10,8 @@ __pycache__/*
 *.sqlite3
 /outputs/*
 .env
+#server files
+*.log
+*.pid
+*.sock
+*.sh

@@ -8,8 +8,14 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import ToolDefinition, ToolCall
-from .serializers import ToolDefinitionSerializer, ToolCallSerializer
+from .models import ToolDefinition, ToolCall, UserToolConfig
+from .serializers import (
+    ToolDefinitionSerializer,
+    ToolCallSerializer,
+    CustomToolCreateSerializer,
+    CustomToolUpdateSerializer,
+    CustomToolDetailSerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,20 +35,21 @@ class IsAdminOrFinance(permissions.BasePermission):
 class ToolDefinitionListView(generics.ListAPIView):
     """GET /api/tools/ — list all enabled tools."""
     serializer_class   = ToolDefinitionSerializer
-    permission_classes = [IsAdminOrFinance]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         qs = ToolDefinition.objects.filter(enabled=True).order_by("category", "name")
-        category = self.request.query_params.get("category")
-        if category:
+        if category := self.request.query_params.get("category"):
             qs = qs.filter(category=category)
+        if tool_type := self.request.query_params.get("tool_type"):
+            qs = qs.filter(tool_type=tool_type)
         return qs
 
 
 class ToolDefinitionDetailView(generics.RetrieveAPIView):
     """GET /api/tools/<id>/ — full detail including Grok schema."""
     serializer_class   = ToolDefinitionSerializer
-    permission_classes = [IsAdminOrFinance]
+    permission_classes = [permissions.IsAuthenticated]
     queryset           = ToolDefinition.objects.filter(enabled=True)
 
 
@@ -51,7 +58,7 @@ class ToolDefinitionDetailView(generics.RetrieveAPIView):
 class ToolCallListView(generics.ListAPIView):
     """GET /api/tools/calls/ — list tool calls with optional filters."""
     serializer_class   = ToolCallSerializer
-    permission_classes = [IsAdminOrFinance]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         qs = ToolCall.objects.select_related("tool", "job").order_by("-created_at")
@@ -67,7 +74,7 @@ class ToolCallListView(generics.ListAPIView):
 class ToolCallDetailView(generics.RetrieveAPIView):
     """GET /api/tools/calls/<id>/ — single call detail."""
     serializer_class   = ToolCallSerializer
-    permission_classes = [IsAdminOrFinance]
+    permission_classes = [permissions.IsAuthenticated]
     queryset           = ToolCall.objects.select_related("tool", "job")
 
 
@@ -75,35 +82,61 @@ class ToolRunView(APIView):
     """
     POST /api/tools/run/
     Execute a single tool directly (bypasses the LLM loop).
+    Routes through ToolService._dispatch_single() so all three tool types
+    (builtin, webhook, prompt_transform) work correctly.
     """
-    permission_classes = [IsAdminOrFinance]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         tool_name = request.data.get("tool_name", "").strip()
         arguments = request.data.get("arguments", {})
 
         if not tool_name:
-            return Response({"error": "tool_name is required."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "tool_name is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
-            tool_def = ToolDefinition.objects.get(name=tool_name, enabled=True)
+            tool_def = ToolDefinition.objects.select_related("user_config").get(
+                name=tool_name, enabled=True
+            )
         except ToolDefinition.DoesNotExist:
-            return Response({"error": f"Tool '{tool_name}' not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": f"Tool '{tool_name}' not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         if not tool_def.is_safe:
-            return Response({"error": f"Tool '{tool_name}' is marked unsafe."}, status=status.HTTP_403_FORBIDDEN)
+            return Response(
+                {"error": f"Tool '{tool_name}' is marked unsafe and cannot be run directly."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         from datetime import datetime, timezone as tz
-        import importlib
+        from tools.services import _resolve_handler, _call_webhook, _call_prompt_transform
 
         started_at = datetime.now(tz.utc)
         try:
-            module_path, _, func_name = tool_def.handler.rpartition(".")
-            module  = importlib.import_module(module_path)
-            handler = getattr(module, func_name)
-            result  = handler(**arguments)
+            tool_type = tool_def.tool_type
+
+            if tool_type == "builtin":
+                import importlib
+                handler = _resolve_handler(tool_def.handler)
+                result  = handler(**arguments)
+
+            elif tool_type == "webhook":
+                result = _call_webhook(tool_def.user_config, arguments)
+
+            elif tool_type == "prompt_transform":
+                result = _call_prompt_transform(tool_def.user_config, arguments)
+
+            else:
+                result = {"ok": False, "error": f"Unknown tool_type '{tool_type}'."}
+
             tc_status = "success" if result.get("ok", True) else "error"
             error_msg = result.get("error", "")
+
         except Exception as exc:
             result    = {"ok": False, "error": str(exc)}
             tc_status = "error"
@@ -119,17 +152,224 @@ class ToolRunView(APIView):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Contract: POST /api/tools/convert
+# User-defined tools CRUD
+# ─────────────────────────────────────────────────────────────────────────────
+
+class CustomToolListCreateView(APIView):
+    """
+    GET  /api/tools/custom/   — list tools created by the current user
+    POST /api/tools/custom/   — create a new user-defined tool
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        tools = (
+            ToolDefinition.objects
+            .filter(created_by=request.user)
+            .select_related("user_config")
+            .order_by("-created_at")
+        )
+        return Response(CustomToolDetailSerializer(tools, many=True).data)
+
+    def post(self, request):
+        serializer = CustomToolCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        vd = serializer.validated_data
+
+        # ── Create ToolDefinition ─────────────────────────────────────────────
+        tool_type = vd["tool_type"]
+        tool = ToolDefinition.objects.create(
+            name              = vd["name"],
+            display_name      = vd["display_name"],
+            description       = vd["description"],
+            category          = vd.get("category", "utility"),
+            tool_type         = tool_type,
+            parameters_schema = vd.get("parameters_schema", {}),
+            # webhook tools are unsafe by default — they POST to external systems
+            is_safe           = vd.get("is_safe", tool_type != "webhook"),
+            handler           = "",   # not used for non-builtin tools
+            enabled           = True,
+            created_by        = request.user,
+        )
+
+        # ── Create UserToolConfig ─────────────────────────────────────────────
+        UserToolConfig.objects.create(
+            tool                    = tool,
+            webhook_url             = vd.get("webhook_url", ""),
+            webhook_method          = vd.get("webhook_method", "POST"),
+            webhook_headers         = vd.get("webhook_headers", {}),
+            webhook_timeout_seconds = vd.get("webhook_timeout_seconds", 30),
+            system_prompt           = vd.get("system_prompt", ""),
+            output_schema           = vd.get("output_schema"),
+        )
+
+        return Response(
+            CustomToolDetailSerializer(tool).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class CustomToolDetailView(APIView):
+    """
+    GET    /api/tools/custom/<id>/   — retrieve
+    PATCH  /api/tools/custom/<id>/   — partial update
+    DELETE /api/tools/custom/<id>/   — soft-delete (sets enabled=False)
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_tool(self, pk, user):
+        try:
+            return ToolDefinition.objects.select_related("user_config").get(
+                pk=pk, created_by=user
+            )
+        except ToolDefinition.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        tool = self._get_tool(pk, request.user)
+        if not tool:
+            return Response(
+                {"error": "Tool not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(CustomToolDetailSerializer(tool).data)
+
+    def patch(self, request, pk):
+        tool = self._get_tool(pk, request.user)
+        if not tool:
+            return Response(
+                {"error": "Tool not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CustomToolUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        vd = serializer.validated_data
+
+        # ── Update ToolDefinition fields ──────────────────────────────────────
+        tool_fields = ["display_name", "description", "category",
+                       "parameters_schema", "is_safe", "enabled"]
+        changed = False
+        for field in tool_fields:
+            if field in vd:
+                setattr(tool, field, vd[field])
+                changed = True
+        if changed:
+            tool.save()
+
+        # ── Update UserToolConfig fields ──────────────────────────────────────
+        config_fields = [
+            "webhook_url", "webhook_method", "webhook_headers",
+            "webhook_timeout_seconds", "system_prompt", "output_schema",
+        ]
+        config_data = {f: vd[f] for f in config_fields if f in vd}
+        if config_data:
+            cfg, _ = UserToolConfig.objects.get_or_create(tool=tool)
+            for field, value in config_data.items():
+                setattr(cfg, field, value)
+            cfg.save()
+
+        tool.refresh_from_db()
+        return Response(CustomToolDetailSerializer(tool).data)
+
+    def delete(self, request, pk):
+        tool = self._get_tool(pk, request.user)
+        if not tool:
+            return Response(
+                {"error": "Tool not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        # Soft delete — keeps the audit trail of any ToolCall records
+        tool.enabled = False
+        tool.save(update_fields=["enabled"])
+        return Response(
+            {"detail": f"Tool '{tool.name}' has been disabled."},
+            status=status.HTTP_200_OK,
+        )
+
+
+class CustomToolTestView(APIView):
+    """
+    POST /api/tools/custom/<id>/test/
+
+    Run the tool against a provided payload without going through the LLM
+    tool-calling loop. Returns the raw handler/webhook/prompt result so
+    the user can verify it works before enabling it for Grok to call.
+
+    Request body:
+        { "arguments": { ... } }
+
+    The tool's is_safe flag is NOT checked here — the user is explicitly
+    testing their own tool.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            tool = ToolDefinition.objects.select_related("user_config").get(
+                pk=pk, created_by=request.user,
+            )
+        except ToolDefinition.DoesNotExist:
+            return Response(
+                {"error": "Tool not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        arguments = request.data.get("arguments", {})
+        if not isinstance(arguments, dict):
+            return Response(
+                {"error": "arguments must be a JSON object."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from datetime import datetime, timezone as tz
+        from tools.services import _resolve_handler, _call_webhook, _call_prompt_transform
+
+        started_at = datetime.now(tz.utc)
+        try:
+            tool_type = tool.tool_type
+
+            if tool_type == "builtin":
+                result = {"ok": False, "error": "Built-in tools cannot be tested via this endpoint."}
+
+            elif tool_type == "webhook":
+                result = _call_webhook(tool.user_config, arguments)
+
+            elif tool_type == "prompt_transform":
+                result = _call_prompt_transform(tool.user_config, arguments)
+
+            else:
+                result = {"ok": False, "error": f"Unknown tool_type '{tool_type}'."}
+
+        except Exception as exc:
+            result = {"ok": False, "error": str(exc)}
+
+        finished_at = datetime.now(tz.utc)
+        duration_ms = int((finished_at - started_at).total_seconds() * 1000)
+
+        # Record the test call — job=None, visible in the audit log
+        tc = ToolCall.objects.create(
+            tool=tool, arguments=arguments, result=result,
+            status="success" if result.get("ok") else "error",
+            error_message=result.get("error", ""),
+            started_at=started_at, finished_at=finished_at,
+        )
+
+        return Response({
+            "tool_call_id": tc.pk,
+            "duration_ms":  duration_ms,
+            "result":       result,
+        })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Contract endpoints (unchanged from original)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class ToolsConvertView(APIView):
     """
     POST /api/tools/convert
     Convert a file to a target format and return a download URL.
-
-    multipart/form-data:
-        file          File object
-        targetFormat  xlsx | csv | json
     """
     permission_classes = [permissions.IsAuthenticated]
     parser_classes     = [MultiPartParser, FormParser]
@@ -203,18 +443,10 @@ class ToolsConvertView(APIView):
         return Response({"downloadUrl": download_url, "fileName": out_name, "expiresAt": expires_at})
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Contract: POST /api/tools/clean
-# ─────────────────────────────────────────────────────────────────────────────
-
 class ToolsCleanView(APIView):
     """
     POST /api/tools/clean
     Clean and process data in an uploaded file.
-
-    multipart/form-data:
-        file        File object
-        operations  JSON string e.g. ["trim","deduplicate","remove_empty"]
     """
     permission_classes = [permissions.IsAuthenticated]
     parser_classes     = [MultiPartParser, FormParser]
@@ -302,17 +534,10 @@ class ToolsCleanView(APIView):
         })
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Contract: POST /api/tools/validate
-# ─────────────────────────────────────────────────────────────────────────────
-
 class ToolsValidateView(APIView):
     """
     POST /api/tools/validate
     Validate a file's data against a named schema.
-
-    JSON body:
-        { "fileId": "string", "schemaId": "string" }
     """
     permission_classes = [permissions.IsAuthenticated]
 

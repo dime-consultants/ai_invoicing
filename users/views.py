@@ -1,9 +1,11 @@
+from django.conf import settings
 from django.contrib.auth import logout
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 
 from .models import User
 from .serializers import (
@@ -60,7 +62,10 @@ class LoginView(APIView):
             key="refresh_token",
             value=str(refresh),
             httponly=True,
-            secure=True,  # True in production
+            # Secure only outside DEBUG: a Secure cookie is never sent over plain
+            # http://localhost, which would break /api/auth/refresh/ in local dev
+            # and silently log the user out on token expiry / page refresh.
+            secure=not settings.DEBUG,
             samesite="Lax",
             max_age=7 * 24 * 60 * 60,
         )
@@ -86,7 +91,13 @@ class RefreshTokenView(APIView):
             data={"refresh": refresh_token}
         )
 
-        serializer.is_valid(raise_exception=True)
+        # simplejwt raises a bare TokenError (not a DRF APIException) for an
+        # expired/blacklisted/malformed token; left uncaught it becomes a 500.
+        # Convert it to InvalidToken (401) like simplejwt's own TokenRefreshView.
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError as exc:
+            raise InvalidToken(exc.args[0])
 
         access = serializer.validated_data["access"]
 

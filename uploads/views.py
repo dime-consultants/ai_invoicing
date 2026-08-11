@@ -1,10 +1,8 @@
-# uploads/views.py
 import mimetypes
-import os
 
 from django.http import FileResponse
 from rest_framework import generics, permissions, status
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -15,6 +13,7 @@ from .serializers import (
     UploadedFileSerializer,
     FileUploadSerializer,
 )
+from .services import UploadService
 
 
 # ── Permissions ───────────────────────────────────────────────────────────────
@@ -26,6 +25,12 @@ class CanUpload(permissions.BasePermission):
             request.user.is_authenticated
             and getattr(request.user, "role", None) in ("admin", "finance")
         )
+
+
+def _user_owns_or_is_admin(request, uploaded_file: UploadedFile) -> bool:
+    if uploaded_file.batch.uploaded_by == request.user:
+        return True
+    return getattr(request.user, "role", None) == "admin"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -50,10 +55,10 @@ class UploadBatchListCreateView(generics.ListCreateAPIView):
     def create(self, request, *args, **kwargs):
         label       = (request.data.get("label") or "Untitled Batch").strip()
         description = request.data.get("description", "")
-        batch = UploadBatch.objects.create(
+        batch = UploadService.create_batch(
             label=label,
             description=description,
-            uploaded_by=request.user,
+            user=request.user,
         )
         return Response(UploadBatchSerializer(batch).data, status=status.HTTP_201_CREATED)
 
@@ -71,16 +76,13 @@ class UploadBatchDetailView(generics.RetrieveDestroyAPIView):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Files — contract-compatible endpoints
+# Files
 # ─────────────────────────────────────────────────────────────────────────────
 
 class FileListView(generics.ListAPIView):
     """
     GET /api/files/
     List uploaded files with pagination and optional filters.
-
-    Query params:
-        page, limit, type, search
     """
     permission_classes = [permissions.IsAuthenticated]
     serializer_class   = UploadedFileSerializer
@@ -122,7 +124,8 @@ class FileListView(generics.ListAPIView):
 class FileUploadView(APIView):
     """
     POST /api/files/upload
-    Upload a single file. Creates a new batch automatically.
+    Upload a single file. Creates a new batch and runs (or queues) extraction.
+    Large PDFs return immediately with status=pending / extractionDeferred=true.
     """
     permission_classes = [CanUpload]
     parser_classes     = [MultiPartParser, FormParser]
@@ -131,63 +134,55 @@ class FileUploadView(APIView):
         serializer = FileUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        uploaded = serializer.validated_data["file"]
+        uploaded  = serializer.validated_data["file"]
         file_type = serializer.validated_data.get("type", "")
 
-        ext      = uploaded.name.rsplit(".", 1)[-1].lower() if "." in uploaded.name else ""
-        mime, _  = mimetypes.guess_type(uploaded.name)
-        mime     = mime or "application/octet-stream"
-
-        # Auto-create a batch for this single upload
-        batch = UploadBatch.objects.create(
+        batch = UploadService.create_batch(
             label=uploaded.name,
-            uploaded_by=request.user,
+            user=request.user,
         )
+        uf = UploadService.ingest_file(batch, uploaded)
 
-        uf = UploadedFile.objects.create(
-            batch=batch,
-            file=uploaded,
-            original_filename=uploaded.name,
-            file_size_bytes=uploaded.size,
-            mime_type=mime,
-            extension=ext,
-            detected_type=file_type,
-        )
-
-        # Update batch counter
-        batch.file_count = 1
-        batch.save(update_fields=["file_count"])
+        if file_type and not uf.detected_type:
+            uf.detected_type = file_type
+            uf.save(update_fields=["detected_type"])
 
         return Response({
-            "id":         uf.pk,
-            "name":       uf.original_filename,
-            "type":       uf.mime_type,
-            "size":       uf.file_size_bytes,
-            "uploadedAt": uf.uploaded_at,
+            "id":                  uf.pk,
+            "name":                uf.original_filename,
+            "type":                uf.mime_type,
+            "size":                uf.file_size_bytes,
+            "status":              uf.parse_status,
+            "pageCount":           uf.page_count,
+            "extractionDeferred":  uf.extraction_deferred,
+            "uploadedAt":          uf.uploaded_at,
         }, status=status.HTTP_200_OK)
 
 
 class FileDownloadView(APIView):
-    """
-    GET /api/files/<id>/download
-    Stream the file to the client.
-    """
+    """GET /api/files/<id>/download — stream the file."""
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, pk):
         try:
             uf = UploadedFile.objects.select_related("batch").get(pk=pk)
         except UploadedFile.DoesNotExist:
-            return Response({"error": {"code": "not_found", "message": "File not found.", "details": None}},
-                            status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": {"code": "not_found", "message": "File not found.", "details": None}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
-        if uf.batch.uploaded_by != request.user and not request.user.is_admin:
-            return Response({"error": {"code": "forbidden", "message": "Access denied.", "details": None}},
-                            status=status.HTTP_403_FORBIDDEN)
+        if not _user_owns_or_is_admin(request, uf):
+            return Response(
+                {"error": {"code": "forbidden", "message": "Access denied.", "details": None}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         if not uf.file:
-            return Response({"error": {"code": "not_found", "message": "File not available.", "details": None}},
-                            status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": {"code": "not_found", "message": "File not available.", "details": None}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         response = FileResponse(
             uf.file.open("rb"),
@@ -199,30 +194,76 @@ class FileDownloadView(APIView):
 
 
 class FileDeleteView(APIView):
-    """
-    DELETE /api/files/<id>/
-    Delete a file record and its stored file.
-    """
+    """DELETE /api/files/<id>/ — delete a file record and its stored file."""
     permission_classes = [CanUpload]
 
     def delete(self, request, pk):
         try:
             uf = UploadedFile.objects.select_related("batch").get(pk=pk)
         except UploadedFile.DoesNotExist:
-            return Response({"error": {"code": "not_found", "message": "File not found.", "details": None}},
-                            status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": {"code": "not_found", "message": "File not found.", "details": None}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
-        if uf.batch.uploaded_by != request.user and not request.user.is_admin:
-            return Response({"error": {"code": "forbidden", "message": "Access denied.", "details": None}},
-                            status=status.HTTP_403_FORBIDDEN)
+        if not _user_owns_or_is_admin(request, uf):
+            return Response(
+                {"error": {"code": "forbidden", "message": "Access denied.", "details": None}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
-        # Delete the physical file
+        batch = uf.batch
         if uf.file:
             try:
-                storage = uf.file.storage
-                storage.delete(uf.file.name)
+                uf.file.storage.delete(uf.file.name)
             except Exception:
                 pass
 
         uf.delete()
+
+        try:
+            UploadService._refresh_batch_counters(batch)
+        except Exception:
+            pass
+
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class FileReextractView(APIView):
+    """
+    POST /api/files/<id>/reextract/
+    Force re-queue of text extraction (useful after parse_error or for large PDFs).
+    """
+    permission_classes = [CanUpload]
+
+    def post(self, request, pk):
+        try:
+            uf = UploadedFile.objects.select_related("batch").get(pk=pk)
+        except UploadedFile.DoesNotExist:
+            return Response(
+                {"error": {"code": "not_found", "message": "File not found.", "details": None}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not _user_owns_or_is_admin(request, uf):
+            return Response(
+                {"error": {"code": "forbidden", "message": "Access denied.", "details": None}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        from uploads.tasks import reextract_file_task
+        from config.dispatch import dispatch
+        if dispatch(reextract_file_task, uf.pk) is None:
+            return Response(
+                {"error": {"code": "broker_unavailable",
+                           "message": "Could not queue re-extraction — the task "
+                                      "broker is unavailable. Please retry.",
+                           "details": None}},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response({
+            "id":     uf.pk,
+            "status": "pending",
+            "message": "Re-extraction queued.",
+        })

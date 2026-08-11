@@ -4,30 +4,23 @@ from rest_framework import serializers
 from .models import ChatConversation, ChatMessage, ChatMessageAttachment, Workflow
 
 
-def _get_user_display(user):
-    if not user:
-        return None
-    full = f"{user.first_name} {user.last_name}".strip()
-    return full or user.email
-
-
 class ChatMessageAttachmentSerializer(serializers.ModelSerializer):
-    file_url = serializers.SerializerMethodField()
     download_url = serializers.SerializerMethodField()
 
     class Meta:
-        model = ChatMessageAttachment
+        model  = ChatMessageAttachment
         fields = [
             "id", "filename", "file_type", "attachment_type",
-            "file_size_bytes", "created_at", "file_url", "download_url"
+            "file_size_bytes", "created_at",
+            "download_url",
+            "uploaded_file",   # FK to uploads.UploadedFile — useful for UI
         ]
-        read_only_fields = ["created_at"]
+        read_only_fields = fields
 
-    def get_file_url(self, obj):
-        request = self.context.get('request')
-        if obj.file and request:
-            return request.build_absolute_uri(obj.file.url)
-        return obj.file.url if obj.file else None
+    def get_download_url(self, obj):
+        request = self.context.get("request")
+        url = f"/api/chat/attachments/{obj.pk}/download/"
+        return request.build_absolute_uri(url) if request else url
 
     def get_download_url(self, obj):
         request = self.context.get('request')
@@ -38,49 +31,81 @@ class ChatMessageAttachmentSerializer(serializers.ModelSerializer):
 
 
 class ChatMessageSerializer(serializers.ModelSerializer):
-    attachments = ChatMessageAttachmentSerializer(many=True, read_only=True)
+    attachments           = ChatMessageAttachmentSerializer(many=True, read_only=True)
     applied_workflow_name = serializers.CharField(
-        source='applied_workflow.name', read_only=True
+        source="applied_workflow.name", read_only=True, default=None,
     )
+    # Expose the AI job id + status so the UI can poll or show a spinner
+    ai_job_id     = serializers.IntegerField(source="ai_job.pk",     read_only=True, default=None)
+    ai_job_status = serializers.CharField(source="ai_job.status",   read_only=True, default=None)
 
     class Meta:
-        model = ChatMessage
+        model  = ChatMessage
         fields = [
             "id", "role", "content", "created_at",
-            "applied_workflow", "applied_workflow_name", "attachments"
+            "applied_workflow", "applied_workflow_name",
+            "ai_job_id", "ai_job_status",
+            "attachments",
         ]
-        read_only_fields = ["created_at", "applied_workflow"]
+        read_only_fields = fields
 
 
 class WorkflowSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Workflow
+        model  = Workflow
         fields = [
             "id", "name", "description", "workflow_type", "steps",
-            "enabled", "is_default", "created_at", "updated_at"
+            "enabled", "is_default", "created_at", "updated_at",
         ]
         read_only_fields = ["created_at", "updated_at"]
 
 
 class ChatConversationListSerializer(serializers.ModelSerializer):
-    message_count = serializers.SerializerMethodField()
+    message_count  = serializers.SerializerMethodField()
+    last_message   = serializers.SerializerMethodField()
+    related_batch_label = serializers.CharField(
+        source="related_batch.label", read_only=True, default=None,
+    )
 
     class Meta:
-        model = ChatConversation
-        fields = ["id", "title", "created_at", "updated_at", "message_count"]
-        read_only_fields = ["created_at", "updated_at"]
+        model  = ChatConversation
+        fields = [
+            "id", "title", "is_active",
+            "related_batch", "related_batch_label",
+            "message_count", "last_message",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = fields
 
     def get_message_count(self, obj):
         return obj.messages.count()
 
+    def get_last_message(self, obj):
+        msg = obj.messages.order_by("-created_at").first()
+        if not msg:
+            return None
+        return {
+            "role":    msg.role,
+            "content": msg.content[:120],
+            "created_at": msg.created_at.isoformat(),
+        }
+
 
 class ChatConversationSerializer(serializers.ModelSerializer):
-    messages = ChatMessageSerializer(many=True, read_only=True)
+    messages      = ChatMessageSerializer(many=True, read_only=True)
     message_count = serializers.SerializerMethodField()
+    related_batch_label = serializers.CharField(
+        source="related_batch.label", read_only=True, default=None,
+    )
 
     class Meta:
-        model = ChatConversation
-        fields = ["id", "title", "created_at", "updated_at", "message_count", "messages"]
+        model  = ChatConversation
+        fields = [
+            "id", "title", "is_active",
+            "related_batch", "related_batch_label",
+            "message_count", "messages",
+            "created_at", "updated_at",
+        ]
         read_only_fields = ["created_at", "updated_at"]
 
     def get_message_count(self, obj):

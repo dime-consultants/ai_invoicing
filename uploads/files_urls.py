@@ -1,4 +1,4 @@
-# uploads/files_urls.py
+# uploads/files_urls.py/duplicated with uploads/urls.py for some endpoints
 # Mounted at /api/files/ — matches the frontend API contract
 from django.urls import path
 from .views import (

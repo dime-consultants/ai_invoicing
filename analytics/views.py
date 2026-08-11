@@ -119,26 +119,36 @@ class DashboardStatsView(APIView):
         time_trend  = "up" if time_change > 0 else ("down" if time_change < 0 else "neutral")
 
         return Response({
-            "invoicesProcessed": {
-                "value":  current_files,
-                "change": files_change,
-                "trend":  files_trend,
-            },
-            "activeWorkflows": {
-                "value":  active_jobs,
-                "change": jobs_change,
-                "trend":  jobs_trend,
-            },
-            "accuracy": {
-                "value":  accuracy,
-                "change": acc_change,
-                "trend":  acc_trend,
-            },
-            "timeSaved": {
-                "value":  time_saved_str,
-                "change": time_change,
-                "trend":  time_trend,
-            },
+            "stats": [
+                {
+                    "title": "Invoices Processed",
+                    "value": str(current_files),
+                    "change": str(files_change),
+                    "changeType": "positive" if files_change > 0 else ("negative" if files_change < 0 else "neutral"),
+                    "description": "Files processed this month",
+                },
+                {
+                    "title": "Active Workflows",
+                    "value": str(active_jobs),
+                    "change": str(jobs_change),
+                    "changeType": "positive" if jobs_change > 0 else ("negative" if jobs_change < 0 else "neutral"),
+                    "description": "Currently running or queued",
+                },
+                {
+                    "title": "Accuracy",
+                    "value": f"{accuracy}%",
+                    "change": f"{acc_change:+.1f}%",
+                    "changeType": "positive" if acc_change > 0 else ("negative" if acc_change < 0 else "neutral"),
+                    "description": "Success rate of completed jobs",
+                },
+                {
+                    "title": "Time Saved",
+                    "value": time_saved_str,
+                    "change": str(time_change),
+                    "changeType": "positive" if time_change > 0 else ("negative" if time_change < 0 else "neutral"),
+                    "description": "Automated processing time",
+                },
+            ],
         })
 
 
@@ -230,6 +240,45 @@ class DashboardRecentActivityView(APIView):
         activities.sort(key=lambda x: x["timestamp"], reverse=True)
 
         return Response({"activities": activities[:20]})
+
+
+class DashboardProcessingView(APIView):
+    """GET /api/dashboard/processing"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        UploadBatch, UploadedFile, AIAnalysisJob, _, _ = _safe_import()
+
+        period = request.query_params.get("period", "month")
+        since  = _period_start(period)
+
+        # Build daily buckets for processing chart
+        data = []
+        now  = timezone.now()
+        days = (now - since).days or 1
+
+        for i in range(min(days, 30)):
+            day_start = (now - timedelta(days=days - i - 1)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            day_end = day_start + timedelta(days=1)
+
+            # Count invoices uploaded and reconciled
+            invoices  = UploadedFile.objects.filter(
+                uploaded_at__gte=day_start, uploaded_at__lt=day_end
+            ).count()
+            reconciled = UploadedFile.objects.filter(
+                uploaded_at__gte=day_start, uploaded_at__lt=day_end,
+                parse_status="parsed",
+            ).count()
+
+            data.append({
+                "name":       day_start.strftime("%b %d"),
+                "invoices":   invoices,
+                "reconciled": reconciled,
+            })
+
+        return Response({"data": data})
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -162,6 +162,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',  # Fallback for development/testing
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -174,7 +175,7 @@ REST_FRAMEWORK = {
 
 # ── Simple JWT ────────────────────────────────────────────────────────────────
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 
     'ROTATE_REFRESH_TOKENS': True,
@@ -196,7 +197,10 @@ SIMPLE_JWT = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
     "https://kuehne.dimeconsultants.africa",
+    "https://guardian.dimeconsultants.africa",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -218,6 +222,9 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://kuehne.dimeconsultants.africa",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "https://guardian.dimeconsultants.africa",
 ]
 
 CSRF_COOKIE_HTTPONLY = False
@@ -267,3 +274,61 @@ else:
             'BACKEND': 'channels.layers.InMemoryChannelLayer',
         },
     }
+
+# ── Cache ─────────────────────────────────────────────────────────────────────
+# This must be shared across processes, not merely present. Chat turn
+# cancellation writes a flag from the Daphne/ASGI process (chat.consumers) that
+# the Celery worker polls (chat.tasks); Django's default LocMemCache is
+# per-process, so the worker never sees the flag, runs the turn to completion,
+# and pushes a reply the UI has already discarded.
+if _REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND':  'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': _REDIS_URL,
+        },
+    }
+else:
+    # Single-process dev only. Cancellation is best-effort here: with runserver
+    # and an eager/in-process worker the flag is visible, but a separate Celery
+    # worker will not see it. Set REDIS_URL for real cancellation support.
+    CACHES = {
+        'default': {
+            'BACKEND':  'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'ai-invoicing-dev',
+        },
+    }
+
+
+# Celery configuration
+CELERY_BROKER_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+CELERY_TASK_TIME_LIMIT = 60 * 30        # hard kill at 30 min — a 1000-page doc should never need more
+CELERY_TASK_SOFT_TIME_LIMIT = 60 * 25   # raises a catchable exception 5 min before the hard kill
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 20  # recycle worker processes periodically — caps memory creep
+CELERY_WORKER_AUTOSCALE = '4,2'         # Max 4, Min 2 workers — ensures auto addition of workers
+
+# ── Reliability: survive worker crashes and broker blips without losing jobs ──
+# Without these, a task is acknowledged (removed from the queue) the moment a
+# worker picks it up — not when it finishes. If the worker dies mid-task (as
+# happened during the Redis disconnect above), the job is silently lost with
+# no error and no notification. late ack + prefetch=1 means a task is only
+# acknowledged after it completes successfully; if the worker dies first,
+# Celery redelivers it to another worker instead of losing it.
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+
+# Keep retrying the broker connection indefinitely on startup and during
+# normal operation, rather than giving up after a fixed number of attempts —
+# this is what let the worker recover automatically in the log above, but
+# make the policy explicit rather than relying on library defaults that can
+# change between Celery versions.
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_CONNECTION_RETRY = True
+CELERY_BROKER_CONNECTION_MAX_RETRIES = None  # retry forever, never give up
+
+# If a task is mid-execution when the connection drops, don't auto-cancel it
+# (this flips to True by default in Celery 6.0 per the deprecation warning
+# in your log — pin it explicitly so upgrading Celery doesn't silently
+# change this behavior under you).
+CELERY_WORKER_CANCEL_LONG_RUNNING_TASKS_ON_CONNECTION_LOSS = False

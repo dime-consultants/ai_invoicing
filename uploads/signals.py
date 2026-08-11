@@ -1,8 +1,16 @@
-# uploads/signals.py
 """
 Django signals for the uploads app.
-Fires WebSocket notifications when a file's parse status changes.
+
+Fires WebSocket notifications when a file's parse status changes to
+parsed or parse_error so the chat UI (and any waiting agent turn) can
+react immediately.
+
+Import note
+-----------
+chat.notify is imported INSIDE the receiver body to avoid the circular
+import: chat.services → uploads → uploads.signals → chat.notify → chat.
 """
+
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -16,8 +24,8 @@ def on_file_saved(sender, instance, created, **kwargs):
     if created:
         return
 
-    status = instance.parse_status
-    if status not in ("parsed", "parse_error"):
+    file_status = instance.parse_status
+    if file_status not in ("parsed", "parse_error"):
         return
 
     user = getattr(instance.batch, "uploaded_by", None)
@@ -27,21 +35,25 @@ def on_file_saved(sender, instance, created, **kwargs):
     try:
         from chat.notify import notify_user, notify_file_processed
 
-        ws_status = "parsed" if status == "parsed" else "error"
+        ws_status = "parsed" if file_status == "parsed" else "error"
         notify_file_processed(
             user.pk,
             file_id=instance.pk,
             filename=instance.original_filename,
             status=ws_status,
+            page_count=instance.page_count,
+            extraction_deferred=instance.extraction_deferred,
         )
 
-        title   = "File processed" if status == "parsed" else "File processing failed"
+        title = "File processed" if file_status == "parsed" else "File processing failed"
         message = (
-            f"'{instance.original_filename}' was parsed successfully."
-            if status == "parsed"
-            else f"'{instance.original_filename}' could not be parsed: {instance.parse_error[:120]}"
+            f"'{instance.original_filename}' was parsed successfully"
+            + (f" ({instance.page_count} pages)." if instance.page_count else ".")
+            if file_status == "parsed"
+            else f"'{instance.original_filename}' could not be parsed: "
+                 f"{(instance.parse_error or '')[:120]}"
         )
         notify_user(user.pk, title=title, message=message)
 
     except Exception:
-        pass  # Never let a signal crash the request
+        pass  # Never let a signal crash the request / worker

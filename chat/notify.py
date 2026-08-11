@@ -2,23 +2,17 @@
 """
 Helper functions for pushing real-time events to connected WebSocket clients.
 
-Usage (from any Django view, signal, or Celery task):
+All public functions are synchronous and safe to call from Django views,
+signals, and Celery tasks.
 
-    from chat.notify import notify_user, notify_job_update, notify_file_processed
+Usage:
 
-    # Push a generic notification
-    notify_user(user_id=42, title="Report Ready", message="Your report has been generated.")
+    from chat.notify import notify_user, notify_job_update, push_chat_chunk
 
-    # Push an AI job status update
-    notify_job_update(user_id=42, job_id=7, status="done", title="Anomaly detection complete")
-
-    # Push a file-processed event
-    notify_file_processed(user_id=42, file_id=15, filename="receipts.txt", status="parsed")
-
-    # Push a chat stream chunk to a conversation
-    from chat.notify import push_chat_chunk, push_chat_done
-    push_chat_chunk(conversation_id=3, content="Hello ")
-    push_chat_done(conversation_id=3, message_id=99)
+    notify_user(42, title="Report Ready", message="Your report has been generated.")
+    notify_job_update(42, job_id=7, status="done", title="Anomaly detection complete")
+    push_chat_chunk(3, content="Hello ", turn_id="<uuid>")
+    push_chat_done(3, message_id=99, turn_id="<uuid>")
 """
 import logging
 from django.utils import timezone
@@ -27,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 
 def _get_layer():
-    """Return the channel layer, or None if Channels is not configured."""
     try:
         from channels.layers import get_channel_layer
         return get_channel_layer()
@@ -36,10 +29,6 @@ def _get_layer():
 
 
 def _send(group: str, payload: dict) -> bool:
-    """
-    Synchronously send a message to a channel group.
-    Returns True on success, False if the layer is unavailable.
-    """
     layer = _get_layer()
     if layer is None:
         logger.debug("Channel layer unavailable — skipping WS push to %s", group)
@@ -53,10 +42,9 @@ def _send(group: str, payload: dict) -> bool:
         return False
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ── Notification channel ──────────────────────────────────────────────────────
 
 def notify_user(user_id, *, title: str, message: str, notification_id: str = "") -> bool:
-    """Push a generic notification to a user's notification channel."""
     import uuid
     return _send(
         f"notifications_{user_id}",
@@ -71,7 +59,6 @@ def notify_user(user_id, *, title: str, message: str, notification_id: str = "")
 
 
 def notify_job_update(user_id, *, job_id, status: str, title: str = "") -> bool:
-    """Push an AI job status update to the user's notification channel."""
     return _send(
         f"notifications_{user_id}",
         {
@@ -83,47 +70,80 @@ def notify_job_update(user_id, *, job_id, status: str, title: str = "") -> bool:
     )
 
 
-def notify_file_processed(user_id, *, file_id, filename: str, status: str = "parsed") -> bool:
-    """Push a file-processed event to the user's notification channel."""
-    return _send(
-        f"notifications_{user_id}",
-        {
-            "type":     "file_processed",
-            "file_id":  file_id,
-            "filename": filename,
-            "status":   status,
-        },
-    )
+def notify_file_processed(user_id, *, file_id, filename: str, status: str = "parsed", **extra) -> bool:
+    """
+    Notify that a file was processed. Accepts optional extra kwargs (e.g.
+    `page_count`, `extraction_deferred`) and includes them in the payload if
+    present. Backwards-compatible with older callers that only pass the core
+    arguments.
+    """
+    payload = {
+        "type":     "file_processed",
+        "file_id":  file_id,
+        "filename": filename,
+        "status":   status,
+    }
+    # Preserve commonly-sent extras, but allow any keys through for forward
+    # compatibility with other callers.
+    if extra:
+        payload.update(extra)
+
+    return _send(f"notifications_{user_id}", payload)
 
 
-def push_chat_chunk(conversation_id, *, content: str) -> bool:
-    """Push a streaming text chunk to a chat conversation channel."""
+# ── Chat streaming channel ────────────────────────────────────────────────────
+
+def push_chat_chunk(conversation_id, *, content: str, turn_id: str = "") -> bool:
+    """Push a streaming text chunk to the chat conversation group."""
     return _send(
         f"chat_{conversation_id}",
         {
             "type":    "stream_chunk",
             "content": content,
+            "turn_id": turn_id,
         },
     )
 
 
-def push_chat_done(conversation_id, *, message_id) -> bool:
-    """Signal that streaming is complete for a chat conversation."""
+def push_chat_done(
+    conversation_id,
+    *,
+    message_id,
+    turn_id: str = "",
+    attachments: list | None = None,
+) -> bool:
+    """Signal that streaming is complete for a chat turn."""
     return _send(
         f"chat_{conversation_id}",
         {
-            "type":       "stream_done",
-            "message_id": str(message_id),
+            "type":        "stream_done",
+            "message_id":  str(message_id),
+            "turn_id":     turn_id,
+            "attachments": attachments or [],
         },
     )
 
 
-def push_chat_error(conversation_id, *, message: str) -> bool:
-    """Push an error to a chat conversation channel."""
+def push_chat_error(conversation_id, *, message: str, turn_id: str = "") -> bool:
+    """Push an error to the chat conversation group."""
     return _send(
         f"chat_{conversation_id}",
         {
             "type":    "stream_error",
             "message": message,
+            "turn_id": turn_id,
+        },
+    )
+
+
+def push_chat_status(conversation_id, *, status: str, tool_name: str = "", turn_id: str = "") -> bool:
+    """Push a tool execution status update to the chat conversation group."""
+    return _send(
+        f"chat_{conversation_id}",
+        {
+            "type":      "stream_status",
+            "status":    status,
+            "tool_name": tool_name,
+            "turn_id":   turn_id,
         },
     )
