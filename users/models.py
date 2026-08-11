@@ -1,6 +1,7 @@
 # users/models.py
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+from django.utils import timezone
 
 
 class UserManager(BaseUserManager):
@@ -32,6 +33,8 @@ class UserManager(BaseUserManager):
         if not extra_fields.get("is_staff") or not extra_fields.get("is_superuser"):
             raise ValueError("Superuser must have is_staff=True and is_superuser=True")
 
+        extra_fields["first_name"] = first_name
+        extra_fields["last_name"] = last_name
         return self._create_user(email, password, **extra_fields)
 
 
@@ -66,6 +69,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
+    date_joined = models.DateTimeField(default=timezone.now, verbose_name='date joined')
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

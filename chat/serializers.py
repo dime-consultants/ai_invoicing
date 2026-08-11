@@ -1,4 +1,5 @@
 # chat/serializers.py
+from django.urls import reverse
 from rest_framework import serializers
 from .models import ChatConversation, ChatMessage, ChatMessageAttachment, Workflow
 
@@ -20,6 +21,13 @@ class ChatMessageAttachmentSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         url = f"/api/chat/attachments/{obj.pk}/download/"
         return request.build_absolute_uri(url) if request else url
+
+    def get_download_url(self, obj):
+        request = self.context.get('request')
+        url = reverse("attachment_download", kwargs={"attachment_id": obj.pk})
+        if request:
+            return request.build_absolute_uri(url)
+        return url
 
 
 class ChatMessageSerializer(serializers.ModelSerializer):
