@@ -1,4 +1,5 @@
 # ai_invoicing/chat/tests.py
+from django.core.files.base import ContentFile
 from django.test import TestCase
 from rest_framework.test import APIClient
 from unittest.mock import patch
@@ -44,6 +45,27 @@ class ChatInterfaceTestCase(TestCase):
         self.assertIn('user_message', response.data)
         self.assertIn('assistant_message', response.data)
         self.assertEqual(response.data['assistant_message']['content'], 'Hello from AI')
+
+    @patch('chat.views.ChatService.get_response', return_value=('Assistant reply', [
+        {'filename': 'report.xlsx', 'content': ContentFile(b'abc', name='report.xlsx')}
+    ]))
+    def test_send_message_returns_download_url_for_output_attachment(self, mock_get_response):
+        """Output attachments should include a downloadable URL."""
+        conversation = ChatConversation.objects.create(
+            user=self.user,
+            title='Test Chat'
+        )
+
+        response = self.client.post(
+            f'/api/chat/conversations/{conversation.pk}/send/',
+            {'message': 'create report'},
+            format='json'
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.data['output_attachments'])
+        self.assertIn('download_url', response.data['output_attachments'][0])
+        self.assertIn('/api/chat/attachments/', response.data['output_attachments'][0]['download_url'])
 
     @patch('chat.views.ChatService.get_response', return_value=('Assistant reply', []))
     def test_create_new_chat_and_continue_existing_chat(self, mock_get_response):

@@ -1,4 +1,5 @@
 # chat/serializers.py
+from django.urls import reverse
 from rest_framework import serializers
 from .models import ChatConversation, ChatMessage, ChatMessageAttachment, Workflow
 
@@ -12,12 +13,13 @@ def _get_user_display(user):
 
 class ChatMessageAttachmentSerializer(serializers.ModelSerializer):
     file_url = serializers.SerializerMethodField()
+    download_url = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatMessageAttachment
         fields = [
             "id", "filename", "file_type", "attachment_type",
-            "file_size_bytes", "created_at", "file_url"
+            "file_size_bytes", "created_at", "file_url", "download_url"
         ]
         read_only_fields = ["created_at"]
 
@@ -26,6 +28,13 @@ class ChatMessageAttachmentSerializer(serializers.ModelSerializer):
         if obj.file and request:
             return request.build_absolute_uri(obj.file.url)
         return obj.file.url if obj.file else None
+
+    def get_download_url(self, obj):
+        request = self.context.get('request')
+        url = reverse("attachment_download", kwargs={"attachment_id": obj.pk})
+        if request:
+            return request.build_absolute_uri(url)
+        return url
 
 
 class ChatMessageSerializer(serializers.ModelSerializer):
