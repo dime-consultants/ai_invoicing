@@ -33,7 +33,7 @@ class ChatConversation(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["-updated_at"]
+        ordering = ["-updated_at", "-pk"]
         verbose_name = "Chat Conversation"
         verbose_name_plural = "Chat Conversations"
 
@@ -84,7 +84,7 @@ class ChatMessage(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["created_at"]
+        ordering = ["created_at", "pk"]
         verbose_name = "Chat Message"
         verbose_name_plural = "Chat Messages"
 

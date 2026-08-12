@@ -1,10 +1,13 @@
 # ai_invoicing/chat/tests.py
+from types import SimpleNamespace
+
 from django.core.files.base import ContentFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 from unittest.mock import patch
 from users.models import User
-from .models import ChatConversation, ChatMessage
+from .models import ChatConversation, ChatMessage, Workflow
+from .services import ChatService
 
 
 class ChatInterfaceTestCase(TestCase):
@@ -67,6 +70,41 @@ class ChatInterfaceTestCase(TestCase):
         self.assertIn('download_url', response.data['output_attachments'][0])
         self.assertIn('/api/chat/attachments/', response.data['output_attachments'][0]['download_url'])
 
+    @override_settings(XAI_API_KEY='test-key')
+    @patch('chat.services.ChatService._run_agent', return_value=('Fast reply', None))
+    def test_no_attachment_messages_skip_bulk_file_processing(self, mock_run_agent):
+        """No-file messages should avoid upload batch setup and use the fast path."""
+        response_text, output_files = ChatService.get_response(
+            'Say hello briefly.',
+            self.user,
+            file_attachments=[],
+        )
+
+        self.assertEqual(response_text, 'Fast reply')
+        self.assertEqual(output_files, [])
+        self.assertIsNone(mock_run_agent.call_args.kwargs['batch'])
+        self.assertIsNone(mock_run_agent.call_args.kwargs['workflow'])
+
+    def test_workflow_inference_handles_request_and_file_context(self):
+        """Workflow selection should reflect user intent when files are present."""
+        # Workflow rows are normally seeded by `manage.py init_workflows`, which
+        # doesn't run for tests — without a matching enabled row, resolution
+        # correctly returns None regardless of the keyword match, so this test
+        # needs its own fixture to actually exercise the reconciliation branch.
+        Workflow.objects.create(
+            name="Reconciliation", workflow_type="reconciliation", enabled=True,
+        )
+        workflow = ChatService._resolve_workflow_for_message(
+            'Reconcile these files and generate the variance report.',
+            [
+                SimpleNamespace(file_type='pdf'),
+                SimpleNamespace(file_type='xlsx'),
+            ],
+            None,
+        )
+        self.assertIsNotNone(workflow)
+        self.assertEqual(workflow.workflow_type, 'reconciliation')
+
     @patch('chat.views.ChatService.get_response', return_value=('Assistant reply', []))
     def test_create_new_chat_and_continue_existing_chat(self, mock_get_response):
         """Test creating a new conversation and continuing an existing chat."""
@@ -94,7 +132,7 @@ class ChatInterfaceTestCase(TestCase):
             3
         )
         self.assertEqual(
-            ChatMessage.objects.filter(conversation=existing).order_by('created_at').last().role,
+            ChatMessage.objects.filter(conversation=existing).order_by('created_at', 'pk').last().role,
             'assistant'
         )
 

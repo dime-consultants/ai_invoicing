@@ -108,12 +108,17 @@ services:
       retries: 3
       start_period: 15s
 
-  # ── Celery worker ────────────────────────────────────────────────────────────
+  # ── Celery worker (extraction + default queues) ────────────────────────────
   #
   # Shares media_files and outputs_files with `app`:
   #   - reads uploaded files from /app/media (written by the web process)
   #   - writes extracted xlsx/csv to /app/outputs/converted/ (read back by web
   #     process when persisting ChatMessageAttachment records)
+  #
+  # Handles the "extraction" queue (large PDF/spreadsheet text extraction,
+  # up to 15-25 min soft time limits) and "default" (AI analysis jobs). Chat
+  # turns are routed to the separate `worker-chat` service below so a burst of
+  # large-file processing here can never delay a plain chat message.
   #
   # Does NOT run startup tasks — migrations + seeding happen in `migrate`.
   worker:
@@ -139,6 +144,7 @@ services:
       - invoicing-network
     command: >
       celery -A config worker
+      -Q extraction,default
       --loglevel=info
       --concurrency=2
       --max-tasks-per-child=20
@@ -152,6 +158,51 @@ services:
       resources:
         limits:
           memory: 512M
+
+  # ── Celery worker (chat queue only) ─────────────────────────────────────────
+  #
+  # Dedicated to chat.tasks.run_chat_turn_task. Kept separate from the
+  # extraction/default worker above so a large PDF extraction or AI job can
+  # never queue a no-attachment chat reply behind it — chat turns are short
+  # (soft_time_limit 8 min, typically seconds) and users are actively waiting
+  # on them in real time.
+  worker-chat:
+    image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
+    container_name: invoicing-worker-chat
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_HOST:   db
+      REDIS_URL: redis://redis:6379/0
+      DEBUG:     "False"
+    volumes:
+      - media_files:/app/media
+      - outputs_files:/app/outputs
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - invoicing-network
+    command: >
+      celery -A config worker
+      -Q chat
+      --loglevel=info
+      --concurrency=4
+      --max-tasks-per-child=50
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 384M
 
   # ── Flower (Celery monitoring) ───────────────────────────────────────────────
   # Web UI at http://<host>:5555 — safe to remove once things are stable.

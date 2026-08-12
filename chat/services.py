@@ -46,7 +46,86 @@ _OFFLINE_RESPONSES = {
 }
 
 
+def infer_workflow_from_signals(message: str, file_types: list[str] | None = None):
+    """
+    Pure heuristic: given free-text `message` and a list of lowercase file
+    extensions/types, return the best-matching enabled Workflow, or None if
+    nothing matches and no fallback "custom" workflow is seeded.
+
+    Single source of truth for "what should we do with this turn" — used both
+    when a chat message arrives with attachments (ChatService._resolve_workflow_for_message)
+    and as the no-explicit-request/no-keyword-match fallback
+    (ai_engine.services._infer_workflow_from_request), so the two layers can't
+    silently diverge. Never raises — the caller can always safely treat a
+    None return as "no specific workflow, use the base system prompt."
+    """
+    from .models import Workflow
+
+    text = (message or "").lower()
+    file_types = [(ft or "").lower() for ft in (file_types or [])]
+
+    if any(word in text for word in ("reconcile", "reconciliation", "variance", "compare", "match", "difference", "discrepancy")) or len(file_types) >= 2:
+        return Workflow.objects.filter(enabled=True, workflow_type="reconciliation").first()
+    if any(word in text for word in ("report", "summary", "overview", "batch", "total", "executive")):
+        return Workflow.objects.filter(enabled=True, workflow_type="batch_summary").first() or Workflow.objects.filter(enabled=True, workflow_type="report_generation").first()
+    if any(word in text for word in ("anomaly", "outlier", "flag", "exception", "issue", "fraud")):
+        return Workflow.objects.filter(enabled=True, workflow_type="anomaly_detection").first()
+    if any(word in text for word in ("clean", "normalize", "standardize", "dedupe", "remove duplicates", "fix data")):
+        return Workflow.objects.filter(enabled=True, workflow_type="data_cleaning").first()
+    if any(word in text for word in ("extract", "parse", "invoice", "receipt", "convert", "line item", "data from")):
+        return Workflow.objects.filter(enabled=True, workflow_type="extraction").first()
+    if file_types and any(ft in {"pdf", "xlsx", "xls", "csv", "txt"} for ft in file_types):
+        return Workflow.objects.filter(enabled=True, workflow_type="batch_summary").first() or Workflow.objects.filter(enabled=True, workflow_type="custom").first()
+    return Workflow.objects.filter(enabled=True, workflow_type="custom").first()
+
+
 class ChatService:
+
+    @staticmethod
+    def build_conversation_history(conversation, exclude_pk=None, limit: int = 20) -> list[dict]:
+        """
+        Return the last `limit` non-system turns of a conversation in
+        chronological order, as [{"role", "content"}].
+
+        Excludes the message at exclude_pk (the just-saved user message, to
+        avoid including it twice in the history fed to the LLM).
+
+        Single source of truth for chat history — every caller (REST views,
+        the WS consumer, the Celery chat task) must go through this so the
+        LLM always sees the same, correctly-ordered history regardless of
+        which entry point handled the turn.
+        """
+        from .models import ChatMessage
+
+        qs = (
+            ChatMessage.objects
+            .filter(conversation=conversation)
+            .exclude(role="system")
+            .order_by("-created_at", "-pk")
+        )
+        if exclude_pk:
+            qs = qs.exclude(pk=exclude_pk)
+        rows = list(qs.values("role", "content")[:limit])
+        rows.reverse()
+        return [{"role": m["role"], "content": m["content"]} for m in rows]
+
+    @staticmethod
+    def _resolve_workflow_for_message(message: str, file_attachments=None, workflow_id: int | None = None):
+        """Infer the best workflow from user intent and the files being processed."""
+        from chat.models import Workflow
+
+        if workflow_id:
+            return Workflow.objects.filter(pk=workflow_id, enabled=True).first()
+
+        attachments = list(file_attachments or [])
+        file_types = []
+        for att in attachments:
+            file_type = getattr(att, "file_type", None) or ""
+            if not file_type and getattr(att, "uploaded_file", None):
+                file_type = getattr(att.uploaded_file, "extension", "") or ""
+            file_types.append((file_type or "").lower())
+
+        return infer_workflow_from_signals(message, file_types)
 
     @staticmethod
     def get_response(
@@ -79,13 +158,10 @@ class ChatService:
         if not getattr(settings, "XAI_API_KEY", ""):
             return ChatService._offline_fallback(message), []
 
-        workflow = None
-        if workflow_id:
-            from chat.models import Workflow
-            workflow = Workflow.objects.filter(pk=workflow_id, enabled=True).first()
+        workflow = ChatService._resolve_workflow_for_message(message, file_attachments, workflow_id)
 
-        # Ingest file attachments into an UploadBatch so the agent can
-        # reference them by file_id via the read_file / detect_file_type tools.
+        # Fast path: no uploaded files means no upload batch / no ingestion wait
+        # and the LLM can respond directly using the request + conversation history.
         batch = None
         if file_attachments:
             batch = ChatService._ingest_attachments(file_attachments, user)

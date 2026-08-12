@@ -112,22 +112,9 @@ def _save_output_attachments(output_files: list, assistant_msg) -> list:
 
 
 def _build_conv_history(conversation, exclude_pk=None) -> list[dict]:
-    """
-    Return the last 20 non-system turns of a conversation in chronological order.
-    Excludes the message at exclude_pk (the just-saved user message, to avoid
-    including it twice in the history fed to the LLM).
-    """
-    qs = (
-        ChatMessage.objects
-        .filter(conversation=conversation)
-        .exclude(role="system")
-        .order_by("-created_at")
-    )
-    if exclude_pk:
-        qs = qs.exclude(pk=exclude_pk)
-    rows = list(qs.values("role", "content")[:20])
-    rows.reverse()
-    return [{"role": m["role"], "content": m["content"]} for m in rows]
+    """Thin wrapper — see ChatService.build_conversation_history for the single
+    source of truth shared with the WS consumer and the Celery chat task."""
+    return ChatService.build_conversation_history(conversation, exclude_pk=exclude_pk)
 
 
 def _parse_workflow_id(raw) -> tuple[int | None, str | None]:
@@ -418,7 +405,7 @@ class ChatMessageListView(generics.ListAPIView):
             ChatMessage.objects
             .filter(conversation=conv)
             .exclude(role="system")
-            .order_by("created_at")
+            .order_by("created_at", "pk")
             .prefetch_related("attachments")
         )
 
@@ -503,12 +490,6 @@ class ChatSimpleMessageView(APIView):
 
     def post(self, request):
         message  = (request.data.get("message") or "").strip()
-        history  = request.data.get("conversation_history") or []
-        if isinstance(history, str):
-            try:
-                history = json.loads(history)
-            except Exception:
-                history = []
 
         uploaded_files = request.FILES.getlist("files") or []
         if not message and not uploaded_files:
@@ -522,7 +503,10 @@ class ChatSimpleMessageView(APIView):
 
         workflow_id_int, _ = _parse_workflow_id(request.data.get("workflow_id"))
 
-        # Use a real conversation so attachments are retrievable
+        # Use a real conversation so attachments are retrievable. Once a real
+        # conversation exists, its DB-derived history is authoritative — a
+        # client-supplied conversation_history payload could be stale or
+        # simply wrong, so it is never allowed to override it here.
         conv = _get_or_create_working_conversation(request.user, title="Quick Chat")
         user_msg = ChatMessage.objects.create(
             conversation=conv, role="user", content=message,
@@ -544,7 +528,7 @@ class ChatSimpleMessageView(APIView):
                 user=request.user,
                 file_attachments=temp_attachments or None,
                 workflow_id=workflow_id_int,
-                conversation_history=history or _build_conv_history(conv, user_msg.pk),
+                conversation_history=_build_conv_history(conv, user_msg.pk),
             )
         except Exception as exc:
             logger.exception("ChatSimpleMessageView failed: %s", exc)
@@ -611,7 +595,7 @@ class ChatHistoryView(APIView):
             ChatMessage.objects
             .filter(conversation=conv)
             .exclude(role="system")
-            .order_by("created_at")
+            .order_by("created_at", "pk")
             .prefetch_related("attachments")
         )[:limit]
 
@@ -660,6 +644,7 @@ class ChatProcessFileView(APIView):
                 message=f"Extract all data from {uploaded.name} and return it as {output_format}.",
                 user=request.user,
                 file_attachments=[att],
+                conversation_history=_build_conv_history(conv, user_msg.pk),
             )
             if output_files:
                 buf = output_files[0]["content"]
@@ -726,6 +711,7 @@ class ChatConvertFormatView(APIView):
                 message=f"Convert {uploaded.name} to {to_format} format.",
                 user=request.user,
                 file_attachments=[att],
+                conversation_history=_build_conv_history(conv, user_msg.pk),
             )
             if not output_files:
                 return Response(

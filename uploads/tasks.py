@@ -3,13 +3,17 @@ Celery tasks for the uploads app.
 
 extract_file_text_task
 ----------------------
-Background extraction for large PDFs (and any file whose extraction was
-deferred by UploadService.ingest_file).
+Background extraction for any file whose extraction was deferred by
+UploadService.ingest_file — large PDFs (page_count > ASYNC_PAGE_THRESHOLD)
+and any file over ASYNC_SIZE_THRESHOLD_BYTES regardless of extension
+(xlsx/xls/csv/unstructured-parsed).
 
 Flow
 ----
 1. Load UploadedFile, mark parse_status="parsing".
-2. Open the PDF and extract page-by-page (memory-safe flush_cache).
+2. Extract page-by-page (PDF) or row-by-row (spreadsheet), checkpointing
+   partial progress via on_chunk so a soft-time-limit timeout still saves
+   real text instead of nothing (memory-safe flush_cache for PDFs).
 3. Store a truncated preview in extracted_text (MAX_CHARS).
 4. Mark parse_status="parsed" (or "parse_error") and refresh batch counters.
 5. Signals (uploads/signals.py) push WS notifications so the chat UI can
@@ -25,7 +29,7 @@ from __future__ import annotations
 import logging
 
 from celery import shared_task
-from celery.exceptions import Retry, SoftTimeLimitExceeded
+from celery.exceptions import MaxRetriesExceededError, SoftTimeLimitExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -63,25 +67,32 @@ def extract_file_text_task(self, file_id: int):
         logger.error("extract_file_text_task: UploadedFile %s not found", file_id)
         return {"ok": False, "error": "file_not_found"}
 
-    # Skip if already successfully parsed (e.g. retry after success)
     if uf.parse_status == "parsed" and uf.extracted_text:
         logger.info("extract_file_text_task: file %s already parsed — skip", file_id)
         return {"ok": True, "skipped": True, "file_id": file_id}
 
     UploadService.mark_parsing(file_id)
+    partial_text = ""
+
+    def _checkpoint(text_so_far: str) -> None:
+        # Called by _extract_pdf_pages / _extract_text after each chunk
+        # (page group / row batch) so a SoftTimeLimitExceeded below always
+        # has real partial text to save instead of the empty string the
+        # all-or-nothing extraction used to leave behind.
+        nonlocal partial_text
+        partial_text = text_so_far
 
     try:
         path = uf.file.path
         extension = uf.extension or ""
 
         if extension == "pdf":
-            # Full-document pass for the preview column; page-range access
-            # still goes through read_file → extract_pdf_page_range.
             text = _extract_pdf_pages(
                 path,
                 page_from=1,
                 page_to=None,
-                max_chars=MAX_CHARS,
+                max_chars=None,
+                on_chunk=_checkpoint,
             )
             page_count = uf.page_count
             if page_count is None:
@@ -92,54 +103,59 @@ def extract_file_text_task(self, file_id: int):
                 except Exception:
                     page_count = None
         else:
-            text = _extract_text(path, extension)
+            text = _extract_text(path, extension, on_chunk=_checkpoint)
             page_count = uf.page_count
 
+        partial_text = text or ""
         UploadService.complete_extraction(
             file_id,
-            text=text or "",
+            text=partial_text,
             page_count=page_count,
         )
         logger.info(
             "extract_file_text_task complete: file_id=%s pages=%s chars=%s",
-            file_id, page_count, len(text or ""),
+            file_id, page_count, len(partial_text),
         )
         return {
             "ok": True,
             "file_id": file_id,
             "page_count": page_count,
-            "chars": len(text or ""),
+            "chars": len(partial_text),
         }
 
     except SoftTimeLimitExceeded:
         logger.error("extract_file_text_task soft time limit: file_id=%s", file_id)
         UploadService.complete_extraction(
             file_id,
-            text="",
-            error="Extraction timed out. Use read_file with page ranges instead.",
+            text=partial_text or "",
+            error=None if partial_text else "Extraction timed out. Read_file page ranges are available as a fallback.",
         )
-        raise
+        return {"ok": True, "file_id": file_id, "partial": True, "chars": len(partial_text or "")}
 
     except Exception as exc:
         logger.exception("extract_file_text_task failed: file_id=%s error=%s", file_id, exc)
-        # Retry FIRST. complete_extraction(error=...) is a terminal write — it
-        # flips the file to parse_error, wipes extracted_text, moves the batch to
-        # failed/partial and fires a "File processing failed" notification. Doing
-        # that before the retry meant a transient blip surfaced as a hard failure
-        # even though the retry 30s later succeeded.
-        try:
-            raise self.retry(exc=exc, countdown=30)
-        except Retry:
-            raise                       # scheduled — leave the row alone
-        except Exception:
-            # Retries exhausted, or retrying is impossible (task invoked
-            # synchronously). Only now is the failure terminal.
-            UploadService.complete_extraction(
-                file_id,
-                text="",
-                error=str(exc)[:2000],
-            )
-            return {"ok": False, "error": str(exc), "file_id": file_id}
+        safe_error = str(exc)[:2000]
+        if partial_text:
+            UploadService.complete_extraction(file_id, text=partial_text, error=None)
+            return {"ok": True, "file_id": file_id, "partial": True, "chars": len(partial_text)}
+
+        if self.request.retries < self.max_retries:
+            try:
+                # self.retry() already re-queued the next attempt (via its own
+                # apply_async) before raising Retry — Retry itself only signals
+                # "stop running now" to Celery's task-execution wrapper, which
+                # lives outside this function and must see it to record the
+                # retry state. Catching it here would swallow that signal
+                # without undoing the re-queue, so it must propagate untouched.
+                raise self.retry(exc=exc, countdown=30)
+            except MaxRetriesExceededError:
+                # self.retry() itself decided no attempts remain (it raises
+                # this instead of Retry in that case) — fall through to the
+                # honest terminal-failure path below.
+                logger.error("extract_file_text_task: retries exhausted for file_id=%s", file_id)
+
+        UploadService.complete_extraction(file_id, text="", error=safe_error)
+        return {"ok": False, "file_id": file_id, "partial": False, "error": safe_error}
 
 
 @shared_task(bind=True, max_retries=1)

@@ -255,16 +255,11 @@ class ChatStreamConsumer(AsyncWebsocketConsumer):
             except ChatConversation.DoesNotExist:
                 return False, "Conversation not found."
 
-            # Build history snapshot before saving the new message
-            history = list(
-                ChatMessage.objects
-                .filter(conversation=conv)
-                .exclude(role="system")
-                .order_by("-created_at")
-                .values("role", "content")[:20]
-            )
-            history.reverse()
-            conv_history = [{"role": m["role"], "content": m["content"]} for m in history]
+            # Build history snapshot before saving the new message. Uses the
+            # same ChatService.build_conversation_history helper as the REST
+            # views so history can never drift between entry points.
+            from chat.services import ChatService
+            conv_history = ChatService.build_conversation_history(conv)
 
             user_msg = ChatMessage.objects.create(
                 conversation=conv,

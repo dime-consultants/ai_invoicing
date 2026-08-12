@@ -40,6 +40,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone as tz
 
+from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -197,9 +198,56 @@ def _build_system_prompt(workflow=None, user_intent: str = "") -> str:
     prompt = BASE_SYSTEM_PROMPT
     if workflow and getattr(workflow, "system_prompt_prefix", ""):
         prompt = workflow.system_prompt_prefix.strip() + "\n\n" + prompt
-    if user_intent:
+    if not user_intent:
+        prompt += (
+            "\n\nNo specific request was given — the user only attached file(s). "
+            "Inspect the file(s) yourself (detect_file_type / read_file) and produce "
+            "whichever of a summary, a reconciliation, or a report generation best "
+            "fits the data: multiple files that look like two sides of the same "
+            "transactions call for reconciliation; a single financial document calls "
+            "for a summary or report. State which you chose and why."
+        )
+    else:
         prompt += f"\n\nUser's specific request: {user_intent}"
     return prompt
+
+
+def _infer_workflow_from_request(message: str, batch=None):
+    """
+    Fallback workflow inference for the "no explicit request" path.
+
+    Reached from handle_chat_message() when the caller didn't pass a
+    workflow (chat.services.ChatService._resolve_workflow_for_message already
+    tried keyword/attachment-count matching and came up empty — e.g. no
+    enabled "custom" Workflow row exists, or this was called directly without
+    going through ChatService at all).
+
+    Looks at the batch's files (if any) instead of keywords, so a message
+    that's just a file with no text still resolves to a sensible workflow —
+    reconciliation for 2+ files, summary/report for financial document types —
+    instead of leaving the caller with nothing. Delegates to
+    chat.services.infer_workflow_from_signals so this can't drift from the
+    attachment-driven heuristic. Never raises: a None return is a valid
+    outcome, and _build_system_prompt already knows how to proceed without a
+    workflow (see the "no specific request" prompt addition above).
+    """
+    from chat.services import infer_workflow_from_signals
+
+    file_types: list[str] = []
+    if batch is not None:
+        try:
+            file_types = [
+                (f.detected_type or f.extension or "").lower()
+                for f in batch.files.all()
+            ]
+        except Exception as exc:
+            logger.warning("Could not read batch files for workflow inference: %s", exc)
+
+    try:
+        return infer_workflow_from_signals(message, file_types)
+    except Exception as exc:
+        logger.warning("Workflow inference failed (batch=%s): %s", getattr(batch, "pk", None), exc)
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -364,12 +412,27 @@ class AIEngineService:
             job.finished_at   = datetime.now(tz.utc)
             job.save(update_fields=["raw_response", "status", "finished_at"])
 
+        except SoftTimeLimitExceeded:
+            # Don't swallow this into the generic error handler below — it
+            # would overwrite job.error_message with an unhelpful empty
+            # string and skip run_ai_job_task's dedicated "processing took
+            # too long, try a smaller batch" message. Let it propagate.
+            raise
         except Exception as exc:
             logger.exception("Job %s failed: %s", job.pk, exc)
             job.status        = "error"
             job.error_message = str(exc)
             job.finished_at   = datetime.now(tz.utc)
             job.save(update_fields=["status", "error_message", "finished_at"])
+
+            # Re-raise transient failures (Grok rate limits/connection errors)
+            # so run_ai_job_task's Celery-level retry actually fires. Anything
+            # else stays swallowed here — the job row above is already the
+            # terminal, user-visible record of what happened, and dispatch()
+            # returning normally is what callers of dispatch() expect.
+            from tools.services import is_transient_llm_error
+            if is_transient_llm_error(exc):
+                raise
 
     @staticmethod
     def handle_chat_message(
@@ -382,6 +445,9 @@ class AIEngineService:
         on_status_update=None,
     ) -> tuple[str, int | None]:
         from tools.services import ToolService
+
+        if workflow is None:
+            workflow = _infer_workflow_from_request(message=message, batch=batch)
 
         task_type  = workflow.workflow_type if workflow else "custom"
         tool_names = WORKFLOW_TOOL_NAMES.get(task_type, ALL_TOOL_NAMES) if batch else []

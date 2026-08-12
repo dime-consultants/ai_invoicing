@@ -19,15 +19,8 @@ class ChatMessageAttachmentSerializer(serializers.ModelSerializer):
 
     def get_download_url(self, obj):
         request = self.context.get("request")
-        url = f"/api/chat/attachments/{obj.pk}/download/"
-        return request.build_absolute_uri(url) if request else url
-
-    def get_download_url(self, obj):
-        request = self.context.get('request')
         url = reverse("attachment_download", kwargs={"attachment_id": obj.pk})
-        if request:
-            return request.build_absolute_uri(url)
-        return url
+        return request.build_absolute_uri(url) if request else url
 
 
 class ChatMessageSerializer(serializers.ModelSerializer):
@@ -81,7 +74,7 @@ class ChatConversationListSerializer(serializers.ModelSerializer):
         return obj.messages.count()
 
     def get_last_message(self, obj):
-        msg = obj.messages.order_by("-created_at").first()
+        msg = obj.messages.order_by("-created_at", "-pk").first()
         if not msg:
             return None
         return {
