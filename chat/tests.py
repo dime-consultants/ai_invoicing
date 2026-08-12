@@ -6,8 +6,59 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 from unittest.mock import patch
 from users.models import User
-from .models import ChatConversation, ChatMessage, Workflow
+from .models import ChatConversation, ChatMessage, ChatMessageAttachment, Workflow
 from .services import ChatService
+
+
+class _ImmediateAsyncResult:
+    """
+    Stand-in for a Celery AsyncResult that already has its value, so tests
+    exercise chat/views.py's real dispatch-and-wait logic
+    (_run_turn_via_worker) without needing a real broker/worker — see
+    config/dispatch.py:dispatch(), which the view calls and this replaces.
+    """
+
+    def __init__(self, value=None, exc=None):
+        self._value = value
+        self._exc = exc
+
+    def get(self, timeout=None):
+        if self._exc:
+            raise self._exc
+        return self._value
+
+
+def _dispatch_creating_assistant_reply(content: str, attachments: list | None = None):
+    """
+    side_effect for a mocked config.dispatch.dispatch(): creates the
+    assistant ChatMessage (and any output ChatMessageAttachment rows) that
+    the real run_chat_turn_task would have created and saved, then returns
+    an _ImmediateAsyncResult pointing at them — matching the
+    {"assistant_message_id", "attachment_ids"} contract
+    _run_turn_via_worker expects back from AsyncResult.get().
+    """
+
+    def _dispatch(task, **kwargs):
+        conv = ChatConversation.objects.get(pk=kwargs["conversation_id"])
+        assistant_msg = ChatMessage.objects.create(
+            conversation=conv, role="assistant", content=content,
+        )
+        attachment_ids = []
+        for filename in (attachments or []):
+            att = ChatMessageAttachment(
+                message=assistant_msg, filename=filename,
+                file_type=filename.rsplit(".", 1)[-1],
+                attachment_type="assistant_output",
+            )
+            att.file.save(filename, ContentFile(b"abc"), save=True)
+            attachment_ids.append(att.pk)
+        return _ImmediateAsyncResult(value={
+            "ok": True,
+            "assistant_message_id": assistant_msg.pk,
+            "attachment_ids": attachment_ids,
+        })
+
+    return _dispatch
 
 
 class ChatInterfaceTestCase(TestCase):
@@ -31,14 +82,15 @@ class ChatInterfaceTestCase(TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data['title'], 'Test Conversation')
 
-    @patch('chat.views.ChatService.get_response', return_value=('Hello from AI', []))
-    def test_send_message(self, mock_get_response):
+    @patch('config.dispatch.dispatch')
+    def test_send_message(self, mock_dispatch):
         """Test sending a message and getting a response."""
+        mock_dispatch.side_effect = _dispatch_creating_assistant_reply('Hello from AI')
         conversation = ChatConversation.objects.create(
             user=self.user,
             title='Test Chat'
         )
-        
+
         response = self.client.post(
             f'/api/chat/conversations/{conversation.pk}/send/',
             {'message': 'help'},
@@ -49,11 +101,12 @@ class ChatInterfaceTestCase(TestCase):
         self.assertIn('assistant_message', response.data)
         self.assertEqual(response.data['assistant_message']['content'], 'Hello from AI')
 
-    @patch('chat.views.ChatService.get_response', return_value=('Assistant reply', [
-        {'filename': 'report.xlsx', 'content': ContentFile(b'abc', name='report.xlsx')}
-    ]))
-    def test_send_message_returns_download_url_for_output_attachment(self, mock_get_response):
+    @patch('config.dispatch.dispatch')
+    def test_send_message_returns_download_url_for_output_attachment(self, mock_dispatch):
         """Output attachments should include a downloadable URL."""
+        mock_dispatch.side_effect = _dispatch_creating_assistant_reply(
+            'Assistant reply', attachments=['report.xlsx'],
+        )
         conversation = ChatConversation.objects.create(
             user=self.user,
             title='Test Chat'
@@ -105,9 +158,10 @@ class ChatInterfaceTestCase(TestCase):
         self.assertIsNotNone(workflow)
         self.assertEqual(workflow.workflow_type, 'reconciliation')
 
-    @patch('chat.views.ChatService.get_response', return_value=('Assistant reply', []))
-    def test_create_new_chat_and_continue_existing_chat(self, mock_get_response):
+    @patch('config.dispatch.dispatch')
+    def test_create_new_chat_and_continue_existing_chat(self, mock_dispatch):
         """Test creating a new conversation and continuing an existing chat."""
+        mock_dispatch.side_effect = _dispatch_creating_assistant_reply('Assistant reply')
         existing = ChatConversation.objects.create(user=self.user, title='Existing Chat')
         ChatMessage.objects.create(conversation=existing, role='user', content='First message')
 

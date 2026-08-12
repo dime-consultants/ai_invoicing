@@ -45,7 +45,6 @@ from openpyxl.styles import Font, PatternFill
 
 from django.core.files.base import ContentFile
 from django.http import FileResponse
-from django.utils import timezone
 from django.views.generic import TemplateView
 
 from rest_framework import generics, permissions, status, viewsets
@@ -129,15 +128,87 @@ def _parse_workflow_id(raw) -> tuple[int | None, str | None]:
         return None, None
 
 
-def _auto_title(conversation, user_input: str):
-    if conversation.title not in ("Untitled Conversation", ""):
-        conversation.updated_at = timezone.now()
-        conversation.save(update_fields=["updated_at"])
-        return
-    from .title_generator import generate_title_from_user_input
-    conversation.title = generate_title_from_user_input(user_input) or user_input[:50]
-    conversation.updated_at = timezone.now()
-    conversation.save(update_fields=["title", "updated_at"])
+class ChatDispatchUnavailable(Exception):
+    """The Celery broker could not be reached — dispatch() returned None."""
+
+
+class ChatTurnTimeout(Exception):
+    """The bounded wait elapsed before the worker finished the turn."""
+
+    def __init__(self, turn_id: str):
+        self.turn_id = turn_id
+        super().__init__(f"Turn {turn_id} did not complete within the wait budget.")
+
+
+def _run_turn_via_worker(
+    *, conversation, user_msg, user, workflow_id=None, conversation_history=None,
+):
+    """
+    Dispatch one chat turn to the Celery "chat" queue and block for a bounded
+    time (settings.CHAT_SYNC_RESULT_TIMEOUT) waiting for the result, instead
+    of running the agent inline in this request.
+
+    Why: the actual LLM/tool-calling work (including any chunked map-reduce
+    over a large file) can legitimately take longer than nginx's
+    proxy_read_timeout on the HTTP path. Running it inline meant a slow turn
+    either got killed mid-response (no answer, connection dropped) or, for
+    turns just under the wire, tied up this request's thread with as many
+    parallel outbound calls as the turn needed — with no system-wide cap on
+    how many such bursts could run at once. Running it in the worker instead
+    means: the task has a real time budget (8 min soft limit, not ~60s), and
+    the worker pool's own autoscale setting is the one place total concurrent
+    LLM calls is bounded, rather than every request improvising its own.
+
+    Returns (assistant_msg, output_attachments) — the objects
+    run_chat_turn_task already created and saved, not new ones, so callers
+    serialize them the same way regardless of how the turn ran.
+
+    Raises ChatDispatchUnavailable if the broker can't be reached at all
+    (nothing was queued), or ChatTurnTimeout if the wait budget elapses.
+    Neither means the turn was lost: a timed-out turn keeps running in the
+    worker and will still save its result — the caller just didn't get it
+    back in time for *this* response. Any other exception raised by the task
+    itself (a real failure) propagates to the caller unchanged.
+    """
+    import uuid
+
+    from celery.exceptions import TimeoutError as CeleryTimeoutError
+    from django.conf import settings
+
+    from chat.tasks import run_chat_turn_task
+    from config.dispatch import dispatch
+
+    turn_id = uuid.uuid4().hex
+    async_result = dispatch(
+        run_chat_turn_task,
+        turn_id=turn_id,
+        conversation_id=conversation.pk,
+        user_message_id=user_msg.pk,
+        user_id=user.pk,
+        workflow_id=workflow_id,
+        conversation_history=conversation_history or [],
+    )
+    if async_result is None:
+        raise ChatDispatchUnavailable(
+            "Could not queue the message — the task broker is unavailable."
+        )
+
+    timeout = getattr(settings, "CHAT_SYNC_RESULT_TIMEOUT", 45)
+    try:
+        result = async_result.get(timeout=timeout)
+    except CeleryTimeoutError:
+        raise ChatTurnTimeout(turn_id)
+
+    assistant_message_id = (result or {}).get("assistant_message_id")
+    if not assistant_message_id:
+        error = (result or {}).get("error") or "The chat turn did not complete."
+        raise RuntimeError(error)
+
+    assistant_msg = ChatMessage.objects.get(pk=assistant_message_id)
+    output_attachments = list(
+        ChatMessageAttachment.objects.filter(pk__in=result.get("attachment_ids") or [])
+    )
+    return assistant_msg, output_attachments
 
 
 def _get_or_create_working_conversation(user, title: str = "Chat") -> ChatConversation:
@@ -309,33 +380,40 @@ class ChatMessageSendView(APIView):
 
         if sync:
             try:
-                response_text, output_files = ChatService.get_response(
-                    message=user_input,
+                assistant_msg, output_attachments = _run_turn_via_worker(
+                    conversation=conversation,
+                    user_msg=user_msg,
                     user=request.user,
-                    file_attachments=user_attachments or None,
                     workflow_id=workflow_id_int,
                     conversation_history=conversation_history,
                 )
+            except ChatDispatchUnavailable as exc:
+                return Response(
+                    {"error": str(exc),
+                     "user_message": ChatMessageSerializer(user_msg, context={"request": request}).data},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            except ChatTurnTimeout as exc:
+                # The turn is NOT lost — it keeps running in the worker and
+                # will still save its result. This only means it didn't
+                # finish within the wait budget for this response; the
+                # frontend's existing error-toast path (any non-2xx with an
+                # "error" field) surfaces this without needing to understand
+                # turn_id/polling.
+                return Response(
+                    {"error": "This is taking longer than usual (likely a large file). "
+                              "It's still processing — please check back in a moment or "
+                              "send your message again.",
+                     "turn_id": exc.turn_id,
+                     "user_message": ChatMessageSerializer(user_msg, context={"request": request}).data},
+                    status=status.HTTP_504_GATEWAY_TIMEOUT,
+                )
             except Exception as exc:
-                logger.exception("ChatService.get_response failed: %s", exc)
+                logger.exception("Chat turn failed: %s", exc)
                 return Response(
                     {"error": f"Failed to generate response: {exc}"},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
-
-            applied_workflow = None
-            if workflow_id_int:
-                applied_workflow = Workflow.objects.filter(pk=workflow_id_int).first()
-
-            assistant_msg = ChatMessage.objects.create(
-                conversation=conversation,
-                role="assistant",
-                content=response_text,
-                applied_workflow=applied_workflow,
-            )
-
-            output_attachments = _save_output_attachments(output_files, assistant_msg)
-            _auto_title(conversation, user_input)
 
             ctx = {"request": request}
             return Response(
@@ -523,12 +601,30 @@ class ChatSimpleMessageView(APIView):
             temp_attachments.append(att)
 
         try:
-            response_text, output_files = ChatService.get_response(
-                message=message,
+            assistant_msg, output_attachments = _run_turn_via_worker(
+                conversation=conv,
+                user_msg=user_msg,
                 user=request.user,
-                file_attachments=temp_attachments or None,
                 workflow_id=workflow_id_int,
                 conversation_history=_build_conv_history(conv, user_msg.pk),
+            )
+        except ChatDispatchUnavailable as exc:
+            return Response(
+                {"error": {"code": "service_unavailable", "message": str(exc), "details": None}},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except ChatTurnTimeout as exc:
+            # Not lost — still running in the worker, just not back in time
+            # for this response. See ChatMessageSendView for the same pattern.
+            return Response(
+                {"error": {
+                    "code": "timeout",
+                    "message": "This is taking longer than usual (likely a large file). "
+                               "It's still processing — please check back in a moment or "
+                               "send your message again.",
+                    "details": {"turn_id": exc.turn_id},
+                }},
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
             )
         except Exception as exc:
             logger.exception("ChatSimpleMessageView failed: %s", exc)
@@ -538,19 +634,21 @@ class ChatSimpleMessageView(APIView):
             )
 
         processed_data = None
-        if output_files:
-            first = output_files[0]
-            buf   = first["content"]
-            if hasattr(buf, "seek"):
-                buf.seek(0)
-            ext = first["filename"].rsplit(".", 1)[-1] if "." in first["filename"] else "xlsx"
+        if output_attachments:
+            first = output_attachments[0]
+            ext = first.filename.rsplit(".", 1)[-1] if "." in first.filename else "xlsx"
+            first.file.open("rb")
+            try:
+                content_bytes = first.file.read()
+            finally:
+                first.file.close()
             processed_data = {
                 "format":   ext,
-                "filename": first["filename"],
-                "content":  base64.b64encode(buf.read()).decode("utf-8"),
+                "filename": first.filename,
+                "content":  base64.b64encode(content_bytes).decode("utf-8"),
             }
 
-        return Response({"response": response_text, "processed_data": processed_data})
+        return Response({"response": assistant_msg.content, "processed_data": processed_data})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -630,7 +728,9 @@ class ChatProcessFileView(APIView):
             content=f"Extract data from {uploaded.name}",
         )
         ext = uploaded.name.rsplit(".", 1)[-1].lower() if "." in uploaded.name else "other"
-        att = ChatMessageAttachment.objects.create(
+        # Not bound to a name — run_chat_turn_task discovers it itself via
+        # ChatMessageAttachment.objects.filter(message=user_msg).
+        ChatMessageAttachment.objects.create(
             message=user_msg, file=uploaded, filename=uploaded.name,
             file_type=ext, attachment_type="user_upload", file_size_bytes=uploaded.size,
         )
@@ -640,20 +740,31 @@ class ChatProcessFileView(APIView):
         warnings = []
 
         try:
-            _, output_files = ChatService.get_response(
-                message=f"Extract all data from {uploaded.name} and return it as {output_format}.",
+            _, output_attachments = _run_turn_via_worker(
+                conversation=conv,
+                user_msg=user_msg,
                 user=request.user,
-                file_attachments=[att],
                 conversation_history=_build_conv_history(conv, user_msg.pk),
             )
-            if output_files:
-                buf = output_files[0]["content"]
-                if hasattr(buf, "seek"):
-                    buf.seek(0)
-                content      = buf.read()
-                out_filename = output_files[0]["filename"]
+            if output_attachments:
+                first = output_attachments[0]
+                first.file.open("rb")
+                try:
+                    content = first.file.read()
+                finally:
+                    first.file.close()
+                out_filename = first.filename
             else:
                 warnings.append("No output file produced.")
+        except ChatDispatchUnavailable as exc:
+            warnings.append(str(exc))
+        except ChatTurnTimeout:
+            # Not lost — still running in the worker, just not back in time
+            # for this response.
+            warnings.append(
+                "This is taking longer than usual (likely a large file). It's "
+                "still processing — please check back in a moment or retry."
+            )
         except Exception as exc:
             logger.exception("ChatProcessFileView failed: %s", exc)
             warnings.append(str(exc))
@@ -701,29 +812,50 @@ class ChatConvertFormatView(APIView):
             content=f"Convert {uploaded.name} to {to_format}",
         )
         ext = uploaded.name.rsplit(".", 1)[-1].lower() if "." in uploaded.name else "other"
-        att = ChatMessageAttachment.objects.create(
+        # Not bound to a name — run_chat_turn_task discovers it itself via
+        # ChatMessageAttachment.objects.filter(message=user_msg).
+        ChatMessageAttachment.objects.create(
             message=user_msg, file=uploaded, filename=uploaded.name,
             file_type=ext, attachment_type="user_upload", file_size_bytes=uploaded.size,
         )
 
         try:
-            _, output_files = ChatService.get_response(
-                message=f"Convert {uploaded.name} to {to_format} format.",
+            _, output_attachments = _run_turn_via_worker(
+                conversation=conv,
+                user_msg=user_msg,
                 user=request.user,
-                file_attachments=[att],
                 conversation_history=_build_conv_history(conv, user_msg.pk),
             )
-            if not output_files:
+            if not output_attachments:
                 return Response(
                     {"error": {"code": "server_error",
                                "message": "Conversion produced no output.", "details": None}},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
-            buf = output_files[0]["content"]
-            if hasattr(buf, "seek"):
-                buf.seek(0)
-            content  = buf.read()
-            out_name = output_files[0]["filename"]
+            first = output_attachments[0]
+            first.file.open("rb")
+            try:
+                content = first.file.read()
+            finally:
+                first.file.close()
+            out_name = first.filename
+        except ChatDispatchUnavailable as exc:
+            return Response(
+                {"error": {"code": "service_unavailable", "message": str(exc), "details": None}},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except ChatTurnTimeout as exc:
+            # Not lost — still running in the worker, just not back in time
+            # for this response.
+            return Response(
+                {"error": {
+                    "code": "timeout",
+                    "message": "This is taking longer than usual (likely a large file). "
+                               "It's still processing — please check back in a moment or retry.",
+                    "details": {"turn_id": exc.turn_id},
+                }},
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
         except Exception as exc:
             logger.exception("ChatConvertFormatView: %s", exc)
             return Response(

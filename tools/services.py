@@ -25,6 +25,7 @@ import importlib
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone as tz
 from io import BytesIO
 from pathlib import Path
@@ -338,15 +339,22 @@ def _run_chunked_prompt_transform(
     if len(chunks) <= 1:
         return None
 
+    tool_name = getattr(config, "name", "?")
     logger.info(
         "prompt_transform: chunking tool '%s' input into %d pieces (%d chars total)",
-        getattr(config, "name", "?"), len(chunks), full["full_length"],
+        tool_name, len(chunks), full["full_length"],
     )
 
-    chunk_results: list[str] = []
-    total_input_tokens = total_output_tokens = 0
+    # ── Map ──────────────────────────────────────────────────────────────────
+    # Each chunk's call is independent, so they run concurrently instead of
+    # one after another — this call is made from Django's synchronous request
+    # path (chat/views.py's default sync send), which blocks the caller for
+    # its whole duration. N sequential Grok calls turned a single slow-but-
+    # complete request into an N-times-slower one; running them in parallel
+    # keeps wall-clock time close to that of a single call regardless of N.
+    max_workers = min(len(chunks), getattr(settings, "PROMPT_TRANSFORM_MAX_PARALLEL_CHUNKS", 6))
 
-    for i, chunk in enumerate(chunks):
+    def _map_one(i: int, chunk: str) -> tuple[str, int, int]:
         chunk_system_prompt = _safe_prompt_substitute(
             config.system_prompt or "",
             arguments="{}",
@@ -371,15 +379,28 @@ def _run_chunked_prompt_transform(
                 temperature=0.1,
                 max_tokens=4096,
             )
-            chunk_results.append(response.choices[0].message.content or "")
-            total_input_tokens  += getattr(response.usage, "prompt_tokens", 0)
-            total_output_tokens += getattr(response.usage, "completion_tokens", 0)
+            return (
+                response.choices[0].message.content or "",
+                getattr(response.usage, "prompt_tokens", 0),
+                getattr(response.usage, "completion_tokens", 0),
+            )
         except Exception as exc:
             logger.warning(
                 "prompt_transform: chunk %d/%d failed for tool '%s': %s",
-                i + 1, len(chunks), getattr(config, "name", "?"), exc,
+                i + 1, len(chunks), tool_name, exc,
             )
-            chunk_results.append(f"[Part {i + 1} could not be processed: {exc}]")
+            return (f"[Part {i + 1} could not be processed: {exc}]", 0, 0)
+
+    chunk_results: list[str] = [""] * len(chunks)
+    total_input_tokens = total_output_tokens = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_map_one, i, chunk): i for i, chunk in enumerate(chunks)}
+        for future in futures:
+            i = futures[future]
+            text, in_tok, out_tok = future.result()
+            chunk_results[i] = text
+            total_input_tokens += in_tok
+            total_output_tokens += out_tok
 
     # ── Reduce ──────────────────────────────────────────────────────────────
     reduce_system_prompt = (

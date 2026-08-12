@@ -310,6 +310,16 @@ CELERY_TASK_SOFT_TIME_LIMIT = 60 * 25   # raises a catchable exception 5 min bef
 CELERY_WORKER_MAX_TASKS_PER_CHILD = 20  # recycle worker processes periodically — caps memory creep
 CELERY_WORKER_AUTOSCALE = '4,2'         # Max 4, Min 2 workers — ensures auto addition of workers
 
+# How long a REST chat-send view blocks on AsyncResult.get() waiting for
+# run_chat_turn_task before giving up and returning a "still processing"
+# error instead (see chat/views.py:_run_turn_via_worker). Must stay
+# comfortably under nginx's proxy_read_timeout for /api/chat/ (see
+# nginx/invoicing.conf) — that timeout kills the connection outright with no
+# response at all, which is what this bound exists to avoid. The turn keeps
+# running in the worker either way; a timeout here only means this one
+# response didn't arrive in time, not that the work was lost.
+CHAT_SYNC_RESULT_TIMEOUT = int(os.environ.get("CHAT_SYNC_RESULT_TIMEOUT", "360"))
+
 # ── Reliability: survive worker crashes and broker blips without losing jobs ──
 # Without these, a task is acknowledged (removed from the queue) the moment a
 # worker picks it up — not when it finishes. If the worker dies mid-task (as
