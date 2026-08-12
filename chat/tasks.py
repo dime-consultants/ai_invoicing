@@ -4,8 +4,13 @@ Celery tasks for the chat app.
 
 run_chat_turn_task
 ------------------
-Executes one user→assistant turn asynchronously so the WebSocket consumer
-never blocks the ASGI event loop on slow Grok / file-processing calls.
+Executes one user→assistant turn in a Celery worker (the dedicated "chat"
+queue — see config/celery.py) so neither the WebSocket consumer nor a REST
+send view's request thread blocks the ASGI event loop, and so the turn runs
+with the worker's own generous time limits (8 min soft) instead of nginx's
+much shorter proxy_read_timeout on the HTTP path. REST views dispatch this
+same task and block briefly on the AsyncResult (see
+chat/views.py:_run_turn_via_worker) rather than running the agent inline.
 
 Flow
 ----
@@ -201,13 +206,18 @@ def run_chat_turn_task(
             for att in saved_attachments
         ]
 
-        # ── Auto-title ────────────────────────────────────────────────────────
+        # ── Auto-title + bump updated_at ────────────────────────────────────────
+        # updated_at must move on every turn, not just the title-generating
+        # one — the sidebar sorts conversations by it (see chat-page.tsx's
+        # restoreLastSession), and this task is now the only place a turn
+        # runs regardless of entry point (WS or REST send), so it's the one
+        # place this needs to happen.
+        from django.utils import timezone
         if conv.title in ("Untitled Conversation", ""):
             from chat.title_generator import generate_title_from_user_input
-            from django.utils import timezone
             conv.title = generate_title_from_user_input(content) or content[:50]
-            conv.updated_at = timezone.now()
-            conv.save(update_fields=["title", "updated_at"])
+        conv.updated_at = timezone.now()
+        conv.save(update_fields=["title", "updated_at"])
 
         # ── Done ──────────────────────────────────────────────────────────────
         push_chat_done(
@@ -222,6 +232,17 @@ def run_chat_turn_task(
             "chat turn %s complete: conv=%s user=%s",
             turn_id, conversation_id, user_id,
         )
+
+        # Result payload for callers blocking on AsyncResult.get() — e.g. the
+        # REST send views, which wait a bounded time for this so they can
+        # return the same response shape as before instead of relying on the
+        # WS push alone (see chat/views.py:_run_turn_via_worker).
+        return {
+            "ok": True,
+            "turn_id": turn_id,
+            "assistant_message_id": assistant_msg.pk,
+            "attachment_ids": [a["id"] for a in attachment_meta],
+        }
 
     except SoftTimeLimitExceeded:
         logger.error("run_chat_turn_task soft time limit exceeded: turn=%s", turn_id)

@@ -142,11 +142,15 @@ services:
         condition: service_completed_successfully
     networks:
       - invoicing-network
+    # --autoscale=MAX,MIN (not a fixed --concurrency) — the pool grows up to
+    # MAX worker processes when several large files queue up at once and
+    # shrinks back to MIN when idle, instead of a fixed pool either sitting
+    # idle most of the time or being too small during a burst.
     command: >
       celery -A config worker
       -Q extraction,default
       --loglevel=info
-      --concurrency=2
+      --autoscale=4,2
       --max-tasks-per-child=20
     healthcheck:
       test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1"]
@@ -187,11 +191,15 @@ services:
         condition: service_completed_successfully
     networks:
       - invoicing-network
+    # Higher ceiling than the extraction/default pool — this queue now
+    # carries every REST chat send too (chat/views.py:_run_turn_via_worker),
+    # not just WebSocket-originated turns, and needs headroom for concurrent
+    # users rather than for any single slow task.
     command: >
       celery -A config worker
       -Q chat
       --loglevel=info
-      --concurrency=4
+      --autoscale=8,2
       --max-tasks-per-child=50
     healthcheck:
       test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1"]
