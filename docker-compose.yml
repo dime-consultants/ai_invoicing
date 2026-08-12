@@ -235,7 +235,8 @@ services:
       - media_files:/var/www/media:ro
     depends_on:
       app:
-        condition: service_healthy
+        condition:
+         service_healthy
     networks:
       - invoicing-network
     healthcheck:
