@@ -73,6 +73,23 @@ class EmptyExtractionIsTerminalTests(TestCase):
         self.assertEqual(record.parse_status, "parse_error")
         self.assertIn("boom", record.parse_error)
 
+    def test_large_extraction_is_not_silently_truncated(self):
+        record = UploadedFile.objects.create(
+            batch=self.batch,
+            original_filename="large.csv",
+            file_size_bytes=1,
+            extension="csv",
+            parse_status="pending",
+            extracted_text="",
+        )
+
+        long_text = "row," + ("x" * 200_000)
+        UploadService.complete_extraction(record.pk, text=long_text)
+        record.refresh_from_db()
+
+        self.assertEqual(len(record.extracted_text), len(long_text))
+        self.assertEqual(record.parse_status, "parsed")
+
 
 class DeferredDispatchWaitsForCommitTests(TransactionTestCase):
     """
@@ -228,20 +245,27 @@ class ExtractionRetryTests(TestCase):
 
 
 class SafeDispatchTests(TestCase):
-    """config.dispatch.dispatch turns a broker outage into a return value."""
+    """
+    config.dispatch.dispatch turns a broker outage into a return value.
+
+    dispatch() calls task.apply_async(...) (not task.delay(...)) — see the
+    docstring in config/dispatch.py for why (avoiding positional/keyword
+    mis-mapping across callers with different task signatures) — so these
+    mocks must patch apply_async, the call dispatch() actually makes.
+    """
 
     def test_broker_failure_returns_none_instead_of_raising(self):
         from config.dispatch import dispatch
 
         task = MagicMock()
         task.name = "some.task"
-        task.delay.side_effect = OSError("Connection refused")
+        task.apply_async.side_effect = OSError("Connection refused")
         self.assertIsNone(dispatch(task, 1, x=2))
 
     def test_success_returns_the_async_result(self):
         from config.dispatch import dispatch
 
         task = MagicMock()
-        task.delay.return_value = "async-result"
+        task.apply_async.return_value = "async-result"
         self.assertEqual(dispatch(task, 1), "async-result")
-        task.delay.assert_called_once_with(1)
+        task.apply_async.assert_called_once_with(args=(1,))

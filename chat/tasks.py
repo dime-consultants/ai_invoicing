@@ -21,6 +21,20 @@ Cancellation
 The consumer sets a Redis cache key "chat_cancel_<turn_id>" when the user
 sends {"type": "cancel"}. The task checks this flag between tool calls
 (via the on_tool_result callback) and raises CancelledError if set.
+
+Reliability
+-----------
+CELERY_TASK_ACKS_LATE (global, settings.py) means Celery only removes this
+task from the queue after it finishes — so a worker that crashes mid-turn
+gets its task redelivered to another worker instead of losing it silently.
+That guarantee is only useful if redelivery can't double-post an assistant
+reply, so the task takes out a short-lived Redis lock keyed by turn_id before
+doing any work; a duplicate delivery for the same turn is a no-op.
+
+Transient failures (Grok rate limits / connection errors) are retried a
+bounded number of times with backoff. Anything else — a real bug, a bad
+request — still surfaces immediately as a user-facing error via
+push_chat_error rather than retrying forever.
 """
 import logging
 from datetime import datetime, timezone as tz
@@ -38,7 +52,8 @@ _HARD_LIMIT = 60 * 10
 
 @shared_task(
     bind=True,
-    max_retries=0,
+    max_retries=2,
+    acks_late=True,
     soft_time_limit=_SOFT_LIMIT,
     time_limit=_HARD_LIMIT,
 )
@@ -69,12 +84,21 @@ def run_chat_turn_task(
                          included twice.
     """
     from django.contrib.auth import get_user_model
+    from django.core.cache import cache
     from chat.models import ChatConversation, ChatMessage
     from chat.notify import push_chat_chunk, push_chat_done, push_chat_error
     from chat.services import ChatService
     from chat.views import _save_output_attachments
 
     User = get_user_model()
+
+    # acks_late means this exact call can be redelivered after a worker crash.
+    # Claim the turn before doing anything else so a duplicate delivery is a
+    # cheap no-op instead of a second assistant message.
+    lock_key = f"chat_turn_lock_{turn_id}"
+    if not cache.add(lock_key, 1, timeout=_HARD_LIMIT + 60):
+        logger.info("run_chat_turn_task: turn %s already claimed — skipping duplicate delivery.", turn_id)
+        return {"ok": True, "skipped": "duplicate_delivery", "turn_id": turn_id}
 
     def _cancelled() -> bool:
         from django.core.cache import cache
@@ -204,5 +228,11 @@ def run_chat_turn_task(
         raise
     except Exception as exc:
         logger.exception("run_chat_turn_task failed: turn=%s error=%s", turn_id, exc)
+        from tools.services import is_transient_llm_error
+        if is_transient_llm_error(exc) and self.request.retries < self.max_retries:
+            # Release the lock so the retried delivery (a new task invocation,
+            # not a redelivery of this one) isn't blocked by its own guard.
+            cache.delete(lock_key)
+            raise self.retry(exc=exc, countdown=15 * (self.request.retries + 1))
         push_chat_error(conversation_id, message=str(exc), turn_id=turn_id)
         raise

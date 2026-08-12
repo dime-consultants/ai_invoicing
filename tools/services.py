@@ -48,6 +48,33 @@ def _get_grok_client():
     return OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
 
 
+def is_transient_llm_error(exc: Exception) -> bool:
+    """
+    True for network/rate-limit/server-side Grok errors worth a bounded
+    Celery retry (chat.tasks.run_chat_turn_task, ai_engine.tasks.run_ai_job_task,
+    ai_engine.services.AIEngineService._run_job).
+
+    ToolService.run() below wraps every Grok API exception in a plain
+    RuntimeError (`raise RuntimeError(...) from exc`) so callers only ever see
+    that wrapper — the original openai.* exception type survives as
+    __cause__, so check both or every Grok-call failure is misclassified as
+    non-transient.
+    """
+    try:
+        import openai
+        transient_types = (
+            openai.APIConnectionError,
+            openai.APITimeoutError,
+            openai.RateLimitError,
+            openai.InternalServerError,
+        )
+        if isinstance(exc, transient_types) or isinstance(exc.__cause__, transient_types):
+            return True
+    except ImportError:
+        pass
+    return isinstance(exc, (ConnectionError, TimeoutError))
+
+
 def _resolve_handler(dotted_path: str):
     """
     Import and return the callable at `dotted_path`.
@@ -277,6 +304,141 @@ def _resolve_batch_text(batch_id, *, max_chars: int) -> dict:
     }
 
 
+def _chunk_text(text: str, chunk_size: int) -> list[str]:
+    """Split text into sequential pieces of at most chunk_size characters."""
+    if not text:
+        return []
+    return [text[i:i + chunk_size] for i in range(0, len(text), max(1, chunk_size))]
+
+
+def _run_chunked_prompt_transform(
+    config, client, model, output_schema, placeholder: str, kind: str, value, max_chars: int,
+) -> dict | None:
+    """
+    Map-reduce for one oversized document instead of truncating it.
+
+    Splits the FULL (untruncated) text into <=max_chars pieces, runs
+    config.system_prompt once per piece ("map"), then makes one final call
+    that merges every piece's output into a single coherent result
+    ("reduce"). Used by _call_prompt_transform whenever a single-source
+    input (one file_id or one batch_id) exceeds PROMPT_TRANSFORM_MAX_CHARS,
+    so a long document gets full coverage in the final answer instead of a
+    silently partial one truncated at the cap.
+
+    Returns None if, once resolved, the text turns out not to need chunking
+    after all (e.g. the cached extracted_text was shorter than expected) —
+    the caller falls back to the normal single-shot path in that case.
+    """
+    if kind == "batch":
+        full = _resolve_batch_text(value, max_chars=10**9)
+    else:
+        full = _resolve_file_text(value, max_chars=10**9)
+
+    chunks = _chunk_text(full["text"], max_chars)
+    if len(chunks) <= 1:
+        return None
+
+    logger.info(
+        "prompt_transform: chunking tool '%s' input into %d pieces (%d chars total)",
+        getattr(config, "name", "?"), len(chunks), full["full_length"],
+    )
+
+    chunk_results: list[str] = []
+    total_input_tokens = total_output_tokens = 0
+
+    for i, chunk in enumerate(chunks):
+        chunk_system_prompt = _safe_prompt_substitute(
+            config.system_prompt or "",
+            arguments="{}",
+            file_text=chunk if placeholder == "file_text" else "",
+            file_a_text=chunk if placeholder == "file_a_text" else "",
+            file_b_text=chunk if placeholder == "file_b_text" else "",
+            batch_text=chunk if placeholder == "batch_text" else "",
+        )
+        chunk_system_prompt += (
+            f"\n\nThis is part {i + 1} of {len(chunks)} of one larger document, "
+            "split only because it was too long for a single request. Analyze "
+            "just this part and do not claim it is the whole document — a "
+            "final step will combine every part's analysis into one answer."
+        )
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": chunk_system_prompt},
+                    {"role": "user", "content": f"Part {i + 1} of {len(chunks)}."},
+                ],
+                temperature=0.1,
+                max_tokens=4096,
+            )
+            chunk_results.append(response.choices[0].message.content or "")
+            total_input_tokens  += getattr(response.usage, "prompt_tokens", 0)
+            total_output_tokens += getattr(response.usage, "completion_tokens", 0)
+        except Exception as exc:
+            logger.warning(
+                "prompt_transform: chunk %d/%d failed for tool '%s': %s",
+                i + 1, len(chunks), getattr(config, "name", "?"), exc,
+            )
+            chunk_results.append(f"[Part {i + 1} could not be processed: {exc}]")
+
+    # ── Reduce ──────────────────────────────────────────────────────────────
+    reduce_system_prompt = (
+        "The following are independent analyses of sequential parts of one "
+        "larger document, each produced by running this instruction on just "
+        "that part:\n\n"
+        f"{config.system_prompt or ''}\n\n"
+        "Combine them into a single, coherent, non-redundant final result "
+        "that reads as if the whole document had been analyzed at once. "
+        "Do not mention that the document was split."
+    )
+    if output_schema:
+        reduce_system_prompt += (
+            "\n\nRespond ONLY with valid JSON that matches this schema:\n"
+            + json.dumps(output_schema, indent=2)
+            + "\nDo not include any text outside the JSON."
+        )
+    reduce_user_message = "\n\n".join(
+        f"--- Part {i + 1}/{len(chunks)} ---\n{r}" for i, r in enumerate(chunk_results)
+    )
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": reduce_system_prompt},
+            {"role": "user",   "content": reduce_user_message},
+        ],
+        temperature=0.1,
+        max_tokens=4096,
+    )
+    raw_text = response.choices[0].message.content or ""
+    total_input_tokens  += getattr(response.usage, "prompt_tokens", 0)
+    total_output_tokens += getattr(response.usage, "completion_tokens", 0)
+
+    structured = None
+    if output_schema:
+        s = raw_text.strip()
+        fence = re.search(r"```(?:json)?\s*(.*?)```", s, re.DOTALL)
+        if fence:
+            s = fence.group(1).strip()
+        try:
+            structured = json.loads(s)
+        except json.JSONDecodeError:
+            structured = {"parse_error": "Response was not valid JSON", "raw": s[:1000]}
+
+    return {
+        "ok":                True,
+        "result":            raw_text,
+        "structured":        structured,
+        "input_tokens":      total_input_tokens,
+        "output_tokens":     total_output_tokens,
+        # Chunk+merge covered the whole document — nothing was dropped.
+        "input_truncated":   False,
+        "input_full_length": full["full_length"],
+        "chunked":           True,
+        "chunk_count":       len(chunks),
+    }
+
+
 def _call_prompt_transform(config, arguments: dict) -> dict:
     """
     Dispatch a prompt_transform tool.
@@ -367,6 +529,22 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
     if "file_text" not in resolved and "batch_text" in resolved:
         resolved["file_text"] = resolved["batch_text"]
 
+    output_schema = config.output_schema
+
+    # ── Chunk + merge instead of truncating a single oversized source ──────
+    # Multi-source prompts (file_id_a + file_id_b, or a file combined with a
+    # batch) split the cap differently, and running map-reduce across two
+    # independent documents at once isn't a well-defined operation — this
+    # only applies to the common single-source case (one file_id, or one
+    # batch_id), which covers summarise_batch and single-document tools.
+    if len(wanted) == 1 and any_truncated:
+        placeholder, kind, value = wanted[0]
+        chunked = _run_chunked_prompt_transform(
+            config, client, model, output_schema, placeholder, kind, value, max_file_chars,
+        )
+        if chunked is not None:
+            return chunked
+
     args_json = json.dumps(arguments, indent=2, default=str)
 
     system_prompt = _safe_prompt_substitute(
@@ -384,7 +562,6 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
     file_full_length = total_full_length
 
     # If the user supplied an output_schema, ask the LLM to return JSON only
-    output_schema = config.output_schema
     if output_schema:
         system_prompt += (
             "\n\nRespond ONLY with valid JSON that matches this schema:\n"

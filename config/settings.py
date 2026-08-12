@@ -243,9 +243,11 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # ── Unstructured ──────────────────────────────────────────────────────────────
 # Leave UNSTRUCTURED_API_KEY blank → uses local open-source package (no key needed)
+# Keep the stored extracted_text close to the full document for AI processing;
+# prompt-level truncation remains the place for token budgeting, not ingestion.
 UNSTRUCTURED_API_KEY  = os.environ.get('UNSTRUCTURED_API_KEY', '')
 UNSTRUCTURED_API_URL  = os.environ.get('UNSTRUCTURED_API_URL', 'https://api.unstructured.io/general/v0/general')
-UNSTRUCTURED_MAX_CHARS = int(os.environ.get('UNSTRUCTURED_MAX_CHARS', '50000'))
+UNSTRUCTURED_MAX_CHARS = int(os.environ.get('UNSTRUCTURED_MAX_CHARS', '2000000'))
 
 # ── Grok / xAI ────────────────────────────────────────────────────────────────
 XAI_API_KEY  = os.environ.get('XAI_API_KEY', os.environ.get('GROK_API_KEY', ''))
@@ -332,3 +334,20 @@ CELERY_BROKER_CONNECTION_MAX_RETRIES = None  # retry forever, never give up
 # in your log — pin it explicitly so upgrading Celery doesn't silently
 # change this behavior under you).
 CELERY_WORKER_CANCEL_LONG_RUNNING_TASKS_ON_CONNECTION_LOSS = False
+
+# ── Queue routing: keep chat turns off the same worker pool as big file/AI
+# jobs ────────────────────────────────────────────────────────────────────────
+# Chat turns (run_chat_turn_task) are usually a handful of seconds; large PDF
+# extraction and AI analysis jobs can legitimately run for many minutes
+# (soft_time_limit up to 900s/1500s). Without routing, all three share the
+# same worker pool, so a couple of big files in flight can queue plain
+# no-attachment chat messages behind them for minutes. Route chat turns to
+# their own "chat" queue so a dedicated, small worker (see docker-compose.yml
+# "worker-chat" service) always has capacity for them; everything else stays
+# on "extraction"/"default", served by the general-purpose worker.
+CELERY_TASK_ROUTES = {
+    "chat.tasks.run_chat_turn_task": {"queue": "chat"},
+    "uploads.tasks.*": {"queue": "extraction"},
+    "ai_engine.tasks.run_ai_job_task": {"queue": "default"},
+}
+CELERY_TASK_DEFAULT_QUEUE = "default"

@@ -7,6 +7,17 @@ the actual job-running logic (tool loop, insight persistence, status
 transitions) lives in exactly one place — ai_engine/services.py — and
 this file is only responsible for *how* that logic gets invoked
 (synchronously inline vs. asynchronously via Celery).
+
+Reliability
+-----------
+acks_late (explicit here, also the global default) means a worker crash
+mid-job gets this task redelivered rather than losing it. That's safe to
+retry blindly because AIEngineService.dispatch() is already idempotent — it
+no-ops if job.status != "queued" (services.py), so a redelivered or manually
+retried call for a job that already finished/failed is a cheap skip, not a
+duplicate run. Transient errors (Grok rate limits/connection errors) get a
+bounded retry with backoff; anything else still surfaces on the job row via
+AIEngineService's own except-block (job.status="error").
 """
 import logging
 
@@ -18,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 @shared_task(
     bind=True,
-    max_retries=0,
+    max_retries=2,
+    acks_late=True,
     soft_time_limit=60 * 25,   # matches CELERY_TASK_SOFT_TIME_LIMIT
     time_limit=60 * 30,        # matches CELERY_TASK_TIME_LIMIT
 )
@@ -57,4 +69,18 @@ def run_ai_job_task(self, job_id: int):
         # the job itself, but log here too so Celery's own monitoring
         # (e.g. flower, retries) sees the failure.
         logger.exception("run_ai_job_task failed for job %s: %s", job_id, exc)
+        from tools.services import is_transient_llm_error
+        if is_transient_llm_error(exc) and self.request.retries < self.max_retries:
+            # AIEngineService._run_job() already wrote status="error" for
+            # this attempt before re-raising. Reset back to "queued" so
+            # dispatch() (which no-ops on any status other than "queued")
+            # actually re-runs the job on retry instead of silently skipping it.
+            try:
+                job = AIAnalysisJob.objects.get(pk=job_id)
+                if job.status in ("running", "error"):
+                    job.status = "queued"
+                    job.save(update_fields=["status"])
+            except Exception:
+                logger.exception("Could not reset job %s to queued before retry", job_id)
+            raise self.retry(exc=exc, countdown=15 * (self.request.retries + 1))
         raise

@@ -268,15 +268,21 @@ class PromptTransformInputTests(TestCase):
         self.assertEqual((kwargs["page_from"], kwargs["page_to"]), (40, 60))
 
     @override_settings(PROMPT_TRANSFORM_MAX_CHARS=100)
-    def test_truncation_is_reported_and_flagged_to_the_model(self):
+    def test_oversized_single_source_is_chunked_and_merged_not_truncated(self):
+        """
+        A single-source input over the cap is no longer silently truncated —
+        it's split into <=max_chars pieces, each analyzed, then merged into
+        one result covering the whole document (see _run_chunked_prompt_transform).
+        """
         uf = self._pdf(extracted_text="x" * 5000)
-        res, system_prompt = self._run({"file_id": uf.pk})
+        res, _ = self._run({"file_id": uf.pk})
 
         self.assertTrue(res["ok"])
-        self.assertTrue(res["input_truncated"], "partial input reported as complete")
+        self.assertFalse(res["input_truncated"], "chunk+merge covers the whole document — nothing was dropped")
         self.assertEqual(res["input_full_length"], 5000)
-        self.assertIn("TRUNCATED", system_prompt)
-        self.assertIn("PARTIAL", system_prompt)
+        self.assertTrue(res.get("chunked"))
+        self.assertEqual(res["chunk_count"], 50)  # 5000 chars / 100-char cap
+        self.assertEqual(res["result"], "done")
 
     def test_untruncated_input_is_not_flagged(self):
         uf = self._pdf(extracted_text="short body")
