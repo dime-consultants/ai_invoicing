@@ -216,3 +216,25 @@ class ChatInterfaceTestCase(TestCase):
         self.assertEqual(response_by_id.status_code, 200)
         self.assertEqual(len(response_by_id.data['messages']), 1)
         self.assertEqual(response_by_id.data['messages'][0]['content'], 'old message')
+
+    def test_chat_history_limit_returns_most_recent_not_oldest(self):
+        """
+        limit=N must return the last N messages (in chronological order),
+        not the first N — the endpoint's own docstring says "recent
+        conversation messages", and the frontend polls this endpoint with a
+        small limit expecting to see a reply that was just created.
+        """
+        conv = ChatConversation.objects.create(user=self.user, title='Long Chat')
+        for i in range(8):
+            ChatMessage.objects.create(
+                conversation=conv, role='user' if i % 2 == 0 else 'assistant',
+                content=f'message {i}',
+            )
+
+        response = self.client.get(
+            '/api/chat/history/', {'conversationId': conv.pk, 'limit': 3},
+        )
+        self.assertEqual(response.status_code, 200)
+        contents = [m['content'] for m in response.data['messages']]
+        # The most recent 3 of 8, still in chronological (oldest-first) order.
+        self.assertEqual(contents, ['message 5', 'message 6', 'message 7'])

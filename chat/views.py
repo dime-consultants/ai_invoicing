@@ -689,13 +689,21 @@ class ChatHistoryView(APIView):
             if not conv:
                 return Response({"messages": []})
 
-        messages = (
+        # Most recent `limit` messages, not the first `limit` — order
+        # descending to take the tail end of the conversation, then reverse
+        # back to chronological order for display. The previous ascending
+        # order()[:limit] silently returned the OLDEST messages instead for
+        # any conversation longer than `limit`, which is the opposite of
+        # what "recent conversation messages" (see the docstring above) and
+        # every caller of this endpoint actually need.
+        messages = list(
             ChatMessage.objects
             .filter(conversation=conv)
             .exclude(role="system")
-            .order_by("created_at", "pk")
-            .prefetch_related("attachments")
-        )[:limit]
+            .order_by("-created_at", "-pk")
+            .prefetch_related("attachments")[:limit]
+        )
+        messages.reverse()
 
         ctx = {"request": request}
         return Response({"messages": ChatMessageSerializer(messages, many=True, context=ctx).data})
