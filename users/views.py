@@ -13,8 +13,10 @@ from .serializers import (
     LoginSerializer,
     UserSerializer,
     UserProfileSerializer,
+    UserAdminSerializer,
     ChangePasswordSerializer,
 )
+from .permissions import IsOrgAdmin
 
 
 # ── Register ──────────────────────────────────────────────────────────────────
@@ -167,13 +169,30 @@ class ChangePasswordView(APIView):
         })
 
 # ── Admin User Management ───────────────────────────────────────────────────
+# Scoped to the requesting admin's own organization — an org-admin manages
+# their own org's roster only, never the whole platform.
 
 class UserListView(generics.ListCreateAPIView):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsOrgAdmin]
+
+    def get_queryset(self):
+        return User.objects.filter(organization=self.request.user.organization)
+
+    def get_serializer_class(self):
+        return UserAdminSerializer if self.request.method == "POST" else UserSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(organization=self.request.user.organization)
+
 
 class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsOrgAdmin]
+
+    def get_queryset(self):
+        return User.objects.filter(organization=self.request.user.organization)
+
+    def get_serializer_class(self):
+        return UserAdminSerializer if self.request.method in ("PUT", "PATCH") else UserSerializer
+
+    def perform_update(self, serializer):
+        serializer.save(organization=self.request.user.organization)

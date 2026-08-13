@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'channels',
     # Local apps
+    'organizations',  # partner/org scoping boundary
     'users',       # user management and authentication
     'tools',       # tool registry and call log
     'uploads',     # file upload engine

@@ -89,17 +89,30 @@ def _resolve_handler(dotted_path: str):
         raise ImportError(f"Cannot resolve handler '{dotted_path}': {exc}") from exc
 
 
-def _load_tool_schemas(tool_names: list[str] | None = None) -> list[dict]:
+def _scope_tools_to_org(qs, organization):
+    """Built-ins (created_by IS NULL) stay visible to everyone; user-defined
+    tools are only offered to the LLM if they belong to the caller's org —
+    otherwise the agent could be offered, and could invoke, another org's
+    webhook/prompt_transform tool."""
+    from django.db.models import Q
+    if organization is None:
+        return qs.filter(created_by__isnull=True)
+    return qs.filter(Q(created_by__isnull=True) | Q(organization=organization))
+
+
+def _load_tool_schemas(tool_names: list[str] | None = None, organization=None) -> list[dict]:
     from .models import ToolDefinition
     qs = ToolDefinition.objects.filter(enabled=True)
+    qs = _scope_tools_to_org(qs, organization)
     if tool_names:
         qs = qs.filter(name__in=tool_names)
     return [td.to_grok_schema() for td in qs]
 
 
-def _load_tool_map(tool_names: list[str] | None = None) -> dict:
+def _load_tool_map(tool_names: list[str] | None = None, organization=None) -> dict:
     from .models import ToolDefinition
     qs = ToolDefinition.objects.filter(enabled=True)
+    qs = _scope_tools_to_org(qs, organization)
     if tool_names:
         qs = qs.filter(name__in=tool_names)
     return {td.name: td for td in qs.select_related("user_config")}
@@ -116,9 +129,11 @@ def _record_tool_call(
     job=None,
 ) -> "ToolCall":
     from .models import ToolCall
+    organization = getattr(job, "organization", None) or getattr(tool_definition, "organization", None)
     return ToolCall.objects.create(
         job=job,
         tool=tool_definition,
+        organization=organization,
         arguments=arguments,
         result=result if isinstance(result, (dict, list)) else {"value": result},
         status=status,
@@ -650,6 +665,7 @@ class ToolService:
         job=None,
         conversation_history: list[dict] | None = None,
         on_status_update=None,
+        organization=None,
     ) -> tuple[str, list[int]]:
         """
         Execute a tool-calling conversation with Grok.
@@ -661,6 +677,8 @@ class ToolService:
         tool_names            Whitelist of tool names to expose. None = all enabled.
         job                   AIAnalysisJob to link ToolCall records to.
         conversation_history  Previous turns [{role, content}, ...].
+        organization          Restricts which user-defined tools the LLM is offered
+                               to this org's own (plus all built-ins). None = built-ins only.
 
         Returns
         -------
@@ -671,8 +689,8 @@ class ToolService:
         max_tokens  = getattr(settings, "AI_MAX_TOKENS",       4096)
         max_rounds  = getattr(settings, "AI_MAX_TOOL_ROUNDS",  10)
 
-        tool_schemas = _load_tool_schemas(tool_names)
-        tool_map     = _load_tool_map(tool_names)
+        tool_schemas = _load_tool_schemas(tool_names, organization=organization)
+        tool_map     = _load_tool_map(tool_names, organization=organization)
 
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
         if conversation_history:

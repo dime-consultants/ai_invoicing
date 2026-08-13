@@ -2,6 +2,7 @@
 import logging
 from datetime import timedelta
 
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -16,29 +17,25 @@ from .serializers import (
     CustomToolUpdateSerializer,
     CustomToolDetailSerializer,
 )
-
 logger = logging.getLogger(__name__)
 
 
-# ── Permissions ───────────────────────────────────────────────────────────────
-
-class IsAdminOrFinance(permissions.BasePermission):
-    def has_permission(self, request, view):
-        return (
-            request.user.is_authenticated
-            and request.user.role in ("admin", "finance")
-        )
+def _visible_tools_qs(user):
+    """Built-ins (created_by IS NULL) plus this user's own org's custom tools."""
+    return ToolDefinition.objects.filter(enabled=True).filter(
+        Q(created_by__isnull=True) | Q(organization=user.organization)
+    )
 
 
 # ── ToolDefinition ────────────────────────────────────────────────────────────
 
 class ToolDefinitionListView(generics.ListAPIView):
-    """GET /api/tools/ — list all enabled tools."""
+    """GET /api/tools/ — list all enabled tools visible to this org."""
     serializer_class   = ToolDefinitionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        qs = ToolDefinition.objects.filter(enabled=True).order_by("category", "name")
+        qs = _visible_tools_qs(self.request.user).order_by("category", "name")
         if category := self.request.query_params.get("category"):
             qs = qs.filter(category=category)
         if tool_type := self.request.query_params.get("tool_type"):
@@ -50,18 +47,22 @@ class ToolDefinitionDetailView(generics.RetrieveAPIView):
     """GET /api/tools/<id>/ — full detail including Grok schema."""
     serializer_class   = ToolDefinitionSerializer
     permission_classes = [permissions.IsAuthenticated]
-    queryset           = ToolDefinition.objects.filter(enabled=True)
+
+    def get_queryset(self):
+        return _visible_tools_qs(self.request.user)
 
 
 # ── ToolCall ──────────────────────────────────────────────────────────────────
 
 class ToolCallListView(generics.ListAPIView):
-    """GET /api/tools/calls/ — list tool calls with optional filters."""
+    """GET /api/tools/calls/ — list tool calls with optional filters, scoped to this org."""
     serializer_class   = ToolCallSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        qs = ToolCall.objects.select_related("tool", "job").order_by("-created_at")
+        qs = ToolCall.objects.filter(
+            organization=self.request.user.organization
+        ).select_related("tool", "job").order_by("-created_at")
         if job_id := self.request.query_params.get("job"):
             qs = qs.filter(job_id=job_id)
         if tool_name := self.request.query_params.get("tool"):
@@ -72,10 +73,14 @@ class ToolCallListView(generics.ListAPIView):
 
 
 class ToolCallDetailView(generics.RetrieveAPIView):
-    """GET /api/tools/calls/<id>/ — single call detail."""
+    """GET /api/tools/calls/<id>/ — single call detail, scoped to this org."""
     serializer_class   = ToolCallSerializer
     permission_classes = [permissions.IsAuthenticated]
-    queryset           = ToolCall.objects.select_related("tool", "job")
+
+    def get_queryset(self):
+        return ToolCall.objects.filter(
+            organization=self.request.user.organization
+        ).select_related("tool", "job")
 
 
 class ToolRunView(APIView):
@@ -98,8 +103,8 @@ class ToolRunView(APIView):
             )
 
         try:
-            tool_def = ToolDefinition.objects.select_related("user_config").get(
-                name=tool_name, enabled=True
+            tool_def = _visible_tools_qs(request.user).select_related("user_config").get(
+                name=tool_name
             )
         except ToolDefinition.DoesNotExist:
             return Response(
@@ -147,6 +152,7 @@ class ToolRunView(APIView):
             tool=tool_def, arguments=arguments, result=result,
             status=tc_status, error_message=error_msg,
             started_at=started_at, finished_at=finished_at,
+            organization=tool_def.organization or request.user.organization,
         )
         return Response({"tool_call_id": tc.pk, "result": result})
 
@@ -157,7 +163,7 @@ class ToolRunView(APIView):
 
 class CustomToolListCreateView(APIView):
     """
-    GET  /api/tools/custom/   — list tools created by the current user
+    GET  /api/tools/custom/   — list custom tools shared within the current org
     POST /api/tools/custom/   — create a new user-defined tool
     """
     permission_classes = [permissions.IsAuthenticated]
@@ -165,7 +171,7 @@ class CustomToolListCreateView(APIView):
     def get(self, request):
         tools = (
             ToolDefinition.objects
-            .filter(created_by=request.user)
+            .filter(organization=request.user.organization)
             .select_related("user_config")
             .order_by("-created_at")
         )
@@ -190,6 +196,7 @@ class CustomToolListCreateView(APIView):
             handler           = "",   # not used for non-builtin tools
             enabled           = True,
             created_by        = request.user,
+            organization      = request.user.organization,
         )
 
         # ── Create UserToolConfig ─────────────────────────────────────────────
@@ -217,16 +224,24 @@ class CustomToolDetailView(APIView):
     """
     permission_classes = [permissions.IsAuthenticated]
 
-    def _get_tool(self, pk, user):
+    def _get_tool_for_view(self, pk, user):
+        """Any org member may view."""
         try:
             return ToolDefinition.objects.select_related("user_config").get(
-                pk=pk, created_by=user
+                pk=pk, organization=user.organization,
             )
         except ToolDefinition.DoesNotExist:
             return None
 
+    def _get_tool_for_edit(self, pk, user):
+        """Only the creator or an org-admin may edit/delete."""
+        tool = self._get_tool_for_view(pk, user)
+        if tool and (tool.created_by_id == user.id or user.role == "admin"):
+            return tool
+        return None
+
     def get(self, request, pk):
-        tool = self._get_tool(pk, request.user)
+        tool = self._get_tool_for_view(pk, request.user)
         if not tool:
             return Response(
                 {"error": "Tool not found."},
@@ -235,7 +250,7 @@ class CustomToolDetailView(APIView):
         return Response(CustomToolDetailSerializer(tool).data)
 
     def patch(self, request, pk):
-        tool = self._get_tool(pk, request.user)
+        tool = self._get_tool_for_edit(pk, request.user)
         if not tool:
             return Response(
                 {"error": "Tool not found."},
@@ -273,7 +288,7 @@ class CustomToolDetailView(APIView):
         return Response(CustomToolDetailSerializer(tool).data)
 
     def delete(self, request, pk):
-        tool = self._get_tool(pk, request.user)
+        tool = self._get_tool_for_edit(pk, request.user)
         if not tool:
             return Response(
                 {"error": "Tool not found."},
@@ -307,7 +322,7 @@ class CustomToolTestView(APIView):
     def post(self, request, pk):
         try:
             tool = ToolDefinition.objects.select_related("user_config").get(
-                pk=pk, created_by=request.user,
+                pk=pk, organization=request.user.organization,
             )
         except ToolDefinition.DoesNotExist:
             return Response(
@@ -353,6 +368,7 @@ class CustomToolTestView(APIView):
             status="success" if result.get("ok") else "error",
             error_message=result.get("error", ""),
             started_at=started_at, finished_at=finished_at,
+            organization=tool.organization or request.user.organization,
         )
 
         return Response({
@@ -375,10 +391,9 @@ class ToolsConvertView(APIView):
     parser_classes     = [MultiPartParser, FormParser]
 
     def post(self, request):
-        import csv as _csv, json as _json, mimetypes
-        from io import BytesIO, StringIO
         from pathlib import Path
         from django.core.files.base import ContentFile
+        from tools.handlers import convert_text_to_format
 
         uploaded      = request.FILES.get("file")
         target_format = (request.data.get("targetFormat") or "xlsx").lower()
@@ -399,28 +414,9 @@ class ToolsConvertView(APIView):
             batch  = UploadBatch.objects.create(label=f"convert-{filename}", uploaded_by=request.user)
             record = UploadService.ingest_file(batch, uploaded)
             text   = record.extracted_text or ""
-            lines  = [l for l in text.splitlines() if l.strip()]
 
-            if target_format == "xlsx":
-                import openpyxl
-                wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Converted"
-                for i, line in enumerate(lines, 1):
-                    parts = line.split("\t") if "\t" in line else line.split(",")
-                    for j, part in enumerate(parts, 1):
-                        ws.cell(row=i, column=j, value=part.strip())
-                buf = BytesIO(); wb.save(buf); content = buf.getvalue()
-            elif target_format == "csv":
-                buf = StringIO()
-                writer = _csv.writer(buf)
-                for line in lines:
-                    writer.writerow(line.split("\t") if "\t" in line else [line])
-                content = buf.getvalue().encode("utf-8")
-            elif target_format == "json":
-                content = _json.dumps({"rows": lines}, indent=2).encode("utf-8")
-            else:
-                content = text.encode("utf-8")
+            content, mime = convert_text_to_format(text, target_format)
 
-            mime, _ = mimetypes.guess_type(out_name)
             out_record = UploadedFile(
                 batch=batch, original_filename=out_name,
                 file_size_bytes=len(content),

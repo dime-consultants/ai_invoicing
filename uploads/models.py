@@ -52,6 +52,12 @@ class UploadBatch(models.Model):
         null=True,
         related_name="batches",
     )
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="+",
+    )
 
     # Denormalised counters — updated by signals / service layer
     file_count      = models.PositiveIntegerField(default=0)

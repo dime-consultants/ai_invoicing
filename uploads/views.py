@@ -14,20 +14,14 @@ from .serializers import (
     FileUploadSerializer,
 )
 from .services import UploadService
-
-
-# ── Permissions ───────────────────────────────────────────────────────────────
-
-class CanUpload(permissions.BasePermission):
-    """Admin and finance users may upload files."""
-    def has_permission(self, request, view):
-        return (
-            request.user.is_authenticated
-            and getattr(request.user, "role", None) in ("admin", "finance")
-        )
+from users.permissions import CanUploadOrRunJobs as CanUpload
 
 
 def _user_owns_or_is_admin(request, uploaded_file: UploadedFile) -> bool:
+    """Owner, or an admin — but only within the same organization. A cross-org
+    admin gets no bypass; org membership is the outer boundary."""
+    if uploaded_file.batch.organization_id != request.user.organization_id:
+        return False
     if uploaded_file.batch.uploaded_by == request.user:
         return True
     return getattr(request.user, "role", None) == "admin"
@@ -49,7 +43,7 @@ class UploadBatchListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         return UploadBatch.objects.filter(
-            uploaded_by=self.request.user
+            organization=self.request.user.organization
         ).order_by("-created_at")
 
     def create(self, request, *args, **kwargs):
@@ -72,7 +66,7 @@ class UploadBatchDetailView(generics.RetrieveDestroyAPIView):
     serializer_class   = UploadBatchSerializer
 
     def get_queryset(self):
-        return UploadBatch.objects.filter(uploaded_by=self.request.user)
+        return UploadBatch.objects.filter(organization=self.request.user.organization)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -89,7 +83,7 @@ class FileListView(generics.ListAPIView):
 
     def get_queryset(self):
         qs = UploadedFile.objects.filter(
-            batch__uploaded_by=self.request.user
+            batch__organization=self.request.user.organization
         ).select_related("batch").order_by("-uploaded_at")
 
         file_type = self.request.query_params.get("type")

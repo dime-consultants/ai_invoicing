@@ -22,7 +22,8 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("is_active", True)
         return self._create_user(email, password, **extra_fields)
 
-    def create_superuser(self, email, username=None, password=None, **extra_fields):
+    def create_superuser(self, email, username=None, password=None,
+                          first_name="", last_name="", **extra_fields):
         #accept username but fallback to email
         extra_fields.setdefault("username", username or email)
         extra_fields.setdefault("is_staff", True)
@@ -66,6 +67,12 @@ class User(AbstractBaseUser, PermissionsMixin):
     last_name = models.CharField(max_length=50, blank=True)
     department = models.CharField(max_length=100, blank=True)
     phone = models.CharField(max_length=20, blank=True)
+
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="members",
+        help_text="The partner organization this user belongs to. Data is scoped to this boundary.",
+    )
 
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)

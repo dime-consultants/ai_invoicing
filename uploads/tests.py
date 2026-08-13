@@ -17,7 +17,9 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import transaction
 from django.test import TestCase, TransactionTestCase
+from rest_framework.test import APIClient
 
+from organizations.models import Organization
 from uploads.models import UploadBatch, UploadedFile
 from uploads.services import UploadService
 
@@ -285,3 +287,84 @@ class SafeDispatchTests(TestCase):
         task.apply_async.return_value = "async-result"
         self.assertEqual(dispatch(task, x=2), "async-result")
         task.apply_async.assert_called_once_with(kwargs={"x": 2})
+
+
+class OrgIsolationTests(TestCase):
+    """
+    Batches/files became org-shared in Phase 3 (previously scoped strictly to
+    the uploading user). Verify: (1) a teammate in the same org can see data
+    they didn't personally upload — the actual point of org-sharing — and
+    (2) a user in a different org, including an admin, gets no visibility at
+    all — the admin bypass in _user_owns_or_is_admin is org-bound, not global.
+    """
+
+    def setUp(self):
+        User = get_user_model()
+        self.org_a = Organization.objects.create(name="Org A")
+        self.org_b = Organization.objects.create(name="Org B")
+        self.uploader_a = User.objects.create_user(
+            email="uploader_a@example.com", password="pw12345!",
+            first_name="U", last_name="A", role="finance", organization=self.org_a,
+        )
+        self.teammate_a = User.objects.create_user(
+            email="teammate_a@example.com", password="pw12345!",
+            first_name="T", last_name="A", role="finance", organization=self.org_a,
+        )
+        self.admin_b = User.objects.create_user(
+            email="admin_b@example.com", password="pw12345!",
+            first_name="Ad", last_name="B", role="admin", organization=self.org_b,
+        )
+
+        self.batch = UploadService.create_batch(label="Org A batch", user=self.uploader_a)
+        upload = SimpleUploadedFile("scan.txt", b"content", content_type="text/plain")
+        with patch("uploads.services._extract_text", return_value="hello"):
+            self.uf = UploadService.ingest_file(self.batch, upload)
+
+        self.client = APIClient()
+
+    def test_teammate_in_same_org_sees_batch_they_did_not_upload(self):
+        self.client.force_authenticate(user=self.teammate_a)
+        resp = self.client.get("/api/uploads/batches/")
+        self.assertEqual(resp.status_code, 200)
+        ids = [b["id"] for b in resp.json()]
+        self.assertIn(self.batch.pk, ids)
+
+        detail = self.client.get(f"/api/uploads/batches/{self.batch.pk}/")
+        self.assertEqual(detail.status_code, 200)
+
+    def test_cross_org_user_sees_nothing(self):
+        self.client.force_authenticate(user=self.admin_b)
+        resp = self.client.get("/api/uploads/batches/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), [])
+
+        detail = self.client.get(f"/api/uploads/batches/{self.batch.pk}/")
+        self.assertEqual(detail.status_code, 404)
+
+    def test_cross_org_admin_bypass_does_not_apply(self):
+        """An admin in a DIFFERENT org must not be able to download/delete a
+        file via the owns-or-admin bypass — that bypass is org-bound."""
+        self.client.force_authenticate(user=self.admin_b)
+        resp = self.client.get(f"/api/uploads/files/{self.uf.pk}/download/")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_same_org_admin_bypass_still_applies(self):
+        """An admin in the SAME org can still access a teammate's file —
+        the pre-existing behavior, just now org-bound instead of global."""
+        User = get_user_model()
+        admin_a = User.objects.create_user(
+            email="admin_a@example.com", password="pw12345!",
+            first_name="Ad", last_name="A", role="admin", organization=self.org_a,
+        )
+        self.client.force_authenticate(user=admin_a)
+        resp = self.client.get(f"/api/uploads/files/{self.uf.pk}/download/")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_batch_summary_view_is_org_scoped(self):
+        self.client.force_authenticate(user=self.teammate_a)
+        resp = self.client.get(f"/api/uploads/batches/{self.batch.pk}/summary/")
+        self.assertEqual(resp.status_code, 200)
+
+        self.client.force_authenticate(user=self.admin_b)
+        resp = self.client.get(f"/api/uploads/batches/{self.batch.pk}/summary/")
+        self.assertEqual(resp.status_code, 404)

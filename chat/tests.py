@@ -238,3 +238,37 @@ class ChatInterfaceTestCase(TestCase):
         contents = [m['content'] for m in response.data['messages']]
         # The most recent 3 of 8, still in chronological (oldest-first) order.
         self.assertEqual(contents, ['message 5', 'message 6', 'message 7'])
+
+
+class ConversationsStayUserPrivateNotOrgSharedTests(TestCase):
+    """
+    Regression guard for a Phase 3 design decision: unlike batches/jobs/
+    reports/custom-tools, chat conversations were deliberately NOT made
+    org-shared. A teammate in the same org must still get zero visibility
+    into another user's conversation.
+    """
+
+    def setUp(self):
+        from organizations.models import Organization
+        self.org = Organization.objects.create(name="Shared Org")
+        self.owner = User.objects.create_user(
+            email="owner@example.com", password="pw12345!",
+            first_name="O", last_name="W", organization=self.org,
+        )
+        self.teammate = User.objects.create_user(
+            email="teammate@example.com", password="pw12345!",
+            first_name="T", last_name="M", organization=self.org,
+        )
+        self.conv = ChatConversation.objects.create(user=self.owner, title="Private chat")
+        self.client = APIClient()
+
+    def test_teammate_in_same_org_cannot_list_or_view_conversation(self):
+        self.client.force_authenticate(user=self.teammate)
+
+        list_resp = self.client.get("/api/chat/conversations/")
+        self.assertEqual(list_resp.status_code, 200)
+        ids = [c["id"] for c in list_resp.json()]
+        self.assertNotIn(self.conv.pk, ids)
+
+        detail_resp = self.client.get(f"/api/chat/conversations/{self.conv.pk}/")
+        self.assertEqual(detail_resp.status_code, 404)

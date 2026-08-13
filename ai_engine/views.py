@@ -66,7 +66,7 @@ class AIAnalysisJobListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         qs = (
             AIAnalysisJob.objects
-            .filter(requested_by=self.request.user)
+            .filter(organization=self.request.user.organization)
             .select_related("batch", "target_file", "requested_by")
             .order_by("-created_at")
         )
@@ -130,7 +130,7 @@ class AIAnalysisJobDetailView(generics.RetrieveAPIView):
     def get_queryset(self):
         return (
             AIAnalysisJob.objects
-            .filter(requested_by=self.request.user)
+            .filter(organization=self.request.user.organization)
             .prefetch_related("insights", "tool_calls__tool")
         )
 
@@ -151,7 +151,7 @@ class AIAnalysisJobRequeueView(APIView):
 
     def post(self, request, pk):
         try:
-            job = AIAnalysisJob.objects.get(pk=pk, requested_by=request.user)
+            job = AIAnalysisJob.objects.get(pk=pk, organization=request.user.organization)
         except AIAnalysisJob.DoesNotExist:
             return Response(
                 {"error": "Job not found."},
@@ -219,7 +219,7 @@ class AIInsightListView(generics.ListAPIView):
     def get_queryset(self):
         job_qs = AIAnalysisJob.objects.filter(
             pk=self.kwargs["job_id"],
-            requested_by=self.request.user,
+            organization=self.request.user.organization,
         )
         if not job_qs.exists():
             return AIInsight.objects.none()
@@ -258,7 +258,7 @@ class AIInsightActionView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if insight.job.requested_by_id != request.user.pk:
+        if insight.job.organization_id != request.user.organization_id:
             return Response(
                 {"error": "You do not have permission to action this insight."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -302,7 +302,7 @@ class BatchAIJobListView(generics.ListAPIView):
             AIAnalysisJob.objects
             .filter(
                 batch_id=self.kwargs["batch_id"],
-                requested_by=self.request.user,
+                organization=self.request.user.organization,
             )
             .select_related("batch", "target_file")
             .order_by("-created_at")
@@ -464,7 +464,7 @@ class AIRunAnalysisView(APIView):
 
         batch = (
             UploadBatch.objects
-            .filter(uploaded_by=request.user, file_count__gt=0)
+            .filter(organization=request.user.organization, file_count__gt=0)
             .order_by("-created_at")
             .first()
         )
@@ -573,9 +573,11 @@ class AIEngineStatsView(APIView):
         yesterday = today - timedelta(days=1)
         week_ago = now - timedelta(days=7)
 
-        analyses_today = AIAnalysisJob.objects.filter(created_at__date=today).count()
-        analyses_yest  = AIAnalysisJob.objects.filter(created_at__date=yesterday).count()
-        insights_week  = AIInsight.objects.filter(job__created_at__gte=week_ago).count()
+        org = request.user.organization
+
+        analyses_today = AIAnalysisJob.objects.filter(organization=org, created_at__date=today).count()
+        analyses_yest  = AIAnalysisJob.objects.filter(organization=org, created_at__date=yesterday).count()
+        insights_week  = AIInsight.objects.filter(job__organization=org, job__created_at__gte=week_ago).count()
 
         delta_pct = None
         if analyses_yest:
@@ -583,7 +585,7 @@ class AIEngineStatsView(APIView):
 
         done = (
             AIAnalysisJob.objects
-            .filter(status="done", started_at__isnull=False, finished_at__isnull=False)
+            .filter(organization=org, status="done", started_at__isnull=False, finished_at__isnull=False)
             .order_by("-finished_at")[:200]
         )
         durations = [(j.finished_at - j.started_at).total_seconds() for j in done]
@@ -610,6 +612,7 @@ class AIRecentInsightsView(APIView):
         rows = (
             AIInsight.objects
             .select_related("job")
+            .filter(job__organization=request.user.organization)
             .order_by("-id")[:10]
         )
         severity_map = {"critical": "error", "warning": "warning", "info": "success"}

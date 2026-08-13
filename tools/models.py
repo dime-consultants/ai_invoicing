@@ -86,7 +86,14 @@ class ToolDefinition(models.Model):
         related_name="defined_tools",
         help_text="Null = system built-in; set = user-defined.",
     )
-    
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="+",
+        help_text="Null for system built-ins. Set for user-defined tools — shared across the org.",
+    )
+
 
     class Meta:
         verbose_name        = "Tool Definition"
@@ -148,6 +155,13 @@ class ToolCall(models.Model):
         ToolDefinition,
         on_delete=models.PROTECT,
         related_name="calls",
+    )
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="+",
+        help_text="Denormalized at creation time — job may be null (standalone/test calls).",
     )
 
     # Exact arguments the LLM passed (from tool_call.function.arguments)

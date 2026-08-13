@@ -60,6 +60,12 @@ class AIAnalysisJob(models.Model):
         null=True, blank=True,
         related_name="ai_jobs",
     )
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="+",
+    )
 
     # ── Task ──────────────────────────────────────────────────────────────────
     task_type   = models.CharField(max_length=30, choices=TASK_TYPE_CHOICES)

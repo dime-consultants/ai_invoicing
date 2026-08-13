@@ -38,12 +38,19 @@ BUILTIN_TOOLS = [
         "name":         "read_file",
         "display_name": "Read File",
         "description": (
-            "Open an uploaded file and return its text content. "
-            "Use this before any prompt_transform tool that needs to analyse file content. "
-            "For a large PDF, pass page_from/page_to to read it in chunks — this reads the "
-            "document directly and works even while background extraction is still running. "
-            "Check 'truncated' and 'page_count' to see whether more content remains, and page "
-            "through the rest before drawing conclusions. "
+            "Open an uploaded file and return its text content — for ANY file type "
+            "(PDF, CSV, XLSX, DOCX, TXT, etc), not just PDFs. Use this before any "
+            "prompt_transform tool that needs to analyse file content. "
+            "For a large file, pass page_from (and page_to for PDFs) to read it in "
+            "chunks — this works even while background extraction is still running. "
+            "For PDFs, page_from/page_to select actual document pages. For every "
+            "other file type, page_from selects one max_chars-sized chunk of the "
+            "full text (page_to is ignored for non-PDFs — call again with "
+            "page_from+1 to get the next chunk). "
+            "Check 'truncated' and 'page_count' to see whether more content remains, and "
+            "keep paging (incrementing page_from) until page_from reaches page_count "
+            "before drawing conclusions from a large document — never assume a single "
+            "call has the whole document just because it returned ok=true. "
             "Returns ok=false if the file has no readable text (e.g. a scanned image-only PDF) — "
             "in that case say so rather than inferring the contents."
         ),
@@ -65,15 +72,17 @@ BUILTIN_TOOLS = [
                 "page_from": {
                     "type": "integer",
                     "description": (
-                        "First PDF page to read (1-indexed, inclusive). PDFs only. "
+                        "PDF: first page to read (1-indexed, inclusive). "
+                        "Non-PDF: which max_chars-sized chunk to read (1-indexed). "
                         "Omit to read from the start."
                     ),
                 },
                 "page_to": {
                     "type": "integer",
                     "description": (
-                        "Last PDF page to read (1-indexed, inclusive). PDFs only. "
-                        "Omit to read to the end."
+                        "Last PDF page to read (1-indexed, inclusive). PDFs only — "
+                        "ignored for every other file type, which return one chunk "
+                        "per call regardless. Omit to read to the end (PDFs)."
                     ),
                 },
             },
@@ -203,6 +212,43 @@ BUILTIN_TOOLS = [
                 },
             },
             "required": ["filename", "headers", "rows"],
+        },
+    },
+    {
+        "name":         "export_file",
+        "display_name": "Export File",
+        "description": (
+            "Convert an already-uploaded file's FULL content into a different "
+            "downloadable format (xlsx, csv, json, or txt) by file_id — no "
+            "re-upload needed, and not limited by your own context window. "
+            "Use this instead of write_xlsx whenever the user asks to get a "
+            "file back in another format (e.g. 'give me that as an Excel "
+            "file', 'export this as CSV') — it reads the stored extraction "
+            "directly and writes it byte-faithfully, rather than you having "
+            "to re-type the data as headers/rows yourself. Works for a file "
+            "from any earlier turn in this conversation, not just one "
+            "attached to the current message — check the file listing in "
+            "your context for the right file_id. "
+            "Returns: output_filename (absolute path), format, chars."
+        ),
+        "category": "report",
+        "handler":  "tools.handlers.export_file",
+        "is_safe":  True,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "file_id": {
+                    "type": "integer",
+                    "description": "PK of the UploadedFile record to export.",
+                },
+                "target_format": {
+                    "type": "string",
+                    "enum": ["xlsx", "csv", "json", "txt"],
+                    "description": "Output format. Default 'xlsx'.",
+                    "default": "xlsx",
+                },
+            },
+            "required": ["file_id"],
         },
     },
     {

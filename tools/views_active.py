@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import ToolDefinition, ToolCall
+from .views import _visible_tools_qs
 from ai_engine.models import AIAnalysisJob
 
 logger = logging.getLogger(__name__)
@@ -17,13 +18,13 @@ logger = logging.getLogger(__name__)
 class ActiveToolsView(APIView):
     """
     GET /api/tools/active/
-    Returns all enabled tools with metadata.
+    Returns all enabled tools visible to this org, with metadata.
     Supports ?tool_type=webhook|prompt_transform|builtin filter.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        qs = ToolDefinition.objects.filter(enabled=True).order_by("category", "name")
+        qs = _visible_tools_qs(request.user).order_by("category", "name")
 
         if tool_type := request.query_params.get("tool_type"):
             qs = qs.filter(tool_type=tool_type)
@@ -57,7 +58,7 @@ class JobActiveToolsView(APIView):
 
     def get(self, request, job_id):
         try:
-            job = AIAnalysisJob.objects.get(pk=job_id)
+            job = AIAnalysisJob.objects.get(pk=job_id, organization=request.user.organization)
         except AIAnalysisJob.DoesNotExist:
             return Response(
                 {"error": "Job not found"},
@@ -102,22 +103,23 @@ class ToolUsageStatsView(APIView):
         from datetime import timedelta
 
         thirty_days_ago = timezone.now() - timedelta(days=30)
+        org = request.user.organization
 
-        total_calls = ToolCall.objects.filter(created_at__gte=thirty_days_ago).count()
+        total_calls = ToolCall.objects.filter(organization=org, created_at__gte=thirty_days_ago).count()
 
         # FIX: status values are "success" and "error", not "completed" and "failed"
         success_calls = ToolCall.objects.filter(
-            created_at__gte=thirty_days_ago, status="success"
+            organization=org, created_at__gte=thirty_days_ago, status="success"
         ).count()
         failed_calls = ToolCall.objects.filter(
-            created_at__gte=thirty_days_ago, status="error"
+            organization=org, created_at__gte=thirty_days_ago, status="error"
         ).count()
         skipped_calls = ToolCall.objects.filter(
-            created_at__gte=thirty_days_ago, status="skipped"
+            organization=org, created_at__gte=thirty_days_ago, status="skipped"
         ).count()
 
         most_used = (
-            ToolCall.objects.filter(created_at__gte=thirty_days_ago)
+            ToolCall.objects.filter(organization=org, created_at__gte=thirty_days_ago)
             .values("tool__name", "tool__display_name", "tool__tool_type")
             .annotate(count=models.Count("id"))
             .order_by("-count")[:10]
@@ -127,7 +129,7 @@ class ToolUsageStatsView(APIView):
         from django.db.models import Avg, F, ExpressionWrapper, DurationField
         avg_duration = (
             ToolCall.objects
-            .filter(created_at__gte=thirty_days_ago, status="success",
+            .filter(organization=org, created_at__gte=thirty_days_ago, status="success",
                     started_at__isnull=False, finished_at__isnull=False)
             .annotate(
                 duration=ExpressionWrapper(

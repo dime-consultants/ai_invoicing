@@ -27,7 +27,7 @@ class UploadBatchSummaryView(APIView):
     def get(self, request, pk):
         try:
             batch = UploadBatch.objects.filter(
-                uploaded_by=request.user
+                organization=request.user.organization
             ).get(pk=pk)
         except UploadBatch.DoesNotExist:
             return Response(
