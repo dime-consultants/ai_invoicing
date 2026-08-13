@@ -256,8 +256,20 @@ def _infer_workflow_from_request(message: str, batch=None):
 
 def _persist_insights(job, tool_results: list[dict]) -> None:
     """
-    Walk tool results and write AIInsight rows for anything flag_anomalies
-    or reconcile_datasets produced.
+    Walk tool results and write AIInsight rows for anything flag_anomalies,
+    reconcile_datasets, or summarise_batch produced.
+
+    Builtin handlers (e.g. reconcile_ura_vs_acon) return their data at the
+    top level of the result dict. prompt_transform tools do not — Tool
+    Service.run() stores _call_prompt_transform()'s return value verbatim as
+    ToolCall.result, and that wrapper is {"ok", "result": <raw text>,
+    "structured": {...the actual parsed rows/anomalies/narrative...}, ...}.
+    Reading straight off the top level (as this used to do) means "rows",
+    "anomalies", and "narrative" are never found for any prompt_transform
+    tool — i.e. every LLM-driven reconciliation/anomaly/summary workflow —
+    so no insight was ever created regardless of what the LLM returned.
+    Prefer "structured" when present; fall back to the top level for
+    builtin-handler results, which have no such wrapper.
     """
     from .models import AIInsight
 
@@ -265,8 +277,11 @@ def _persist_insights(job, tool_results: list[dict]) -> None:
         if not isinstance(result, dict) or not result.get("ok"):
             continue
 
+        structured = result.get("structured")
+        payload = structured if isinstance(structured, dict) else result
+
         # flag_anomalies result
-        for anomaly in result.get("anomalies", []):
+        for anomaly in payload.get("anomalies", []):
             AIInsight.objects.create(
                 job=job,
                 insight_type="anomaly",
@@ -277,7 +292,7 @@ def _persist_insights(job, tool_results: list[dict]) -> None:
             )
 
         # reconcile_datasets result
-        for row in result.get("rows", []):
+        for row in payload.get("rows", []):
             if row.get("status") in ("VARIANCE", "MISSING_IN_B", "MISSING_IN_A"):
                 severity = (
                     "critical" if "MISSING" in row.get("status", "")
@@ -297,13 +312,13 @@ def _persist_insights(job, tool_results: list[dict]) -> None:
                 )
 
         # summarise_batch result
-        if result.get("narrative"):
+        if payload.get("narrative"):
             AIInsight.objects.create(
                 job=job,
                 insight_type="summary_point",
                 severity="info",
                 title="Batch Summary",
-                detail=result.get("narrative", ""),
+                detail=payload.get("narrative", ""),
             )
 
 
