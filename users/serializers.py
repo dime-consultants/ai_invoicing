@@ -76,6 +76,7 @@ class UserSerializer(serializers.ModelSerializer):
     name       = serializers.SerializerMethodField()
     status     = serializers.SerializerMethodField()
     lastActive = serializers.DateTimeField(source="updated_at", read_only=True)
+    organization_name = serializers.CharField(source="organization.name", read_only=True, default=None)
 
     class Meta:
         model  = User
@@ -85,6 +86,7 @@ class UserSerializer(serializers.ModelSerializer):
             "role", "role_display",
             "status", "lastActive",
             "department", "phone",
+            "organization", "organization_name",
             "is_active",
             "created_at",
         ]
@@ -109,6 +111,47 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "department", "phone",
         ]
         read_only_fields = ["id", "username"]
+
+
+class UserAdminSerializer(serializers.ModelSerializer):
+    """Writable admin CRUD serializer — backs POST/PUT/PATCH /api/users/.
+
+    UserSerializer marks every field read-only (it's the read-contract
+    shape), so it can't back writes — this is the real writable
+    counterpart. `organization` is accepted here for shape-completeness
+    but the view always overrides it server-side to the requesting
+    admin's own organization (see UserListView/UserDetailView).
+    """
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
+    class Meta:
+        model = User
+        fields = [
+            "id", "username", "email", "first_name", "last_name",
+            "role", "department", "phone", "is_active",
+            "organization", "password", "created_at",
+        ]
+        read_only_fields = ["id", "created_at"]
+
+    def create(self, validated_data):
+        password = validated_data.pop("password", None)
+        validated_data.setdefault("username", validated_data.get("email"))
+        user = User(**validated_data)
+        if password:
+            user.set_password(password)
+        else:
+            user.set_unusable_password()
+        user.save()
+        return user
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop("password", None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if password:
+            instance.set_password(password)
+        instance.save()
+        return instance
 
 
 class ChangePasswordSerializer(serializers.Serializer):

@@ -91,6 +91,7 @@ ALL_TOOL_NAMES: list[str] = [
     "read_file",
     "detect_file_type",
     "write_xlsx",
+    "export_file",
     "call_webhook",
     "run_python",
     # domain builtins — deterministic parsers for the known file shapes.
@@ -117,6 +118,7 @@ WORKFLOW_TOOL_NAMES: dict[str, list[str]] = {
         "extract_safaricom_bill",   # use for a Safaricom bill — joins CU numbers
         "extract_invoice_data",
         "write_xlsx",
+        "export_file",
     ],
     # Full reconciliation: extract both sides, compare, write report
     "reconciliation": [
@@ -127,6 +129,7 @@ WORKFLOW_TOOL_NAMES: dict[str, list[str]] = {
         "reconcile_ura_vs_acon",    # use when one side is ACON — statutory join
         "reconcile_datasets",       # generic fallback for other file pairs
         "write_xlsx",
+        "export_file",
     ],
     # Anomaly detection: read, extract, flag
     "anomaly_detection": [
@@ -135,6 +138,7 @@ WORKFLOW_TOOL_NAMES: dict[str, list[str]] = {
         "extract_invoice_data",
         "flag_anomalies",
         "write_xlsx",
+        "export_file",
     ],
     # Data cleaning: read, clean, optionally write
     "data_cleaning": [
@@ -142,12 +146,14 @@ WORKFLOW_TOOL_NAMES: dict[str, list[str]] = {
         "read_file",
         "clean_dataset",
         "write_xlsx",
+        "export_file",
     ],
     # Batch overview: summarise all files in a batch
     "batch_summary": [
         "detect_file_type",
         "read_file",
         "summarise_batch",
+        "export_file",
     ],
     # Report generation: extract + write formatted xlsx
     "report_generation": [
@@ -156,6 +162,7 @@ WORKFLOW_TOOL_NAMES: dict[str, list[str]] = {
         "extract_invoice_data",
         "flag_anomalies",
         "write_xlsx",
+        "export_file",
     ],
     # Free-form: all tools available (no restriction)
     "custom": ALL_TOOL_NAMES,
@@ -250,6 +257,43 @@ def _infer_workflow_from_request(message: str, batch=None):
         return None
 
 
+def _collect_conversation_files(conversation) -> list:
+    """
+    Every UploadedFile ever attached to any message in `conversation`, deduped
+    by UploadedFile pk, oldest first.
+
+    Powers cross-turn file visibility in handle_chat_message: a file uploaded
+    in turn 1 must stay usable (readable, exportable) in turn 5 without the
+    user re-attaching it. Returns [] for a None conversation (the fully
+    stateless callers that don't pass one) or on any lookup error — never
+    raises, since a failure here should degrade to "no extra files visible
+    this turn," not break the turn.
+    """
+    if conversation is None:
+        return []
+    try:
+        from chat.models import ChatMessageAttachment
+        attachments = (
+            ChatMessageAttachment.objects
+            .filter(message__conversation=conversation)
+            .exclude(uploaded_file__isnull=True)
+            .select_related("uploaded_file")
+            .order_by("created_at")
+        )
+        seen: dict = {}
+        for att in attachments:
+            uf = att.uploaded_file
+            if uf and uf.pk not in seen:
+                seen[uf.pk] = uf
+        return list(seen.values())
+    except Exception as exc:
+        logger.warning(
+            "Could not collect conversation files (conversation=%s): %s",
+            getattr(conversation, "pk", None), exc,
+        )
+        return []
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Insight extraction
 # ─────────────────────────────────────────────────────────────────────────────
@@ -340,6 +384,10 @@ class AIEngineService:
         requested_by=None,
     ):
         from .models import AIAnalysisJob
+        organization = (
+            getattr(requested_by, "organization", None)
+            or getattr(batch, "organization", None)
+        )
         return AIAnalysisJob.objects.create(
             batch          = batch,
             task_type      = task_type,
@@ -348,6 +396,7 @@ class AIEngineService:
             system_prompt  = system_prompt or BASE_SYSTEM_PROMPT,
             target_file    = target_file,
             requested_by   = requested_by,
+            organization   = organization,
             status         = "queued",
         )
 
@@ -413,6 +462,7 @@ class AIEngineService:
                 tool_names=tool_names,
                 job=job,
                 on_status_update=on_status_update,
+                organization=job.organization,
             )
 
             tool_results = [
@@ -457,6 +507,7 @@ class AIEngineService:
         batch=None,
         workflow=None,
         conversation_history: list[dict] | None = None,
+        conversation=None,
         on_status_update=None,
     ) -> tuple[str, int | None]:
         from tools.services import ToolService
@@ -464,8 +515,7 @@ class AIEngineService:
         if workflow is None:
             workflow = _infer_workflow_from_request(message=message, batch=batch)
 
-        task_type  = workflow.workflow_type if workflow else "custom"
-        tool_names = WORKFLOW_TOOL_NAMES.get(task_type, ALL_TOOL_NAMES) if batch else []
+        task_type = workflow.workflow_type if workflow else "custom"
 
         target_file = None
         files = []
@@ -497,6 +547,45 @@ class AIEngineService:
         elif batch:
             user_prompt += f"\n\n[Batch id={batch.pk}: {batch.label}]"
 
+        # Conversation-wide file visibility — every file ever attached anywhere
+        # in this conversation, not just this turn's. Without this, a
+        # follow-up turn that doesn't re-attach a file has no way to learn
+        # which file_id an earlier turn's upload got: conversation history is
+        # rebuilt from plain ChatMessage.content
+        # (chat.services.ChatService.build_conversation_history) and never
+        # contains the "[File: id=...]" hint injected above — that hint lives
+        # only in this one call's user_prompt and is never persisted.
+        # Recomputed fresh on every turn (never stored), so it always reflects
+        # the current DB state, including files uploaded after this turn's
+        # conversation_history snapshot was taken.
+        conversation_files = _collect_conversation_files(conversation)
+        current_turn_ids = {f.pk for f in files}
+        other_files = [f for f in conversation_files if f.pk not in current_turn_ids]
+        if other_files:
+            listing = "\n".join(
+                f"  file_id={f.pk} '{f.original_filename}' "
+                f"(type={f.detected_type or f.extension})"
+                for f in other_files
+            )
+            user_prompt += (
+                f"\n\n[Other files available from earlier in this conversation "
+                f"({len(other_files)}):\n{listing}]\n"
+                f"Call read_file(file_id) or export_file(file_id, target_format) "
+                f"on any of these if the user's request refers to them, even "
+                f"though they weren't attached to this message."
+            )
+
+        # Tools (read_file, export_file, etc.) are only useful when there's
+        # something to read — but "something to read" now means this turn's
+        # batch OR any file anywhere in the conversation, not just this turn's
+        # batch. Previously this was `if batch else []`, and since an empty
+        # list is falsy in the tool_names filter (tools/services.py's
+        # _load_tool_map/_load_tool_schemas), a file-less turn silently got
+        # ALL tools anyway — this makes the condition match what the code
+        # actually needs instead of working by accident.
+        has_any_files = bool(batch) or bool(conversation_files)
+        tool_names = WORKFLOW_TOOL_NAMES.get(task_type, ALL_TOOL_NAMES) if has_any_files else []
+
         system_prompt = _build_system_prompt(workflow=workflow, user_intent=message)
 
         job = AIEngineService.create_job(
@@ -521,6 +610,7 @@ class AIEngineService:
                 job=job,
                 conversation_history=conversation_history,
                 on_status_update=on_status_update,
+                organization=job.organization,
             )
 
             tool_results = [

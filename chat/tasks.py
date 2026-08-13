@@ -155,6 +155,7 @@ def run_chat_turn_task(
                 file_attachments=file_attachments,
                 workflow_id=workflow_id,
                 conversation_history=conversation_history or [],
+                conversation=conv,
                 on_status_update=_on_status_update,
             )
         except SoftTimeLimitExceeded:

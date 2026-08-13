@@ -59,14 +59,16 @@ class DashboardStatsView(APIView):
 
     def get(self, request):
         UploadBatch, UploadedFile, AIAnalysisJob, _, _ = _safe_import()
+        org = request.user.organization
 
         now      = timezone.now()
         month_ago = now - timedelta(days=30)
         prev_month_start = now - timedelta(days=60)
 
         # ── Invoices processed ────────────────────────────────────────────────
-        current_files  = UploadedFile.objects.filter(uploaded_at__gte=month_ago).count()
+        current_files  = UploadedFile.objects.filter(batch__organization=org, uploaded_at__gte=month_ago).count()
         previous_files = UploadedFile.objects.filter(
+            batch__organization=org,
             uploaded_at__gte=prev_month_start,
             uploaded_at__lt=month_ago,
         ).count()
@@ -74,8 +76,9 @@ class DashboardStatsView(APIView):
         files_trend  = "up" if files_change > 0 else ("down" if files_change < 0 else "neutral")
 
         # ── Active workflows (running + queued jobs) ──────────────────────────
-        active_jobs = AIAnalysisJob.objects.filter(status__in=("queued", "running")).count()
+        active_jobs = AIAnalysisJob.objects.filter(organization=org, status__in=("queued", "running")).count()
         prev_active = AIAnalysisJob.objects.filter(
+            organization=org,
             status__in=("queued", "running"),
             created_at__lt=month_ago,
         ).count()
@@ -83,17 +86,17 @@ class DashboardStatsView(APIView):
         jobs_trend  = "up" if jobs_change > 0 else ("down" if jobs_change < 0 else "neutral")
 
         # ── Accuracy (% of jobs that completed successfully) ──────────────────
-        total_jobs   = AIAnalysisJob.objects.filter(created_at__gte=month_ago).count()
+        total_jobs   = AIAnalysisJob.objects.filter(organization=org, created_at__gte=month_ago).count()
         done_jobs    = AIAnalysisJob.objects.filter(
-            created_at__gte=month_ago, status="done"
+            organization=org, created_at__gte=month_ago, status="done"
         ).count()
         accuracy     = round((done_jobs / total_jobs * 100) if total_jobs else 0, 1)
 
         prev_total   = AIAnalysisJob.objects.filter(
-            created_at__gte=prev_month_start, created_at__lt=month_ago
+            organization=org, created_at__gte=prev_month_start, created_at__lt=month_ago
         ).count()
         prev_done    = AIAnalysisJob.objects.filter(
-            created_at__gte=prev_month_start, created_at__lt=month_ago, status="done"
+            organization=org, created_at__gte=prev_month_start, created_at__lt=month_ago, status="done"
         ).count()
         prev_accuracy = round((prev_done / prev_total * 100) if prev_total else 0, 1)
         acc_change    = round(accuracy - prev_accuracy, 1)
@@ -101,6 +104,7 @@ class DashboardStatsView(APIView):
 
         # ── Time saved (rough estimate: 5 min per automated file) ─────────────
         automated_files = UploadedFile.objects.filter(
+            batch__organization=org,
             uploaded_at__gte=month_ago,
             parse_status="parsed",
         ).count()
@@ -111,6 +115,7 @@ class DashboardStatsView(APIView):
             time_saved_str = f"{minutes_saved}m"
 
         prev_automated = UploadedFile.objects.filter(
+            batch__organization=org,
             uploaded_at__gte=prev_month_start,
             uploaded_at__lt=month_ago,
             parse_status="parsed",
@@ -158,6 +163,7 @@ class DashboardActivityView(APIView):
 
     def get(self, request):
         UploadBatch, UploadedFile, AIAnalysisJob, _, _ = _safe_import()
+        org = request.user.organization
 
         period = request.query_params.get("period", "week")
         since  = _period_start(period)
@@ -174,10 +180,10 @@ class DashboardActivityView(APIView):
             day_end = day_start + timedelta(days=1)
 
             invoices  = UploadedFile.objects.filter(
-                uploaded_at__gte=day_start, uploaded_at__lt=day_end
+                batch__organization=org, uploaded_at__gte=day_start, uploaded_at__lt=day_end
             ).count()
             automated = UploadedFile.objects.filter(
-                uploaded_at__gte=day_start, uploaded_at__lt=day_end,
+                batch__organization=org, uploaded_at__gte=day_start, uploaded_at__lt=day_end,
                 parse_status="parsed",
             ).count()
 
@@ -196,11 +202,12 @@ class DashboardRecentActivityView(APIView):
 
     def get(self, request):
         UploadBatch, UploadedFile, AIAnalysisJob, _, ChatMessage = _safe_import()
+        org = request.user.organization
 
         activities = []
 
         # Recent uploads
-        for uf in UploadedFile.objects.select_related("batch").order_by("-uploaded_at")[:5]:
+        for uf in UploadedFile.objects.filter(batch__organization=org).select_related("batch").order_by("-uploaded_at")[:5]:
             activities.append({
                 "id":          f"upload-{uf.pk}",
                 "type":        "upload",
@@ -213,7 +220,7 @@ class DashboardRecentActivityView(APIView):
             })
 
         # Recent AI jobs
-        for job in AIAnalysisJob.objects.select_related("batch").order_by("-created_at")[:5]:
+        for job in AIAnalysisJob.objects.filter(organization=org).select_related("batch").order_by("-created_at")[:5]:
             activities.append({
                 "id":          f"ai-{job.pk}",
                 "type":        "ai",
@@ -226,7 +233,7 @@ class DashboardRecentActivityView(APIView):
             })
 
         # Recent reports
-        for report in Report.objects.order_by("-created_at")[:3]:
+        for report in Report.objects.filter(organization=org).order_by("-created_at")[:3]:
             activities.append({
                 "id":          f"report-{report.pk}",
                 "type":        "report",
@@ -248,6 +255,7 @@ class DashboardProcessingView(APIView):
 
     def get(self, request):
         UploadBatch, UploadedFile, AIAnalysisJob, _, _ = _safe_import()
+        org = request.user.organization
 
         period = request.query_params.get("period", "month")
         since  = _period_start(period)
@@ -265,17 +273,17 @@ class DashboardProcessingView(APIView):
 
             # Count invoices uploaded and reconciled
             invoices  = UploadedFile.objects.filter(
-                uploaded_at__gte=day_start, uploaded_at__lt=day_end
+                batch__organization=org, uploaded_at__gte=day_start, uploaded_at__lt=day_end
             ).count()
             reconciled = UploadedFile.objects.filter(
-                uploaded_at__gte=day_start, uploaded_at__lt=day_end,
+                batch__organization=org, uploaded_at__gte=day_start, uploaded_at__lt=day_end,
                 parse_status="parsed",
             ).count()
 
             data.append({
-                "name":       day_start.strftime("%b %d"),
-                "invoices":   invoices,
-                "reconciled": reconciled,
+                "name":        day_start.strftime("%b %d"),
+                "scrutinized": invoices,
+                "flagged":     reconciled,
             })
 
         return Response({"data": data})
@@ -291,15 +299,16 @@ class AnalyticsOverviewView(APIView):
 
     def get(self, request):
         UploadBatch, UploadedFile, AIAnalysisJob, _, _ = _safe_import()
+        org = request.user.organization
 
         period = request.query_params.get("period", "month")
         since  = _period_start(period)
         now    = timezone.now()
 
         # ── Processing ────────────────────────────────────────────────────────
-        total_files     = UploadedFile.objects.filter(uploaded_at__gte=since).count()
+        total_files     = UploadedFile.objects.filter(batch__organization=org, uploaded_at__gte=since).count()
         automated_files = UploadedFile.objects.filter(
-            uploaded_at__gte=since, parse_status="parsed"
+            batch__organization=org, uploaded_at__gte=since, parse_status="parsed"
         ).count()
         manual_files    = total_files - automated_files
 
@@ -312,7 +321,7 @@ class AnalyticsOverviewView(APIView):
             )
             day_end = day_start + timedelta(days=1)
             count = UploadedFile.objects.filter(
-                uploaded_at__gte=day_start, uploaded_at__lt=day_end
+                batch__organization=org, uploaded_at__gte=day_start, uploaded_at__lt=day_end
             ).count()
             processing_trend.append({
                 "date":  day_start.strftime("%Y-%m-%d"),
@@ -320,18 +329,18 @@ class AnalyticsOverviewView(APIView):
             })
 
         # ── Accuracy ──────────────────────────────────────────────────────────
-        total_jobs = AIAnalysisJob.objects.filter(created_at__gte=since).count()
+        total_jobs = AIAnalysisJob.objects.filter(organization=org, created_at__gte=since).count()
         done_jobs  = AIAnalysisJob.objects.filter(
-            created_at__gte=since, status="done"
+            organization=org, created_at__gte=since, status="done"
         ).count()
         current_accuracy = round((done_jobs / total_jobs * 100) if total_jobs else 0, 1)
 
         prev_since = since - (now - since)
         prev_total = AIAnalysisJob.objects.filter(
-            created_at__gte=prev_since, created_at__lt=since
+            organization=org, created_at__gte=prev_since, created_at__lt=since
         ).count()
         prev_done  = AIAnalysisJob.objects.filter(
-            created_at__gte=prev_since, created_at__lt=since, status="done"
+            organization=org, created_at__gte=prev_since, created_at__lt=since, status="done"
         ).count()
         prev_accuracy = round((prev_done / prev_total * 100) if prev_total else 0, 1)
 
@@ -342,10 +351,10 @@ class AnalyticsOverviewView(APIView):
             )
             day_end = day_start + timedelta(days=1)
             d_total = AIAnalysisJob.objects.filter(
-                created_at__gte=day_start, created_at__lt=day_end
+                organization=org, created_at__gte=day_start, created_at__lt=day_end
             ).count()
             d_done  = AIAnalysisJob.objects.filter(
-                created_at__gte=day_start, created_at__lt=day_end, status="done"
+                organization=org, created_at__gte=day_start, created_at__lt=day_end, status="done"
             ).count()
             accuracy_trend.append({
                 "date":  day_start.strftime("%Y-%m-%d"),
@@ -394,6 +403,7 @@ class AnalyticsChartView(APIView):
             )
 
         UploadBatch, UploadedFile, AIAnalysisJob, _, _ = _safe_import()
+        org = request.user.organization
 
         period = request.query_params.get("period", "month")
         since  = _period_start(period)
@@ -408,7 +418,7 @@ class AnalyticsChartView(APIView):
                 )
                 day_end = day_start + timedelta(days=1)
                 count = UploadedFile.objects.filter(
-                    uploaded_at__gte=day_start, uploaded_at__lt=day_end
+                    batch__organization=org, uploaded_at__gte=day_start, uploaded_at__lt=day_end
                 ).count()
                 data.append({"date": day_start.strftime("%Y-%m-%d"), "value": count})
             return Response({"chartType": chart_type, "data": data})
@@ -421,10 +431,10 @@ class AnalyticsChartView(APIView):
                 )
                 day_end = day_start + timedelta(days=1)
                 d_total = AIAnalysisJob.objects.filter(
-                    created_at__gte=day_start, created_at__lt=day_end
+                    organization=org, created_at__gte=day_start, created_at__lt=day_end
                 ).count()
                 d_done  = AIAnalysisJob.objects.filter(
-                    created_at__gte=day_start, created_at__lt=day_end, status="done"
+                    organization=org, created_at__gte=day_start, created_at__lt=day_end, status="done"
                 ).count()
                 data.append({
                     "date":  day_start.strftime("%Y-%m-%d"),
@@ -435,7 +445,7 @@ class AnalyticsChartView(APIView):
         if chart_type == "category-breakdown":
             breakdown = (
                 UploadedFile.objects
-                .filter(uploaded_at__gte=since)
+                .filter(batch__organization=org, uploaded_at__gte=since)
                 .values("detected_type")
                 .annotate(count=Count("id"))
                 .order_by("-count")
@@ -449,7 +459,7 @@ class AnalyticsChartView(APIView):
         if chart_type == "user-activity":
             from users.models import User
             data = []
-            for user in User.objects.filter(is_active=True)[:10]:
+            for user in User.objects.filter(is_active=True, organization=org)[:10]:
                 count = UploadedFile.objects.filter(
                     batch__uploaded_by=user,
                     uploaded_at__gte=since,
@@ -474,7 +484,7 @@ class ReportListView(generics.ListAPIView):
     serializer_class   = ReportSerializer
 
     def get_queryset(self):
-        qs = Report.objects.filter(requested_by=self.request.user)
+        qs = Report.objects.filter(organization=self.request.user.organization)
         report_type = self.request.query_params.get("type")
         if report_type:
             qs = qs.filter(report_type=report_type)
@@ -511,6 +521,7 @@ class ReportGenerateView(APIView):
             format=vd["format"],
             parameters=vd.get("parameters", {}),
             requested_by=request.user,
+            organization=request.user.organization,
             status="generating",
         )
 
@@ -537,7 +548,7 @@ class ReportDownloadView(APIView):
 
     def get(self, request, pk):
         try:
-            report = Report.objects.get(pk=pk, requested_by=request.user)
+            report = Report.objects.get(pk=pk, organization=request.user.organization)
         except Report.DoesNotExist:
             return Response(
                 {"error": {"code": "not_found", "message": "Report not found.", "details": None}},

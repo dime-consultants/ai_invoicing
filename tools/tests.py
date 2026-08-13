@@ -9,14 +9,18 @@ empty document. It also never implemented the page_from/page_to chunked access
 that the whole deferred-PDF design documents and depends on.
 """
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from rest_framework.test import APIClient
 
-from tools.handlers import detect_file_type, read_file
+from organizations.models import Organization
+from tools.handlers import detect_file_type, export_file, read_file
+from tools.models import ToolCall, ToolDefinition
 from tools.services import _call_prompt_transform
 from uploads.models import UploadedFile
 from uploads.services import UploadService
@@ -132,6 +136,156 @@ class ReadFileTests(TestCase):
             res = read_file(file_id=uf.pk)
         self.assertFalse(res["ok"])
         self.assertIn("boom", res["error"])
+
+    # ── non-PDF pagination (previously a silent no-op) ────────────────────────
+
+    def test_non_pdf_page_from_returns_different_chunks(self):
+        """
+        page_from used to be silently ignored for anything but a PDF — a
+        large CSV/XLSX/DOCX always returned the exact same first max_chars
+        slice no matter what page was requested, so a document larger than
+        max_chars was permanently stuck at its first chunk from the model's
+        perspective even though the full text was sitting in the DB.
+        """
+        text = "".join(f"line{i}\n" for i in range(5000))
+        uf = self._file(name="big.csv", extracted_text=text)
+
+        page1 = read_file(file_id=uf.pk, max_chars=100, page_from=1)
+        page2 = read_file(file_id=uf.pk, max_chars=100, page_from=2)
+
+        self.assertTrue(page1["ok"])
+        self.assertTrue(page2["ok"])
+        self.assertNotEqual(page1["text"], page2["text"],
+                             "page_from had no effect — same slice returned twice")
+        self.assertEqual(page1["text"], text[:100])
+        self.assertEqual(page2["text"], text[100:200])
+        self.assertEqual(page1["page_from"], 1)
+        self.assertEqual(page2["page_from"], 2)
+        self.assertGreater(page1["page_count"], 1)
+        self.assertEqual(page1["page_count"], page2["page_count"])
+
+    def test_non_pdf_pagination_stops_at_the_last_page(self):
+        uf = self._file(name="small.csv", extracted_text="x" * 50)
+        res = read_file(file_id=uf.pk, max_chars=100, page_from=99)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["page_from"], 1, "out-of-range page_from should clamp to the last real page")
+        self.assertEqual(res["page_count"], 1)
+        self.assertEqual(res["text"], "x" * 50)
+
+    def test_non_pdf_pagination_prefers_cached_extracted_text_over_reparsing(self):
+        """Paging shouldn't re-parse the file from disk on every call when
+        extracted_text is already cached — only the first, extraction-time
+        parse should ever touch _extract_text for a given file."""
+        uf = self._file(name="big.docx", extracted_text="x" * 1000)
+        with patch("uploads.services._extract_text") as mock_extract:
+            res = read_file(file_id=uf.pk, max_chars=100, page_from=3)
+        mock_extract.assert_not_called()
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["text"], ("x" * 1000)[200:300])
+
+    def test_non_pdf_pagination_falls_back_to_live_read_when_uncached(self):
+        """If extraction hasn't produced extracted_text yet, paging should
+        still work by reading (and, for non-txt/csv, extracting) the raw
+        file live, same as the unpaged fallback already does."""
+        uf = self._file(name="big.docx", extracted_text="")
+        with patch("uploads.services._extract_text", return_value="y" * 1000) as mock_extract:
+            res = read_file(file_id=uf.pk, max_chars=100, page_from=2)
+        mock_extract.assert_called_once()
+        # max_chars=None means "give me everything" for the pagination path
+        # to slice locally, not a second truncated read.
+        self.assertIsNone(mock_extract.call_args.kwargs.get("max_chars"))
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["text"], ("y" * 1000)[100:200])
+
+
+class ExportFileTests(TestCase):
+    """
+    export_file(file_id, target_format) — convert an already-uploaded file's
+    full extracted text into another format by id, without the LLM having to
+    re-type the data through its own context (unlike write_xlsx). This is
+    what makes "give me that file as a CSV/Excel file" possible for a file
+    from an earlier turn the model has only ever seen a file_id for.
+    """
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            email="export@example.com", password="pw12345!",
+            first_name="E", last_name="F",
+        )
+        self.batch = UploadService.create_batch(label="t", user=self.user)
+
+    def _file(self, *, name="doc.csv", extracted_text="a,b,c\n1,2,3\n"):
+        upload = SimpleUploadedFile(name, extracted_text.encode())
+        return UploadedFile.objects.create(
+            batch=self.batch, file=upload, original_filename=name,
+            file_size_bytes=len(extracted_text), extension=name.rsplit(".", 1)[-1],
+            parse_status="parsed", extracted_text=extracted_text,
+        )
+
+    def test_missing_file_is_reported(self):
+        res = export_file(file_id=999999, target_format="csv")
+        self.assertFalse(res["ok"])
+        self.assertIn("not found", res["error"])
+
+    def test_no_extracted_text_is_a_failure(self):
+        uf = self._file(extracted_text="")
+        res = export_file(file_id=uf.pk, target_format="csv")
+        self.assertFalse(res["ok"])
+        self.assertIn("no extracted text", res["error"].lower())
+
+    def test_unsupported_format_is_rejected(self):
+        uf = self._file()
+        res = export_file(file_id=uf.pk, target_format="pdf")
+        self.assertFalse(res["ok"])
+        self.assertIn("Unsupported", res["error"])
+
+    def test_export_is_byte_faithful_not_llm_paraphrased(self):
+        """The whole point vs. write_xlsx: no LLM in the loop, so the output
+        must be an exact, deterministic function of the stored text."""
+        original = "id,amount\nINV-001,1000\nINV-002,2000\n"
+        uf = self._file(name="invoices.csv", extracted_text=original)
+
+        for target_format, expect_in in [
+            ("csv", "INV-001"),
+            ("json", "INV-002"),
+            ("txt", "amount"),
+        ]:
+            with self.subTest(target_format=target_format):
+                res = export_file(file_id=uf.pk, target_format=target_format)
+                self.assertTrue(res["ok"], res.get("error"))
+                self.assertEqual(res["format"], target_format)
+                self.assertEqual(res["chars"], len(original))
+                out_path = Path(res["output_filename"])
+                self.assertTrue(out_path.exists())
+                content = out_path.read_bytes()
+                self.assertIn(expect_in.encode(), content)
+                out_path.unlink()
+
+    def test_export_writes_xlsx_with_correct_row_count(self):
+        original = "id,amount\nINV-001,1000\nINV-002,2000\nINV-003,3000\n"
+        uf = self._file(name="invoices.csv", extracted_text=original)
+        res = export_file(file_id=uf.pk, target_format="xlsx")
+        self.assertTrue(res["ok"], res.get("error"))
+        out_path = Path(res["output_filename"])
+        self.assertTrue(out_path.exists())
+
+        import openpyxl
+        wb = openpyxl.load_workbook(out_path)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        self.assertEqual(len(rows), 4)  # header + 3 data rows
+        self.assertEqual(rows[0], ("id", "amount"))
+        # Values come from splitting plain text, not typed LLM output (unlike
+        # write_xlsx) — always strings, which is correct here, not a bug.
+        self.assertEqual(rows[1], ("INV-001", "1000"))
+        out_path.unlink()
+
+    def test_uses_original_filename_stem_not_file_id(self):
+        uf = self._file(name="q3_report.csv", extracted_text="a,b\n1,2\n")
+        res = export_file(file_id=uf.pk, target_format="json")
+        self.assertTrue(res["ok"])
+        self.assertTrue(Path(res["output_filename"]).name.startswith("q3_report"))
+        Path(res["output_filename"]).unlink()
 
 
 class DetectFileTypeTests(TestCase):
@@ -542,3 +696,129 @@ class RestoredDomainHandlerTests(TestCase):
         self.assertEqual(len(recs), 2, "credit notes or CU blocks not parsed")
         self.assertEqual(recs[0]["fiscal_no"], "0012345678")
         self.assertEqual(recs[0]["total"], 4862563.0)
+
+
+class OrgIsolationTests(TestCase):
+    """
+    tools/views.py had the most severe pre-existing leaks in the whole
+    audit: ToolCallListView/ToolCallDetailView exposed every user's actual
+    extracted-data payloads (arguments/result) platform-wide with zero
+    scoping, and ToolDefinitionListView listed every user's custom tools
+    together. Phase 3 fixes both by org-scoping, while also making custom
+    tools genuinely org-SHARED (any org member can list/test; only the
+    creator or an org-admin can edit/delete).
+    """
+
+    def setUp(self):
+        User = get_user_model()
+        self.org_a = Organization.objects.create(name="Org A")
+        self.org_b = Organization.objects.create(name="Org B")
+        self.creator_a = User.objects.create_user(
+            email="creator_a@example.com", password="pw12345!",
+            first_name="C", last_name="A", organization=self.org_a,
+        )
+        self.teammate_a = User.objects.create_user(
+            email="teammate_a@example.com", password="pw12345!",
+            first_name="T", last_name="A", organization=self.org_a,
+        )
+        self.admin_a = User.objects.create_user(
+            email="admin_a@example.com", password="pw12345!",
+            first_name="Ad", last_name="A", role="admin", organization=self.org_a,
+        )
+        self.user_b = User.objects.create_user(
+            email="user_b@example.com", password="pw12345!",
+            first_name="U", last_name="B", organization=self.org_b,
+        )
+
+        self.custom_tool = ToolDefinition.objects.create(
+            name="org_a_webhook_tool", display_name="Org A Webhook Tool",
+            description="test", category="utility", tool_type="webhook",
+            handler="", enabled=True, is_safe=True,
+            created_by=self.creator_a, organization=self.org_a,
+        )
+        from tools.models import UserToolConfig
+        UserToolConfig.objects.create(tool=self.custom_tool, webhook_url="https://example.com/hook")
+
+        self.call = ToolCall.objects.create(
+            tool=self.custom_tool, arguments={"x": 1}, result={"ok": True, "secret": "org-a-data"},
+            status="success", organization=self.org_a,
+        )
+
+        self.client = APIClient()
+
+    def test_tool_call_list_is_org_scoped(self):
+        """The most severe leak found in the audit — real extracted data
+        must never be visible cross-org."""
+        self.client.force_authenticate(user=self.teammate_a)
+        resp = self.client.get("/api/tools/calls/")
+        self.assertEqual(resp.status_code, 200)
+        ids = [c["id"] for c in resp.json()]
+        self.assertIn(self.call.pk, ids)
+
+        self.client.force_authenticate(user=self.user_b)
+        resp = self.client.get("/api/tools/calls/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), [])
+
+    def test_tool_call_detail_404s_cross_org_instead_of_leaking(self):
+        self.client.force_authenticate(user=self.user_b)
+        resp = self.client.get(f"/api/tools/calls/{self.call.pk}/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_custom_tool_is_listed_for_org_members_not_other_orgs(self):
+        self.client.force_authenticate(user=self.teammate_a)
+        resp = self.client.get("/api/tools/custom/")
+        self.assertEqual(resp.status_code, 200)
+        names = [t["name"] for t in resp.json()]
+        self.assertIn("org_a_webhook_tool", names)
+
+        self.client.force_authenticate(user=self.user_b)
+        resp = self.client.get("/api/tools/custom/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), [])
+
+    def test_non_creator_org_member_can_test_but_not_edit(self):
+        self.client.force_authenticate(user=self.teammate_a)
+
+        with patch("tools.services._call_webhook", return_value={"ok": True}):
+            test_resp = self.client.post(
+                f"/api/tools/custom/{self.custom_tool.pk}/test/", {"arguments": {}}, format="json",
+            )
+        self.assertEqual(test_resp.status_code, 200)
+
+        patch_resp = self.client.patch(
+            f"/api/tools/custom/{self.custom_tool.pk}/", {"description": "hijacked"}, format="json",
+        )
+        self.assertEqual(patch_resp.status_code, 404)
+
+    def test_org_admin_can_edit_even_if_not_creator(self):
+        self.client.force_authenticate(user=self.admin_a)
+        patch_resp = self.client.patch(
+            f"/api/tools/custom/{self.custom_tool.pk}/", {"description": "updated by admin"}, format="json",
+        )
+        self.assertEqual(patch_resp.status_code, 200)
+
+    def test_cross_org_user_cannot_test_or_view(self):
+        self.client.force_authenticate(user=self.user_b)
+        resp = self.client.get(f"/api/tools/custom/{self.custom_tool.pk}/")
+        self.assertEqual(resp.status_code, 404)
+        resp = self.client.post(
+            f"/api/tools/custom/{self.custom_tool.pk}/test/", {"arguments": {}}, format="json",
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_llm_tool_discovery_excludes_other_orgs_custom_tools(self):
+        """The agent's own tool-selection (_load_tool_schemas/_load_tool_map)
+        must not offer, or be able to invoke, another org's custom tool —
+        found while implementing Phase 3, not originally in the audit."""
+        from tools.services import _load_tool_map, _load_tool_schemas
+
+        names = {s["function"]["name"] for s in _load_tool_schemas(organization=self.org_b)}
+        self.assertNotIn("org_a_webhook_tool", names)
+
+        tool_map = _load_tool_map(organization=self.org_b)
+        self.assertNotIn("org_a_webhook_tool", tool_map)
+
+        # Same org: visible.
+        names_a = {s["function"]["name"] for s in _load_tool_schemas(organization=self.org_a)}
+        self.assertIn("org_a_webhook_tool", names_a)

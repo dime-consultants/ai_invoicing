@@ -8,6 +8,8 @@ that genuinely require Python and cannot be expressed as a prompt:
     read_file        — open an UploadedFile and return its raw text content
     detect_file_type — sniff extension + content → type label + confidence
     write_xlsx       — turn rows + headers into a downloadable .xlsx file
+    export_file      — convert an UploadedFile's full extracted text into
+                        xlsx/csv/json/txt, by file_id, byte-faithfully
     run_python       — execute a user-supplied Python snippet in a sandbox
     call_webhook     — HTTP POST/GET to an external URL (direct handler form)
 
@@ -39,6 +41,33 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. read_file
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _paginate_text(full_text: str, page_from: int | None, max_chars: int) -> tuple[str, dict]:
+    """
+    Return one max_chars-sized "page" of `full_text`, 1-indexed.
+
+    Used for non-PDF pagination in read_file — unlike a real PDF page range
+    (which selects actual document pages), a non-PDF "page" is just a
+    fixed-size character chunk of the extracted text, so each call returns
+    exactly one chunk capped at max_chars (safe to pass through the normal
+    max_chars formatting downstream with no further slicing needed). Call
+    again with an incremented page_from to keep paging through a large
+    document — page_count in the response tells the caller when it's read
+    everything.
+    """
+    max_chars = max(1, max_chars)
+    total_pages = max(1, -(-len(full_text) // max_chars))  # ceil division
+
+    page  = min(max(1, page_from or 1), total_pages)
+    start = (page - 1) * max_chars
+    end   = start + max_chars
+
+    return full_text[start:end], {
+        "page_from":  page,
+        "page_to":    page,
+        "page_count": total_pages,
+    }
+
 
 def read_file(
     file_id: int,
@@ -149,6 +178,37 @@ def read_file(
                 else:
                     return {**ctx, "ok": False,
                             "error": res.get("error") or "Could not open PDF."}
+
+            elif wants_page:
+                # Non-PDF pagination: page_from selects a max_chars-sized
+                # chunk of the full document. Previously page_from/page_to
+                # were silently ignored for every non-PDF type, so retrying
+                # with a different page_from on a truncated read returned the
+                # exact same first max_chars slice every time — a large
+                # CSV/XLSX/DOCX was permanently stuck at the first max_chars
+                # characters from the model's perspective. Prefer the cached
+                # extracted_text (avoids re-parsing a large file on every
+                # paged call); fall back to a live read only if extraction
+                # hasn't produced anything yet.
+                full_text = uf.extracted_text or ""
+                if full_text:
+                    source = "extracted_text"
+                elif path:
+                    if ext in ("txt", "csv"):
+                        try:
+                            uf.file.open("rb")
+                            full_text = uf.file.read().decode("utf-8", errors="replace")
+                        finally:
+                            try:
+                                uf.file.close()
+                            except Exception:
+                                pass
+                    else:
+                        from uploads.services import _extract_text
+                        full_text = _extract_text(path, ext, max_chars=None) or ""
+                    source = "raw_file"
+                if full_text:
+                    text, page_info = _paginate_text(full_text, page_from, max_chars)
 
             elif path and ext in ("txt", "csv"):
                 try:
@@ -404,6 +464,130 @@ def write_xlsx(
 
     except Exception as exc:
         logger.exception("write_xlsx(%s): %s", filename, exc)
+        return {"ok": False, "error": str(exc)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3b. export_file
+# ─────────────────────────────────────────────────────────────────────────────
+
+def convert_text_to_format(text: str, target_format: str) -> tuple[bytes, str]:
+    """
+    Convert plain extracted text into another output format's raw bytes.
+
+    Shared by export_file (below) and tools.views.ToolsConvertView
+    (POST /api/tools/convert/) so the line-splitting/xlsx-csv-json logic
+    exists in exactly one place instead of being duplicated per caller.
+
+    Returns (content_bytes, mime_type). target_format is one of
+    "xlsx"/"csv"/"json"/"txt" — anything else falls back to raw text.
+    """
+    target_format = (target_format or "txt").lower()
+    lines = [l for l in text.splitlines() if l.strip()]
+
+    if target_format == "xlsx":
+        import openpyxl
+        from io import BytesIO
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Converted"
+        for i, line in enumerate(lines, 1):
+            parts = line.split("\t") if "\t" in line else line.split(",")
+            for j, part in enumerate(parts, 1):
+                ws.cell(row=i, column=j, value=part.strip())
+        buf = BytesIO()
+        wb.save(buf)
+        return buf.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    if target_format == "csv":
+        import csv as _csv
+        from io import StringIO
+
+        buf = StringIO()
+        writer = _csv.writer(buf)
+        for line in lines:
+            writer.writerow(line.split("\t") if "\t" in line else [line])
+        return buf.getvalue().encode("utf-8"), "text/csv"
+
+    if target_format == "json":
+        import json as _json
+        return _json.dumps({"rows": lines}, indent=2).encode("utf-8"), "application/json"
+
+    return text.encode("utf-8"), "text/plain"
+
+
+def export_file(file_id: int, target_format: str = "xlsx") -> dict:
+    """
+    Convert an already-uploaded file's FULL extracted content into a
+    different downloadable format, by file_id — no re-upload needed.
+
+    Unlike write_xlsx (which needs the LLM to already have structured
+    headers/rows typed out in its own context — token-bounded, and prone to
+    the model garbling/paraphrasing data it re-types), this reads straight
+    from the stored extracted_text and writes it byte-faithfully. This is
+    the primitive for "give me that file as a CSV/JSON/etc" — especially for
+    a file from an earlier turn the model has only ever seen a file_id
+    reference to (see the conversation-wide file listing injected in
+    ai_engine.services.handle_chat_message).
+
+    Parameters
+    ----------
+    file_id       : PK of the UploadedFile record.
+    target_format : One of "xlsx", "csv", "json", "txt". Default "xlsx".
+
+    Returns
+    -------
+    {"ok": true, "output_filename": <abs path str>, "format": <str>, "chars": <int>, "summary": <str>}
+    or {"ok": false, "error": <str>}
+    """
+    try:
+        from uploads.models import UploadedFile
+        uf = UploadedFile.objects.get(pk=file_id)
+    except Exception as exc:
+        if type(exc).__name__ == "DoesNotExist":
+            return {"ok": False, "error": f"UploadedFile id={file_id} not found."}
+        logger.exception("export_file(%s): %s", file_id, exc)
+        return {"ok": False, "error": str(exc)}
+
+    text = uf.extracted_text or ""
+    if not text:
+        return {
+            "ok": False,
+            "error": (
+                "This file has no extracted text yet (extraction may still be "
+                "running, or it has no readable text layer). Try read_file "
+                "first, or retry shortly."
+            ),
+        }
+
+    target_format = (target_format or "xlsx").lower()
+    if target_format not in ("xlsx", "csv", "json", "txt"):
+        return {
+            "ok": False,
+            "error": f"Unsupported target_format '{target_format}'. Use xlsx, csv, json, or txt.",
+        }
+
+    try:
+        from django.conf import settings
+
+        content, _mime = convert_text_to_format(text, target_format)
+
+        out_dir = Path(settings.BASE_DIR) / "outputs" / "converted"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stem     = Path(uf.original_filename).stem
+        out_path = out_dir / f"{stem}.{target_format}"
+        out_path.write_bytes(content)
+
+        return {
+            "ok":              True,
+            "output_filename": str(out_path),
+            "format":          target_format,
+            "chars":           len(text),
+            "summary":         f"Exported '{uf.original_filename}' (file_id={file_id}) as {out_path.name}.",
+        }
+    except Exception as exc:
+        logger.exception("export_file(%s, %s): %s", file_id, target_format, exc)
         return {"ok": False, "error": str(exc)}
 
 

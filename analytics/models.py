@@ -54,6 +54,12 @@ class Report(models.Model):
         null=True,
         related_name="reports",
     )
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="+",
+    )
 
     error_message = models.TextField(blank=True)
 

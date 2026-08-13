@@ -288,6 +288,7 @@ class UploadService:
             label=label,
             description=description,
             uploaded_by=user,
+            organization=getattr(user, "organization", None),
             status="pending",
         )
 

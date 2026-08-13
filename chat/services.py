@@ -136,6 +136,7 @@ class ChatService:
         workflow_id: int | None = None,
         workflow_option: str | None = None,   # kept for backwards compat, ignored
         conversation_history: list[dict] | None = None,
+        conversation=None,
         on_status_update=None,
     ) -> tuple[str, list]:
         """
@@ -154,6 +155,11 @@ class ChatService:
         workflow_id           Optional Workflow PK — constrains the tool set and
                               injects a system-prompt prefix.
         conversation_history  Last ≤20 turns as [{"role", "content"}].
+        conversation          The ChatConversation this turn belongs to, if any
+                              (omitted only by the fully stateless callers). Lets
+                              handle_chat_message look up every file ever attached
+                              anywhere in the conversation, not just this turn's
+                              attachments — see AIEngineService.handle_chat_message.
         """
         if not getattr(settings, "XAI_API_KEY", ""):
             return ChatService._offline_fallback(message), []
@@ -173,6 +179,7 @@ class ChatService:
                 batch=batch,
                 workflow=workflow,
                 conversation_history=conversation_history,
+                conversation=conversation,
                 on_status_update=on_status_update,
             )
         except Exception as exc:
@@ -197,6 +204,7 @@ class ChatService:
         batch,
         workflow,
         conversation_history,
+        conversation=None,
         on_status_update=None,
     ) -> tuple[str, int | None]:
         from ai_engine.services import AIEngineService
@@ -207,6 +215,7 @@ class ChatService:
             batch=batch,
             workflow=workflow,
             conversation_history=conversation_history or [],
+            conversation=conversation,
             on_status_update=on_status_update,
         )
         return response_text, job_id
