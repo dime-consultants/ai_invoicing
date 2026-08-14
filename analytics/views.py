@@ -525,12 +525,13 @@ class ReportGenerateView(APIView):
             status="generating",
         )
 
-        # In production, dispatch a Celery task here:
-        #   generate_report_task.delay(report.id)
-        # For now, mark as ready immediately (placeholder)
-        report.status      = "ready"
-        report.generated_at = timezone.now()
-        report.save(update_fields=["status", "generated_at"])
+        from config.dispatch import dispatch
+        from .tasks import generate_report_task
+
+        if dispatch(generate_report_task, report.id) is None:
+            report.status = "error"
+            report.error_message = "Could not queue report generation — the task broker is unavailable."
+            report.save(update_fields=["status", "error_message"])
 
         return Response(
             {

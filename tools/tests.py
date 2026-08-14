@@ -9,6 +9,8 @@ empty document. It also never implemented the page_from/page_to chunked access
 that the whole deferred-PDF design documents and depends on.
 """
 
+import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -425,8 +427,11 @@ class PromptTransformInputTests(TestCase):
     def test_oversized_single_source_is_chunked_and_merged_not_truncated(self):
         """
         A single-source input over the cap is no longer silently truncated —
-        it's split into <=max_chars pieces, each analyzed, then merged into
-        one result covering the whole document (see _run_chunked_prompt_transform).
+        it's split into <=max_chars pieces, each analyzed, then merged in
+        pure Python (no further LLM call) into one result covering the whole
+        document (see _run_chunked_prompt_transform). This config has no
+        output_schema, so the merge is a labelled concatenation of every
+        chunk's raw text rather than a structured JSON merge.
         """
         uf = self._pdf(extracted_text="x" * 5000)
         res, _ = self._run({"file_id": uf.pk})
@@ -436,7 +441,8 @@ class PromptTransformInputTests(TestCase):
         self.assertEqual(res["input_full_length"], 5000)
         self.assertTrue(res.get("chunked"))
         self.assertEqual(res["chunk_count"], 50)  # 5000 chars / 100-char cap
-        self.assertEqual(res["result"], "done")
+        self.assertEqual(res["result"].count("done"), 50, "every chunk's response must survive the merge")
+        self.assertIsNone(res["structured"], "no output_schema was set, so there is nothing to merge structurally")
 
     def test_untruncated_input_is_not_flagged(self):
         uf = self._pdf(extracted_text="short body")
@@ -444,6 +450,170 @@ class PromptTransformInputTests(TestCase):
         self.assertFalse(res["input_truncated"])
         self.assertNotIn("TRUNCATED", system_prompt)
         self.assertIn("short body", system_prompt)
+
+
+class ChunkedMergeTests(TestCase):
+    """
+    Regression tests for the map-reduce chunker's Python-merge fix. The old
+    reduce step re-asked the LLM to re-emit the ENTIRE merged result in one
+    4096-token completion — this is what silently collapsed large datasets
+    (e.g. 1300 rows) down to a handful of returned rows even when the input
+    side was fully covered by chunking. The fix merges each chunk's already-
+    parsed structured JSON in Python instead, with no LLM call for the merge.
+    """
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            email="chunk@example.com", password="pw12345!", first_name="C", last_name="K",
+        )
+        self.batch = UploadService.create_batch(label="t", user=self.user)
+
+    def _file(self, text, name="big.csv"):
+        return UploadedFile.objects.create(
+            batch=self.batch, file=SimpleUploadedFile(name, b"x"),
+            original_filename=name, file_size_bytes=len(text),
+            extension=name.rsplit(".", 1)[-1], parse_status="parsed",
+            extracted_text=text,
+        )
+
+    EXTRACT_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "record_count": {"type": "integer"},
+            "records": {"type": "array"},
+        },
+    }
+
+    def _per_chunk_records_response(self, call_count: dict):
+        """Each mocked completion returns 2 distinct records, keyed off the
+        'part N of M' text _map_chunk always appends to the chunk prompt."""
+        def _create(**kwargs):
+            call_count["n"] += 1
+            system = kwargs["messages"][0]["content"]
+            m = re.search(r"part (\d+) of (\d+)", system)
+            i = int(m.group(1))
+            body = json.dumps({
+                "record_count": 2,
+                "records": [{"id": (i - 1) * 2}, {"id": (i - 1) * 2 + 1}],
+            })
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=body))],
+                usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+            )
+        return _create
+
+    @override_settings(PROMPT_TRANSFORM_MAX_CHARS=50)
+    def test_chunked_prompt_transform_returns_all_rows_not_capped_subset(self):
+        uf = self._file("x" * 500)  # 500 chars / 50-char cap -> 10 chunks
+        config = SimpleNamespace(
+            name="extract_invoice_data",
+            system_prompt="Extract from:\n{file_text}",
+            output_schema=self.EXTRACT_SCHEMA,
+        )
+        call_count = {"n": 0}
+        client = MagicMock()
+        client.chat.completions.create.side_effect = self._per_chunk_records_response(call_count)
+
+        with patch("tools.services._get_grok_client", return_value=client):
+            res = _call_prompt_transform(config, {"file_id": uf.pk})
+
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["chunked"])
+        chunk_count = res["chunk_count"]
+        self.assertGreater(chunk_count, 1)
+        self.assertEqual(len(res["structured"]["records"]), chunk_count * 2,
+                          "every chunk's records must survive the merge, not just the last one")
+        self.assertEqual(res["structured"]["record_count"], chunk_count * 2,
+                          "the count must be recomputed from the merged array, never drift")
+
+    @override_settings(PROMPT_TRANSFORM_MAX_CHARS=50)
+    def test_reduce_step_makes_no_extra_llm_call(self):
+        uf = self._file("x" * 500)
+        config = SimpleNamespace(
+            name="extract_invoice_data",
+            system_prompt="Extract from:\n{file_text}",
+            output_schema=self.EXTRACT_SCHEMA,
+        )
+        call_count = {"n": 0}
+        client = MagicMock()
+        client.chat.completions.create.side_effect = self._per_chunk_records_response(call_count)
+
+        with patch("tools.services._get_grok_client", return_value=client):
+            res = _call_prompt_transform(config, {"file_id": uf.pk})
+
+        self.assertEqual(call_count["n"], res["chunk_count"],
+                          "one completion per chunk, and no extra reduce completion")
+
+    @override_settings(PROMPT_TRANSFORM_MAX_CHARS=80)
+    def test_two_source_reconcile_chunking_covers_all_rows(self):
+        big = self._file("A" * 800, name="big_a.txt")
+        small = self._file("B" * 30, name="small_b.txt")
+        config = SimpleNamespace(
+            name="reconcile_datasets",
+            system_prompt="A:\n{file_a_text}\nB:\n{file_b_text}",
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "count_a": {"type": "integer"},
+                    "count_b": {"type": "integer"},
+                    "rows": {"type": "array"},
+                },
+            },
+        )
+        call_count = {"n": 0}
+
+        def _create(**kwargs):
+            call_count["n"] += 1
+            system = kwargs["messages"][0]["content"]
+            m = re.search(r"part (\d+) of (\d+)", system)
+            i = int(m.group(1))
+            body = json.dumps({
+                "count_a": 1, "count_b": 999,  # every chunk re-reads the whole small side
+                "rows": [{"id": f"row-{i}"}],
+            })
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=body))],
+                usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+            )
+
+        client = MagicMock()
+        client.chat.completions.create.side_effect = _create
+        with patch("tools.services._get_grok_client", return_value=client):
+            res = _call_prompt_transform(config, {"file_id_a": big.pk, "file_id_b": small.pk})
+
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["chunked"])
+        chunk_count = res["chunk_count"]
+        self.assertGreater(chunk_count, 1)
+        self.assertEqual(len(res["structured"]["rows"]), chunk_count,
+                          "one row per chunk from the chunked (larger) side must all survive")
+        self.assertEqual(res["structured"]["count_b"], 999,
+                          "the unchunked side's own count must not be summed once per chunk")
+
+    def test_single_shot_uses_raised_token_cap(self):
+        uf = self._file("short text")
+        config = SimpleNamespace(
+            name="extract_invoice_data",
+            system_prompt="Extract from:\n{file_text}",
+            output_schema=self.EXTRACT_SCHEMA,
+        )
+        captured = {}
+
+        def _create(**kwargs):
+            captured["max_tokens"] = kwargs["max_tokens"]
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content='{"record_count":0,"records":[]}'))],
+                usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+            )
+
+        client = MagicMock()
+        client.chat.completions.create.side_effect = _create
+        with patch("tools.services._get_grok_client", return_value=client):
+            _call_prompt_transform(config, {"file_id": uf.pk})
+
+        from django.conf import settings
+        self.assertEqual(captured["max_tokens"], getattr(settings, "PROMPT_TRANSFORM_MAX_TOKENS", 12000))
+        self.assertNotEqual(captured["max_tokens"], 4096)
 
 
 class MultiFileResolutionTests(TestCase):
@@ -520,20 +690,26 @@ class MultiFileResolutionTests(TestCase):
                          "literal placeholder reached the model as content")
 
     @override_settings(PROMPT_TRANSFORM_MAX_CHARS=100)
-    def test_budget_is_split_across_sources(self):
+    def test_oversized_two_source_input_is_chunked_not_truncated(self):
+        """
+        Two equally-sized oversized sources used to be silently truncated to
+        their per-source budget share. Now the larger side (ties go to the
+        first-declared source) is chunked and merged instead, so the whole
+        pair is covered rather than a fixed-budget slice of each.
+        """
         a = self._file("a" * 500, "a.txt")
         b = self._file("b" * 500, "b.txt")
         cfg = SimpleNamespace(
             name="reconcile_datasets", output_schema=None,
             system_prompt="A:\n{file_a_text}\nB:\n{file_b_text}",
         )
-        res, prompt = self._run(cfg, {"file_id_a": a.pk, "file_id_b": b.pk})
+        res, _ = self._run(cfg, {"file_id_a": a.pk, "file_id_b": b.pk})
 
-        self.assertTrue(res["input_truncated"])
+        self.assertTrue(res["ok"])
+        self.assertFalse(res["input_truncated"], "chunk+merge now covers both sources — nothing was dropped")
         self.assertEqual(res["input_full_length"], 1000)
-        # 100 total across 2 sources = 50 each, not 100 each.
-        self.assertEqual(prompt.count("a" * 50), 1)
-        self.assertNotIn("a" * 51, prompt)
+        self.assertTrue(res.get("chunked"))
+        self.assertGreater(res["chunk_count"], 1)
 
     def test_single_file_contract_still_works(self):
         f = self._file("legacy body", "a.txt")
@@ -822,3 +998,80 @@ class OrgIsolationTests(TestCase):
         # Same org: visible.
         names_a = {s["function"]["name"] for s in _load_tool_schemas(organization=self.org_a)}
         self.assertIn("org_a_webhook_tool", names_a)
+
+
+class ToolCallOutputDownloadTests(TestCase):
+    """
+    ToolRunView/CustomToolTestView only ever returned {tool_call_id, result}
+    with a raw server filesystem path in result["output_filename"] — no
+    endpoint anywhere let a non-chat caller actually download it. This is
+    the new download surface that closes that gap.
+    """
+
+    def setUp(self):
+        self.org_a = Organization.objects.create(name="Org A")
+        self.org_b = Organization.objects.create(name="Org B")
+        self.user_a = get_user_model().objects.create_user(
+            email="user_a@example.com", password="pw12345!",
+            first_name="U", last_name="A", organization=self.org_a,
+        )
+        self.user_b = get_user_model().objects.create_user(
+            email="user_b@example.com", password="pw12345!",
+            first_name="U", last_name="B", organization=self.org_b,
+        )
+        self.tool = ToolDefinition.objects.create(
+            name="write_xlsx", display_name="Write Xlsx", description="test",
+            category="report", tool_type="builtin", handler="", enabled=True, is_safe=True,
+        )
+        self.client = APIClient()
+
+    def _write_temp_output(self, tmp_path, content=b"fake xlsx bytes"):
+        tmp_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path.write_bytes(content)
+
+    def test_same_org_can_download_output(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_path = Path(tmp_dir) / "report.xlsx"
+            self._write_temp_output(out_path, b"hello xlsx")
+            call = ToolCall.objects.create(
+                tool=self.tool, arguments={}, result={"ok": True, "output_filename": str(out_path)},
+                status="success", organization=self.org_a,
+            )
+            self.client.force_authenticate(user=self.user_a)
+            resp = self.client.get(f"/api/tools/calls/{call.pk}/output/download/")
+            self.assertEqual(resp.status_code, 200)
+            content = b"".join(resp.streaming_content)
+            self.assertEqual(content, b"hello xlsx")
+
+    def test_cross_org_download_404s(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_path = Path(tmp_dir) / "report.xlsx"
+            self._write_temp_output(out_path)
+            call = ToolCall.objects.create(
+                tool=self.tool, arguments={}, result={"ok": True, "output_filename": str(out_path)},
+                status="success", organization=self.org_a,
+            )
+            self.client.force_authenticate(user=self.user_b)
+            resp = self.client.get(f"/api/tools/calls/{call.pk}/output/download/")
+            self.assertEqual(resp.status_code, 404)
+
+    def test_download_404s_when_no_output_filename(self):
+        call = ToolCall.objects.create(
+            tool=self.tool, arguments={}, result={"ok": True},
+            status="success", organization=self.org_a,
+        )
+        self.client.force_authenticate(user=self.user_a)
+        resp = self.client.get(f"/api/tools/calls/{call.pk}/output/download/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_download_404s_not_500s_when_file_missing_on_disk(self):
+        call = ToolCall.objects.create(
+            tool=self.tool, arguments={},
+            result={"ok": True, "output_filename": "/nonexistent/path/report.xlsx"},
+            status="success", organization=self.org_a,
+        )
+        self.client.force_authenticate(user=self.user_a)
+        resp = self.client.get(f"/api/tools/calls/{call.pk}/output/download/")
+        self.assertEqual(resp.status_code, 404)

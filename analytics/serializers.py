@@ -18,8 +18,20 @@ class ReportSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class ReportParametersSerializer(serializers.Serializer):
+    """Validated sub-fields of ReportGenerateSerializer.parameters — narrows
+    which data a report covers. All optional; an empty {} covers everything
+    the requesting org has."""
+    batch_id  = serializers.IntegerField(required=False, allow_null=True)
+    date_from = serializers.DateField(required=False, allow_null=True)
+    date_to   = serializers.DateField(required=False, allow_null=True)
+
+
 class ReportGenerateSerializer(serializers.Serializer):
     """Used for POST /api/reports/generate"""
     type       = serializers.ChoiceField(choices=["reconciliation", "billing", "analytics", "custom"])
-    parameters = serializers.DictField(required=False, default=dict)
+    parameters = ReportParametersSerializer(required=False, default=dict)
     format     = serializers.ChoiceField(choices=["pdf", "xlsx", "csv"], default="pdf")
+
+    def validate_parameters(self, value):
+        return dict(value) if value else {}

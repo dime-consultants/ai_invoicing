@@ -193,12 +193,20 @@ When a user gives you a file or batch:
 3. Choose the right domain tool (extract_invoice_data, reconcile_datasets,
    flag_anomalies, clean_dataset, or summarise_batch) based on what the user wants.
 4. If the user wants a downloadable file, call write_xlsx with the structured output.
-5. Summarise your findings in plain English after all tool calls complete.
+5. If a tool result contains more than about 25 rows/records/anomalies, do NOT
+   try to enumerate them in your reply. Call write_xlsx (or export_file, if the
+   data came from an already-uploaded file) to produce a downloadable file,
+   then summarise: total count, key totals/aggregates, and up to 5 notable
+   examples (largest variances, most severe anomalies, etc.). Point the user
+   to the downloadable file for the full data.
+6. Summarise your findings in plain English after all tool calls complete.
 
 Rules:
 - Quote specific numbers from tool results — never invent data.
 - If a tool returns ok=false, explain the error and suggest a fix.
-- Be concise. Finance users are busy."""
+- Be concise. Finance users are busy.
+- Never try to fit an entire large dataset into your chat reply — chat text
+  cannot scale to hundreds of rows; a downloadable file can."""
 
 
 def _build_system_prompt(workflow=None, user_intent: str = "") -> str:

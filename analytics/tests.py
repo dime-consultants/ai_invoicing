@@ -112,3 +112,138 @@ class DashboardOrgIsolationTests(TestCase):
         resp = self.client.get("/api/reports/")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["reports"], [])
+
+
+class ReportGenerationTests(TestCase):
+    """
+    ReportGenerateView used to force status="ready" immediately with no file
+    ever written — every download hit "Report file not available.". Now it
+    dispatches a real Celery task (generate_report_task) that builds a real
+    file via ReportBuildService.
+    """
+
+    def setUp(self):
+        self.org = Organization.objects.create(name="Org")
+        self.user = User.objects.create_user(
+            email="reports@example.com", password="pw12345!",
+            first_name="R", last_name="P", organization=self.org,
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def _upload_for(self, user, filename="doc.txt"):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from unittest.mock import patch
+        batch = UploadService.create_batch(label=f"{filename} batch", user=user)
+        upload = SimpleUploadedFile(filename, b"content", content_type="text/plain")
+        with patch("uploads.services._extract_text", return_value="hello"):
+            return UploadService.ingest_file(batch, upload)
+
+    def test_generate_dispatches_task_and_stays_generating(self):
+        from unittest.mock import patch
+        with patch("config.dispatch.dispatch", return_value="queued") as mock_dispatch:
+            resp = self.client.post("/api/reports/generate/", {
+                "type": "custom", "format": "csv", "parameters": {},
+            }, format="json")
+        self.assertEqual(resp.status_code, 202)
+        self.assertTrue(mock_dispatch.called)
+        report = Report.objects.get(pk=resp.json()["reportId"])
+        self.assertEqual(report.status, "generating")
+        self.assertFalse(report.file)
+
+    def test_generate_marks_error_when_broker_unavailable(self):
+        """No mock — the real dispatch() call hits an unreachable broker in
+        this test environment and must return None, which the view must
+        turn into a terminal status="error" rather than a false "queued"."""
+        resp = self.client.post("/api/reports/generate/", {
+            "type": "custom", "format": "csv", "parameters": {},
+        }, format="json")
+        self.assertEqual(resp.status_code, 202)
+        report = Report.objects.get(pk=resp.json()["reportId"])
+        self.assertEqual(report.status, "error")
+
+    def test_generate_report_task_produces_downloadable_xlsx_with_real_content(self):
+        from analytics.tasks import generate_report_task
+
+        self._upload_for(self.user, "invoice1.txt")
+        self._upload_for(self.user, "invoice2.txt")
+
+        report = Report.objects.create(
+            name="Test Billing Report", report_type="billing", format="xlsx",
+            requested_by=self.user, organization=self.org, status="generating",
+        )
+        generate_report_task(report.id)
+
+        report.refresh_from_db()
+        self.assertEqual(report.status, "ready")
+        self.assertTrue(report.file)
+        self.assertGreater(report.file_size, 0)
+
+        resp = self.client.get(f"/api/reports/{report.pk}/download/")
+        self.assertEqual(resp.status_code, 200)
+        content = b"".join(resp.streaming_content) if resp.streaming else resp.content
+
+        import openpyxl
+        from io import BytesIO
+        wb = openpyxl.load_workbook(BytesIO(content))
+        ws = wb.active
+        self.assertEqual(ws.cell(row=1, column=1).value, "Filename")
+        # Header row + 2 uploaded files.
+        self.assertEqual(ws.max_row, 3)
+
+    def test_generate_report_task_pdf_and_csv_formats_also_work(self):
+        from analytics.tasks import generate_report_task
+
+        self._upload_for(self.user)
+
+        pdf_report = Report.objects.create(
+            name="PDF Report", report_type="billing", format="pdf",
+            requested_by=self.user, organization=self.org, status="generating",
+        )
+        generate_report_task(pdf_report.id)
+        pdf_report.refresh_from_db()
+        self.assertEqual(pdf_report.status, "ready")
+        self.assertTrue(pdf_report.file.read().startswith(b"%PDF"))
+
+        csv_report = Report.objects.create(
+            name="CSV Report", report_type="billing", format="csv",
+            requested_by=self.user, organization=self.org, status="generating",
+        )
+        generate_report_task(csv_report.id)
+        csv_report.refresh_from_db()
+        self.assertEqual(csv_report.status, "ready")
+
+        import csv as csv_module
+        from io import StringIO
+        csv_report.file.open("r")
+        text = csv_report.file.read()
+        csv_report.file.close()
+        if isinstance(text, bytes):
+            text = text.decode("utf-8")
+        rows = list(csv_module.reader(StringIO(text)))
+        self.assertEqual(rows[0][0], "Filename")
+        self.assertEqual(len(rows), 2)  # header + 1 uploaded file
+
+    def test_generate_report_task_marks_error_on_exception(self):
+        from unittest.mock import patch
+        from analytics.tasks import generate_report_task
+
+        report = Report.objects.create(
+            name="Broken Report", report_type="billing", format="xlsx",
+            requested_by=self.user, organization=self.org, status="generating",
+        )
+        with patch("analytics.services.ReportBuildService.build", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                generate_report_task(report.id)
+
+        report.refresh_from_db()
+        self.assertEqual(report.status, "error")
+        self.assertIn("boom", report.error_message)
+
+    def test_report_download_400s_when_not_ready(self):
+        report = Report.objects.create(
+            name="Still Generating", report_type="billing", format="xlsx",
+            requested_by=self.user, organization=self.org, status="generating",
+        )
+        resp = self.client.get(f"/api/reports/{report.pk}/download/")
+        self.assertEqual(resp.status_code, 400)

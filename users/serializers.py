@@ -74,6 +74,7 @@ class UserSerializer(serializers.ModelSerializer):
     role_display = serializers.CharField(source="get_role_display", read_only=True)
     # Contract fields
     name       = serializers.SerializerMethodField()
+    full_name  = serializers.SerializerMethodField()
     status     = serializers.SerializerMethodField()
     lastActive = serializers.DateTimeField(source="updated_at", read_only=True)
     organization_name = serializers.CharField(source="organization.name", read_only=True, default=None)
@@ -82,7 +83,7 @@ class UserSerializer(serializers.ModelSerializer):
         model  = User
         fields = [
             "id", "username", "email",
-            "first_name", "last_name", "name",
+            "first_name", "last_name", "name", "full_name",
             "role", "role_display",
             "status", "lastActive",
             "department", "phone",
@@ -96,6 +97,9 @@ class UserSerializer(serializers.ModelSerializer):
         parts = [obj.first_name or "", obj.last_name or ""]
         full = " ".join(p for p in parts if p).strip()
         return full or obj.username
+
+    def get_full_name(self, obj):
+        return self.get_name(obj)
 
     def get_status(self, obj):
         return "active" if obj.is_active else "inactive"
