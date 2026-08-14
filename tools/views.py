@@ -1,8 +1,10 @@
 # tools/views.py
 import logging
 from datetime import timedelta
+from pathlib import Path
 
 from django.db.models import Q
+from django.http import FileResponse
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -81,6 +83,41 @@ class ToolCallDetailView(generics.RetrieveAPIView):
         return ToolCall.objects.filter(
             organization=self.request.user.organization
         ).select_related("tool", "job")
+
+
+class ToolCallOutputDownloadView(APIView):
+    """
+    GET /api/tools/calls/<id>/output/download/
+
+    Download a tool call's output file (e.g. from write_xlsx/export_file),
+    org-scoped. ToolRunView/CustomToolTestView only ever return
+    {tool_call_id, result} with a raw server filesystem path embedded in
+    result["output_filename"] — never useful (or safe) to hand a browser
+    directly. This resolves and streams it instead, mirroring
+    chat/views.py's ChatAttachmentDownloadView but keyed off ToolCall
+    ownership rather than a chat conversation.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk):
+        try:
+            tc = ToolCall.objects.select_related("tool").get(
+                pk=pk, organization=request.user.organization,
+            )
+        except ToolCall.DoesNotExist:
+            return Response({"error": "Tool call not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        result = tc.result or {}
+        output_path = result.get("output_filename")
+        if not output_path:
+            return Response({"error": "This tool call has no output file."}, status=status.HTTP_404_NOT_FOUND)
+
+        p = Path(output_path)
+        if not p.exists():
+            return Response({"error": "Output file no longer exists."}, status=status.HTTP_404_NOT_FOUND)
+
+        resp = FileResponse(p.open("rb"), as_attachment=True, filename=p.name)
+        return resp
 
 
 class ToolRunView(APIView):

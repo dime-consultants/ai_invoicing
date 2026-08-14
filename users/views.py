@@ -1,5 +1,7 @@
 from django.conf import settings
 from django.contrib.auth import logout
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -196,3 +198,39 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def perform_update(self, serializer):
         serializer.save(organization=self.request.user.organization)
+
+
+class UserDepartmentsView(APIView):
+    """GET /api/users/departments/ — distinct department values in use, org-scoped."""
+    permission_classes = [IsOrgAdmin]
+
+    def get(self, request):
+        names = (
+            User.objects.filter(organization=request.user.organization)
+            .exclude(department="")
+            .values_list("department", flat=True)
+            .distinct()
+            .order_by("department")
+        )
+        return Response(list(names))
+
+
+class AdminResetPasswordView(APIView):
+    """POST /api/users/<pk>/reset-password/ — admin-only, org-scoped."""
+    permission_classes = [IsOrgAdmin]
+
+    def post(self, request, pk):
+        try:
+            target = User.objects.get(pk=pk, organization=request.user.organization)
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        new_password = request.data.get("password", "")
+        try:
+            validate_password(new_password, user=target)
+        except DjangoValidationError as exc:
+            return Response({"password": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
+
+        target.set_password(new_password)
+        target.save(update_fields=["password"])
+        return Response({"message": "Password reset successfully."})

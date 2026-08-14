@@ -5,6 +5,7 @@ from .views import (
     ToolDefinitionDetailView,
     ToolCallListView,
     ToolCallDetailView,
+    ToolCallOutputDownloadView,
     ToolRunView,
     ToolsConvertView,
     ToolsCleanView,
@@ -34,6 +35,8 @@ urlpatterns = [
     # ── Tool calls (audit log) ────────────────────────────────────────────────
     path("calls/",          ToolCallListView.as_view(),   name="tool-call-list"),
     path("calls/<int:pk>/", ToolCallDetailView.as_view(), name="tool-call-detail"),
+    # GET /api/tools/calls/<id>/output/download/  download this call's output file
+    path("calls/<int:pk>/output/download/", ToolCallOutputDownloadView.as_view(), name="tool-call-output-download"),
 
     # ── Direct run ────────────────────────────────────────────────────────────
     # POST /api/tools/run/    run a tool directly (all three types supported)

@@ -255,6 +255,12 @@ XAI_API_KEY  = os.environ.get('XAI_API_KEY', os.environ.get('GROK_API_KEY', ''))
 GROK_API_KEY = XAI_API_KEY   # alias kept for backwards compatibility
 GROK_API_URL = os.environ.get('GROK_API_URL', 'https://api.x.ai/v1')
 
+# Output token budget for a single (non-chunked) prompt_transform completion.
+# Was a hardcoded 4096 literal — too small for structured extraction over
+# anything but a small file, causing large datasets to be silently cut down
+# to a handful of rows even when the input side wasn't truncated.
+PROMPT_TRANSFORM_MAX_TOKENS = int(os.environ.get('PROMPT_TRANSFORM_MAX_TOKENS', '12000'))
+
 # ── Django Channels ───────────────────────────────────────────────────────────
 # Uses Redis as the channel layer backend.
 # Falls back to in-memory layer when REDIS_URL is not set (dev/testing only —
@@ -360,5 +366,8 @@ CELERY_TASK_ROUTES = {
     "chat.tasks.run_chat_turn_task": {"queue": "chat"},
     "uploads.tasks.*": {"queue": "extraction"},
     "ai_engine.tasks.run_ai_job_task": {"queue": "default"},
+    # Report generation is a similarly bounded-but-slow background job to
+    # file extraction — share that worker pool rather than the default one.
+    "analytics.tasks.generate_report_task": {"queue": "extraction"},
 }
 CELERY_TASK_DEFAULT_QUEUE = "default"

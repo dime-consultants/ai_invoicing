@@ -327,6 +327,134 @@ def _chunk_text(text: str, chunk_size: int) -> list[str]:
     return [text[i:i + chunk_size] for i in range(0, len(text), max(1, chunk_size))]
 
 
+def _parse_json_response(raw_text: str) -> dict | None:
+    """Strip an optional ```json fence and parse. Never raises."""
+    s = (raw_text or "").strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", s, re.DOTALL)
+    if fence:
+        s = fence.group(1).strip()
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        return {"parse_error": "Response was not valid JSON", "raw": s[:1000]}
+
+
+# Known count-field -> array-field pairs across the seeded prompt_transform
+# tools' output_schemas. After merging, the count is recomputed as len() of
+# its paired array so the reported total can never drift from the real
+# merged row count, regardless of what each chunk's completion claimed.
+_COUNT_ARRAY_PAIRS = {
+    "record_count":  "records",     # extract_invoice_data
+    "anomaly_count": "anomalies",   # flag_anomalies
+    "cleaned_count": "records",     # clean_dataset
+}
+_NARRATIVE_KEYS = {"narrative", "summary"}
+
+
+def _merge_structured_chunks(structured_list: list, output_schema: dict | None) -> dict:
+    """
+    Programmatic (non-LLM) merge of per-chunk structured JSON, keyed by the
+    tool's own output_schema — replaces the old approach of asking the LLM
+    to re-emit the entire merged result in one capped completion, which is
+    exactly what silently collapsed large datasets down to a handful of rows
+    no matter how well the input side was chunked.
+    """
+    if not output_schema or not isinstance(output_schema, dict):
+        return {}
+    properties = output_schema.get("properties", {}) or {}
+
+    def _merge_value(prop_schema: dict, values: list):
+        ptype = (prop_schema or {}).get("type")
+        if ptype == "array":
+            out = []
+            for v in values:
+                if isinstance(v, list):
+                    out.extend(v)
+            return out
+        if ptype == "object":
+            nested_props = (prop_schema or {}).get("properties", {}) or {}
+            dicts = [v for v in values if isinstance(v, dict)]
+            all_keys: set = set()
+            for d in dicts:
+                all_keys.update(d.keys())
+            return {
+                k: _merge_value(nested_props.get(k, {}), [d.get(k) for d in dicts if k in d])
+                for k in all_keys
+            }
+        if ptype in ("integer", "number"):
+            nums = [v for v in values if isinstance(v, (int, float))]
+            return sum(nums) if nums else 0
+        if ptype == "string":
+            for v in values:
+                if isinstance(v, str) and v.strip():
+                    return v
+            return ""
+        for v in values:
+            if v is not None:
+                return v
+        return None
+
+    merged = {
+        key: _merge_value(prop_schema, [s.get(key) for s in structured_list if isinstance(s, dict)])
+        for key, prop_schema in properties.items()
+    }
+
+    for count_key, array_key in _COUNT_ARRAY_PAIRS.items():
+        if count_key in merged and isinstance(merged.get(array_key), list):
+            merged[count_key] = len(merged[array_key])
+
+    chunk_count = len(structured_list)
+    for key in merged:
+        if key.lower() in _NARRATIVE_KEYS and isinstance(merged[key], str) and merged[key]:
+            merged[key] = (
+                merged[key].rstrip()
+                + f" (Combined from {chunk_count} parts covering the full document — no data was truncated.)"
+            )
+
+    return merged
+
+
+def _map_chunk(
+    client, model, chunk_system_prompt_base: str, chunk: str, placeholder: str,
+    i: int, total: int, output_schema: dict | None,
+) -> tuple[str, dict | None, int, int]:
+    """Run one chunk's completion. Shared by the single- and two-source
+    chunked paths. Returns (raw_text, structured_or_None, in_tokens, out_tokens)."""
+    chunk_system_prompt = chunk_system_prompt_base + (
+        f"\n\nThis is part {i + 1} of {total} of one larger document, split "
+        "only because it was too long for a single request. Analyze just "
+        "this part and do not claim it is the whole document."
+    )
+    if output_schema:
+        chunk_system_prompt += (
+            "\n\nRespond ONLY with valid JSON that matches this schema:\n"
+            + json.dumps(output_schema, indent=2)
+            + "\nDo not include any text outside the JSON."
+        )
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": chunk_system_prompt},
+                {"role": "user", "content": f"Part {i + 1} of {total}."},
+            ],
+            temperature=0.1,
+            max_tokens=getattr(settings, "PROMPT_TRANSFORM_MAX_TOKENS", 12000),
+        )
+        raw = response.choices[0].message.content or ""
+        structured = _parse_json_response(raw) if output_schema else None
+        return (
+            raw, structured,
+            getattr(response.usage, "prompt_tokens", 0),
+            getattr(response.usage, "completion_tokens", 0),
+        )
+    except Exception as exc:
+        logger.warning(
+            "prompt_transform: chunk %d/%d failed: %s", i + 1, total, exc,
+        )
+        return (f"[Part {i + 1} could not be processed: {exc}]", {} if output_schema else None, 0, 0)
+
+
 def _run_chunked_prompt_transform(
     config, client, model, output_schema, placeholder: str, kind: str, value, max_chars: int,
 ) -> dict | None:
@@ -334,12 +462,12 @@ def _run_chunked_prompt_transform(
     Map-reduce for one oversized document instead of truncating it.
 
     Splits the FULL (untruncated) text into <=max_chars pieces, runs
-    config.system_prompt once per piece ("map"), then makes one final call
-    that merges every piece's output into a single coherent result
-    ("reduce"). Used by _call_prompt_transform whenever a single-source
-    input (one file_id or one batch_id) exceeds PROMPT_TRANSFORM_MAX_CHARS,
-    so a long document gets full coverage in the final answer instead of a
-    silently partial one truncated at the cap.
+    config.system_prompt once per piece ("map"), then MERGES every piece's
+    already-parsed structured output in Python — no further LLM call, so the
+    row count scales with the document instead of being bottlenecked by one
+    fixed-size completion. Used by _call_prompt_transform whenever a
+    single-source input (one file_id or one batch_id) exceeds
+    PROMPT_TRANSFORM_MAX_CHARS.
 
     Returns None if, once resolved, the text turns out not to need chunking
     after all (e.g. the cached extracted_text was shorter than expected) —
@@ -369,8 +497,8 @@ def _run_chunked_prompt_transform(
     # keeps wall-clock time close to that of a single call regardless of N.
     max_workers = min(len(chunks), getattr(settings, "PROMPT_TRANSFORM_MAX_PARALLEL_CHUNKS", 6))
 
-    def _map_one(i: int, chunk: str) -> tuple[str, int, int]:
-        chunk_system_prompt = _safe_prompt_substitute(
+    def _map_one(i: int, chunk: str):
+        chunk_system_prompt_base = _safe_prompt_substitute(
             config.system_prompt or "",
             arguments="{}",
             file_text=chunk if placeholder == "file_text" else "",
@@ -378,98 +506,136 @@ def _run_chunked_prompt_transform(
             file_b_text=chunk if placeholder == "file_b_text" else "",
             batch_text=chunk if placeholder == "batch_text" else "",
         )
-        chunk_system_prompt += (
-            f"\n\nThis is part {i + 1} of {len(chunks)} of one larger document, "
-            "split only because it was too long for a single request. Analyze "
-            "just this part and do not claim it is the whole document — a "
-            "final step will combine every part's analysis into one answer."
-        )
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": chunk_system_prompt},
-                    {"role": "user", "content": f"Part {i + 1} of {len(chunks)}."},
-                ],
-                temperature=0.1,
-                max_tokens=4096,
-            )
-            return (
-                response.choices[0].message.content or "",
-                getattr(response.usage, "prompt_tokens", 0),
-                getattr(response.usage, "completion_tokens", 0),
-            )
-        except Exception as exc:
-            logger.warning(
-                "prompt_transform: chunk %d/%d failed for tool '%s': %s",
-                i + 1, len(chunks), tool_name, exc,
-            )
-            return (f"[Part {i + 1} could not be processed: {exc}]", 0, 0)
+        return _map_chunk(client, model, chunk_system_prompt_base, chunk, placeholder, i, len(chunks), output_schema)
 
-    chunk_results: list[str] = [""] * len(chunks)
+    raw_results: list[str] = [""] * len(chunks)
+    structured_results: list = [None] * len(chunks)
     total_input_tokens = total_output_tokens = 0
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_map_one, i, chunk): i for i, chunk in enumerate(chunks)}
         for future in futures:
             i = futures[future]
-            text, in_tok, out_tok = future.result()
-            chunk_results[i] = text
+            raw, structured, in_tok, out_tok = future.result()
+            raw_results[i] = raw
+            structured_results[i] = structured if isinstance(structured, dict) else {}
             total_input_tokens += in_tok
             total_output_tokens += out_tok
 
-    # ── Reduce ──────────────────────────────────────────────────────────────
-    reduce_system_prompt = (
-        "The following are independent analyses of sequential parts of one "
-        "larger document, each produced by running this instruction on just "
-        "that part:\n\n"
-        f"{config.system_prompt or ''}\n\n"
-        "Combine them into a single, coherent, non-redundant final result "
-        "that reads as if the whole document had been analyzed at once. "
-        "Do not mention that the document was split."
-    )
+    # ── Merge (pure Python — no LLM call) ──────────────────────────────────
     if output_schema:
-        reduce_system_prompt += (
-            "\n\nRespond ONLY with valid JSON that matches this schema:\n"
-            + json.dumps(output_schema, indent=2)
-            + "\nDo not include any text outside the JSON."
+        merged = _merge_structured_chunks(structured_results, output_schema)
+        result_text = json.dumps(merged, indent=2)
+    else:
+        merged = None
+        result_text = "\n\n".join(
+            f"--- Part {i + 1}/{len(chunks)} ---\n{r}" for i, r in enumerate(raw_results)
         )
-    reduce_user_message = "\n\n".join(
-        f"--- Part {i + 1}/{len(chunks)} ---\n{r}" for i, r in enumerate(chunk_results)
-    )
-
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": reduce_system_prompt},
-            {"role": "user",   "content": reduce_user_message},
-        ],
-        temperature=0.1,
-        max_tokens=4096,
-    )
-    raw_text = response.choices[0].message.content or ""
-    total_input_tokens  += getattr(response.usage, "prompt_tokens", 0)
-    total_output_tokens += getattr(response.usage, "completion_tokens", 0)
-
-    structured = None
-    if output_schema:
-        s = raw_text.strip()
-        fence = re.search(r"```(?:json)?\s*(.*?)```", s, re.DOTALL)
-        if fence:
-            s = fence.group(1).strip()
-        try:
-            structured = json.loads(s)
-        except json.JSONDecodeError:
-            structured = {"parse_error": "Response was not valid JSON", "raw": s[:1000]}
 
     return {
         "ok":                True,
-        "result":            raw_text,
-        "structured":        structured,
+        "result":            result_text,
+        "structured":        merged,
         "input_tokens":      total_input_tokens,
         "output_tokens":     total_output_tokens,
         # Chunk+merge covered the whole document — nothing was dropped.
         "input_truncated":   False,
         "input_full_length": full["full_length"],
+        "chunked":           True,
+        "chunk_count":       len(chunks),
+    }
+
+
+def _run_chunked_two_source_prompt_transform(
+    config, client, model, output_schema,
+    chunked_placeholder: str, other_placeholder: str,
+    chunked_value, other_value, max_chars: int,
+    unchunked_count_key: str | None = None,
+) -> dict | None:
+    """
+    Map-reduce for a two-source tool (e.g. reconcile_datasets: file_id_a +
+    file_id_b) when the larger side is too big for a single request. The
+    SMALLER side is resolved in full and passed whole into every chunk's
+    prompt; the LARGER side is split into <=max_chars pieces. Merges the
+    same way as the single-source path.
+
+    unchunked_count_key: if the schema has a count field describing the
+    unchunked (smaller) side's own record count (e.g. "count_b" when B is
+    the smaller side), naive summing across chunks would multiply it by the
+    chunk count — the caller must NOT rely on the generic sum for that one
+    field; this function does not know the true value on its own (only the
+    LLM does, from its first chunk's read of the whole smaller side), so it
+    takes the FIRST chunk's reported value for that key rather than summing.
+    """
+    full_chunked = _resolve_file_text(chunked_value, max_chars=10**9)
+    full_other   = _resolve_file_text(other_value, max_chars=10**9)
+
+    chunks = _chunk_text(full_chunked["text"], max_chars)
+    if len(chunks) <= 1:
+        return None
+
+    tool_name = getattr(config, "name", "?")
+    logger.info(
+        "prompt_transform: two-source chunking tool '%s', %d pieces on %s (%d chars), "
+        "%s kept whole (%d chars)",
+        tool_name, len(chunks), chunked_placeholder, full_chunked["full_length"],
+        other_placeholder, full_other["full_length"],
+    )
+
+    max_workers = min(len(chunks), getattr(settings, "PROMPT_TRANSFORM_MAX_PARALLEL_CHUNKS", 6))
+
+    def _map_one(i: int, chunk: str):
+        chunk_system_prompt_base = _safe_prompt_substitute(
+            config.system_prompt or "",
+            arguments="{}",
+            file_text="",
+            file_a_text=chunk if chunked_placeholder == "file_a_text" else full_other["text"],
+            file_b_text=chunk if chunked_placeholder == "file_b_text" else full_other["text"],
+            batch_text="",
+        )
+        return _map_chunk(client, model, chunk_system_prompt_base, chunk, chunked_placeholder, i, len(chunks), output_schema)
+
+    raw_results: list[str] = [""] * len(chunks)
+    structured_results: list = [None] * len(chunks)
+    total_input_tokens = total_output_tokens = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_map_one, i, chunk): i for i, chunk in enumerate(chunks)}
+        for future in futures:
+            i = futures[future]
+            raw, structured, in_tok, out_tok = future.result()
+            raw_results[i] = raw
+            structured_results[i] = structured if isinstance(structured, dict) else {}
+            total_input_tokens += in_tok
+            total_output_tokens += out_tok
+
+    if not output_schema:
+        return {
+            "ok": True,
+            "result": "\n\n".join(f"--- Part {i+1}/{len(chunks)} ---\n{r}" for i, r in enumerate(raw_results)),
+            "structured": None,
+            "input_tokens": total_input_tokens, "output_tokens": total_output_tokens,
+            "input_truncated": False,
+            "input_full_length": full_chunked["full_length"] + full_other["full_length"],
+            "chunked": True, "chunk_count": len(chunks),
+        }
+
+    merged = _merge_structured_chunks(structured_results, output_schema)
+    # The unchunked side's own record count would be summed once per chunk
+    # by the generic merge above (each chunk re-read the whole smaller side
+    # and reported its count) — take the first chunk's value instead.
+    if unchunked_count_key:
+        for s in structured_results:
+            if isinstance(s, dict) and unchunked_count_key in s:
+                merged[unchunked_count_key] = s[unchunked_count_key]
+                break
+
+    return {
+        "ok":                True,
+        "result":            json.dumps(merged, indent=2),
+        "structured":        merged,
+        "input_tokens":      total_input_tokens,
+        "output_tokens":     total_output_tokens,
+        "input_truncated":   False,
+        "input_full_length": full_chunked["full_length"] + full_other["full_length"],
         "chunked":           True,
         "chunk_count":       len(chunks),
     }
@@ -527,6 +693,7 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
 
     resolved: dict[str, str] = {}
     file_meta: dict = {}
+    full_lengths: dict[str, int] = {}
     total_full_length = 0
     any_truncated     = False
 
@@ -541,6 +708,7 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
                 page_to=arguments.get("page_to"),
             )
         resolved[placeholder] = got["text"]
+        full_lengths[placeholder] = got["full_length"]
         total_full_length += got["full_length"]
         any_truncated = any_truncated or got["truncated"]
         if got["truncated"]:
@@ -568,15 +736,40 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
     output_schema = config.output_schema
 
     # ── Chunk + merge instead of truncating a single oversized source ──────
-    # Multi-source prompts (file_id_a + file_id_b, or a file combined with a
-    # batch) split the cap differently, and running map-reduce across two
-    # independent documents at once isn't a well-defined operation — this
-    # only applies to the common single-source case (one file_id, or one
-    # batch_id), which covers summarise_batch and single-document tools.
+    # Single-source (one file_id, or one batch_id): map-reduce the whole
+    # thing, merging chunk results in Python (see _run_chunked_prompt_transform).
     if len(wanted) == 1 and any_truncated:
         placeholder, kind, value = wanted[0]
         chunked = _run_chunked_prompt_transform(
             config, client, model, output_schema, placeholder, kind, value, max_file_chars,
+        )
+        if chunked is not None:
+            return chunked
+
+    # Two-source (file_id_a + file_id_b, e.g. reconcile_datasets): chunk
+    # whichever side is larger, keep the smaller side whole in every chunk's
+    # prompt. A file+batch or three-way combination isn't handled here — no
+    # such tool exists in the current manifest.
+    if (
+        len(wanted) == 2
+        and all(kind == "file" for _, kind, _ in wanted)
+        and any_truncated
+    ):
+        (ph_1, _, val_1), (ph_2, _, val_2) = wanted
+        if full_lengths.get(ph_1, 0) >= full_lengths.get(ph_2, 0):
+            chunked_placeholder, chunked_value = ph_1, val_1
+            other_placeholder, other_value = ph_2, val_2
+        else:
+            chunked_placeholder, chunked_value = ph_2, val_2
+            other_placeholder, other_value = ph_1, val_1
+
+        _COUNT_KEY_BY_PLACEHOLDER = {"file_a_text": "count_a", "file_b_text": "count_b"}
+        unchunked_count_key = _COUNT_KEY_BY_PLACEHOLDER.get(other_placeholder)
+
+        chunked = _run_chunked_two_source_prompt_transform(
+            config, client, model, output_schema,
+            chunked_placeholder, other_placeholder, chunked_value, other_value,
+            max_file_chars, unchunked_count_key=unchunked_count_key,
         )
         if chunked is not None:
             return chunked
@@ -615,7 +808,7 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
                 {"role": "user",   "content": user_message},
             ],
             temperature=0.1,
-            max_tokens=4096,
+            max_tokens=getattr(settings, "PROMPT_TRANSFORM_MAX_TOKENS", 12000),
         )
         raw_text = response.choices[0].message.content or ""
 
