@@ -39,9 +39,9 @@ BUILTIN_TOOLS = [
         "display_name": "Read File",
         "description": (
             "Open an uploaded file and return its extracted text content. "
+            "Supports paging for PDFs (page_from/page_to) and spreadsheets (row_from/row_to). "
             "Use this before any prompt_transform tool that needs to analyse file content. "
-            "Returns: filename, extension, detected_type, text (up to max_chars), "
-            "full_length, truncated."
+            "Returns: filename, extension, text, full_length, truncated, and paging metadata."
         ),
         "category": "utility",
         "handler":  "tools.handlers.read_file",
@@ -55,8 +55,24 @@ BUILTIN_TOOLS = [
                 },
                 "max_chars": {
                     "type": "integer",
-                    "description": "Truncate returned text to this many characters. Default 12000.",
-                    "default": 12000,
+                    "description": "Truncate returned text to this many characters. Default 25000.",
+                    "default": 25000,
+                },
+                "page_from": {
+                    "type": "integer",
+                    "description": "Start page for PDFs (1-indexed).",
+                },
+                "page_to": {
+                    "type": "integer",
+                    "description": "End page for PDFs (inclusive).",
+                },
+                "row_from": {
+                    "type": "integer",
+                    "description": "Start row for Excel/CSV (1-indexed).",
+                },
+                "row_to": {
+                    "type": "integer",
+                    "description": "End row for Excel/CSV (inclusive).",
                 },
             },
             "required": ["file_id"],

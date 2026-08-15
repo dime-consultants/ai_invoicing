@@ -242,7 +242,7 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
 
     system_prompt = _safe_prompt_substitute(
         config.system_prompt or "",
-        file_text=file_text[:8000],
+        file_text=file_text[:32000],
         arguments=args_json,
     )
 

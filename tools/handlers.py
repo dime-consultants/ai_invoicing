@@ -40,19 +40,28 @@ logger = logging.getLogger(__name__)
 # 1. read_file
 # ─────────────────────────────────────────────────────────────────────────────
 
-def read_file(file_id: int, max_chars: int = 12000) -> dict:
+def read_file(
+    file_id: int,
+    max_chars: int = 25000,
+    page_from: int | None = None,
+    page_to: int | None = None,
+    row_from: int | None = None,
+    row_to: int | None = None,
+) -> dict:
     """
     Open an UploadedFile and return its extracted text content.
 
-    This is the universal "give me the file content" primitive that all
-    prompt_transform tools depend on. It does NOT call any AI — it just
-    reads what the upload pipeline already extracted.
+    This is the universal "give me the file content" primitive. It supports
+    paging for PDFs (page_from/page_to) and spreadsheets (row_from/row_to).
 
     Parameters
     ----------
     file_id   : PK of the UploadedFile record.
-    max_chars : Truncate returned text to this many characters (default 12 000).
-                Keeps token usage predictable for the calling LLM.
+    max_chars : Truncate returned text to this many characters (default 25 000).
+    page_from : Start page for PDFs (1-indexed).
+    page_to   : End page for PDFs (inclusive).
+    row_from  : Start row for Excel/CSV (1-indexed).
+    row_to    : End row for Excel/CSV (inclusive).
 
     Returns
     -------
@@ -61,39 +70,89 @@ def read_file(file_id: int, max_chars: int = 12000) -> dict:
         "file_id": <int>,
         "filename": <str>,
         "extension": <str>,
-        "detected_type": <str | null>,
-        "text": <str>,          # extracted text, truncated to max_chars
-        "full_length": <int>,   # total length before truncation
-        "truncated": <bool>
+        "text": <str>,
+        "full_length": <int>,
+        "truncated": <bool>,
+        "paging": { ... metadata ... }
     }
     """
     try:
         from uploads.models import UploadedFile
+        from uploads.services import extract_pdf_page_range, extract_spreadsheet_row_range
 
-        uf   = UploadedFile.objects.get(pk=file_id)
+        uf = UploadedFile.objects.get(pk=file_id)
+        ext = (uf.extension or "").lower()
+
+        # 1. PDF Paging
+        if ext == "pdf" and (page_from is not None or page_to is not None):
+            res = extract_pdf_page_range(
+                uf.file.path,
+                page_from=page_from or 1,
+                page_to=page_to,
+                max_chars=max_chars,
+            )
+            if not res.get("ok"):
+                return res
+            return {
+                "ok": True,
+                "file_id": file_id,
+                "filename": uf.original_filename,
+                "extension": ext,
+                "text": res["text"],
+                "paging": {
+                    "type": "pdf",
+                    "from": res["page_from"],
+                    "to": res["page_to"],
+                    "total": res["page_count"],
+                },
+            }
+
+        # 2. Spreadsheet Paging
+        if ext in ("xlsx", "xls", "csv") and (row_from is not None or row_to is not None):
+            res = extract_spreadsheet_row_range(
+                uf.file.path,
+                extension=ext,
+                row_from=row_from or 1,
+                row_to=row_to,
+                max_chars=max_chars,
+            )
+            if not res.get("ok"):
+                return res
+            return {
+                "ok": True,
+                "file_id": file_id,
+                "filename": uf.original_filename,
+                "extension": ext,
+                "text": res["text"],
+                "paging": {
+                    "type": "spreadsheet",
+                    "from": res["row_from"],
+                    "to": res["row_to"],
+                    "total_rows": res["row_count"],
+                },
+            }
+
+        # 3. Default Fallback (full extracted_text or preview)
         text = uf.extracted_text or ""
-
-        # If extracted_text is empty, try reading the raw file for txt/csv
-        if not text and uf.extension.lower() in ("txt", "csv"):
+        if not text and ext in ("txt", "csv"):
             try:
                 uf.file.open("rb")
-                raw  = uf.file.read()
-                text = raw.decode("utf-8", errors="replace")
+                text = uf.file.read().decode("utf-8", errors="replace")
                 uf.file.close()
-            except Exception as read_exc:
-                logger.warning("read_file: could not read raw file %s: %s", file_id, read_exc)
+            except Exception:
+                pass
 
         full_length = len(text)
-        truncated   = full_length > max_chars
+        truncated = full_length > max_chars
         return {
-            "ok":           True,
-            "file_id":      file_id,
-            "filename":     uf.original_filename,
-            "extension":    uf.extension,
+            "ok": True,
+            "file_id": file_id,
+            "filename": uf.original_filename,
+            "extension": ext,
             "detected_type": uf.detected_type,
-            "text":         text[:max_chars],
-            "full_length":  full_length,
-            "truncated":    truncated,
+            "text": text[:max_chars],
+            "full_length": full_length,
+            "truncated": truncated,
         }
 
     except UploadedFile.DoesNotExist:

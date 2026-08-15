@@ -177,16 +177,6 @@ def extract_pdf_page_range(
 ) -> dict:
     """
     Public helper used by the read_file tool and Celery task.
-
-    Returns:
-        {
-          "ok": True,
-          "text": str,
-          "page_from": int,
-          "page_to": int,
-          "page_count": int,
-          "chars": int,
-        }
     """
     try:
         import pdfplumber
@@ -212,6 +202,83 @@ def extract_pdf_page_range(
         "page_count": page_count,
         "chars": len(text),
     }
+
+
+def extract_spreadsheet_row_range(
+    file_path: str,
+    extension: str,
+    row_from: int = 1,
+    row_to: int | None = None,
+    max_chars: int | None = None,
+) -> dict:
+    """
+    Extract text from a spreadsheet row range (1-indexed, inclusive).
+    Works for xlsx, xls, and csv.
+    """
+    limit = max_chars if max_chars is not None else 50000
+    parts = []
+    total_chars = 0
+    row_count = 0
+
+    try:
+        if extension == "xlsx":
+            import openpyxl
+            wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
+            ws = wb.active
+            row_count = ws.max_row
+            start = max(1, row_from)
+            end = row_count if row_to is None else min(row_to, row_count)
+
+            for row in ws.iter_rows(min_row=start, max_row=end, values_only=True):
+                line = "\t".join("" if c is None else str(c) for c in row)
+                parts.append(line)
+                total_chars += len(line)
+                if limit and total_chars >= limit:
+                    parts.append(f"\n[… truncated at {limit} characters …]")
+                    break
+            wb.close()
+
+        elif extension == "xls":
+            import xlrd
+            book = xlrd.open_workbook(file_path)
+            sheet = book.sheet_by_index(0)
+            row_count = sheet.nrows
+            start = max(1, row_from) - 1
+            end = row_count if row_to is None else min(row_to, row_count)
+            for r in range(start, end):
+                line = "\t".join(str(c) for c in sheet.row_values(r))
+                parts.append(line)
+                total_chars += len(line)
+                if limit and total_chars >= limit:
+                    parts.append(f"\n[… truncated at {limit} characters …]")
+                    break
+
+        elif extension == "csv":
+            import csv
+            with open(file_path, "r", encoding="utf-8", errors="replace") as fh:
+                reader = csv.reader(fh)
+                rows = list(reader)
+                row_count = len(rows)
+                start = max(1, row_from) - 1
+                end = row_count if row_to is None else min(row_to, row_count)
+                for i in range(start, end):
+                    line = "\t".join(rows[i])
+                    parts.append(line)
+                    total_chars += len(line)
+                    if limit and total_chars >= limit:
+                        parts.append(f"\n[… truncated at {limit} characters …]")
+                        break
+
+        return {
+            "ok": True,
+            "text": "\n".join(parts),
+            "row_from": row_from,
+            "row_to": row_to or row_count,
+            "row_count": row_count,
+            "chars": total_chars,
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
