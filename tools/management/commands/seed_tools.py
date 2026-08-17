@@ -66,8 +66,12 @@ BUILTIN_TOOLS = [
                 },
                 "max_chars": {
                     "type": "integer",
-                    "description": "Truncate returned text to this many characters. Default 12000.",
-                    "default": 12000,
+                    "description": (
+                        "How much text this single call returns (default 40000). "
+                        "Not a hard limit on the document — keep paging with "
+                        "page_from to read all of it."
+                    ),
+                    "default": 40000,
                 },
                 "page_from": {
                     "type": "integer",

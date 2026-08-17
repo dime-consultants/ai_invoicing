@@ -199,6 +199,20 @@ class ReadFileTests(TestCase):
         self.assertTrue(res["ok"])
         self.assertEqual(res["text"], ("y" * 1000)[100:200])
 
+    def test_default_max_chars_is_the_raised_settings_value_not_12000(self):
+        """read_file's default per-call budget was raised from 12 000 to
+        settings.READ_FILE_DEFAULT_MAX_CHARS (40 000) — fewer page_from
+        round-trips needed to fully read a large document."""
+        from django.conf import settings
+
+        uf = self._file(extracted_text="x" * 50000)
+        res = read_file(file_id=uf.pk)  # no max_chars passed — uses the default
+
+        expected_default = getattr(settings, "READ_FILE_DEFAULT_MAX_CHARS", 40000)
+        self.assertEqual(expected_default, 40000)
+        self.assertEqual(len(res["text"]), expected_default)
+        self.assertNotEqual(len(res["text"]), 12000)
+
 
 class ExportFileTests(TestCase):
     """

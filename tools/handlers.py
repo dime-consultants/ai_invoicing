@@ -71,7 +71,7 @@ def _paginate_text(full_text: str, page_from: int | None, max_chars: int) -> tup
 
 def read_file(
     file_id: int,
-    max_chars: int = 12000,
+    max_chars: int | None = None,
     page_from: int | None = None,
     page_to: int | None = None,
 ) -> dict:
@@ -82,7 +82,7 @@ def read_file(
     prompt_transform tools depend on. It does NOT call any AI.
 
     Large PDFs are ingested with extraction deferred to a background worker, so
-    extracted_text is often empty or a truncated preview. This handler therefore
+    extracted_text is often empty or a partial checkpoint. This handler therefore
     falls back to reading the stored file directly, and supports paging through a
     PDF via page_from/page_to so a several-hundred-page document can be processed
     in chunks without waiting for the worker to finish.
@@ -94,8 +94,12 @@ def read_file(
     Parameters
     ----------
     file_id   : PK of the UploadedFile record.
-    max_chars : Truncate returned text to this many characters (default 12 000).
-                Keeps token usage predictable for the calling LLM.
+    max_chars : Cap on how much text this single call returns (default from
+                settings.READ_FILE_DEFAULT_MAX_CHARS). Not data loss — it's a
+                per-call pagination budget; keep calling with an incrementing
+                page_from (see the tool's own description for the exact
+                contract) until page_from reaches page_count/total pages to
+                read the whole document.
     page_from : First PDF page to read (1-indexed, inclusive). PDFs only.
     page_to   : Last PDF page to read (1-indexed, inclusive). PDFs only.
                 Omit both to read the whole document.
@@ -121,6 +125,10 @@ def read_file(
     On failure:
         {"ok": false, "error": <str>, ...plus the context fields above}
     """
+    if max_chars is None:
+        from django.conf import settings
+        max_chars = getattr(settings, "READ_FILE_DEFAULT_MAX_CHARS", 40000)
+
     try:
         from uploads.models import UploadedFile
         uf = UploadedFile.objects.get(pk=file_id)

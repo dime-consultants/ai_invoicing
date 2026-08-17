@@ -880,7 +880,7 @@ class ToolService:
         client      = _get_grok_client()
         model       = getattr(settings, "GROK_MODEL",         "grok-3")
         max_tokens  = getattr(settings, "AI_MAX_TOKENS",       4096)
-        max_rounds  = getattr(settings, "AI_MAX_TOOL_ROUNDS",  10)
+        max_rounds  = getattr(settings, "AI_MAX_TOOL_ROUNDS",  25)
 
         tool_schemas = _load_tool_schemas(tool_names, organization=organization)
         tool_map     = _load_tool_map(tool_names, organization=organization)

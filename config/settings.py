@@ -261,6 +261,19 @@ GROK_API_URL = os.environ.get('GROK_API_URL', 'https://api.x.ai/v1')
 # to a handful of rows even when the input side wasn't truncated.
 PROMPT_TRANSFORM_MAX_TOKENS = int(os.environ.get('PROMPT_TRANSFORM_MAX_TOKENS', '12000'))
 
+# Default per-call size of a read_file() chunk (raised from 12 000 — still a
+# real per-call cap so a single tool result stays a bounded chunk of the
+# agent's own context window, but a bigger one means fewer page_from/page_to
+# round-trips to fully read a large document).
+READ_FILE_DEFAULT_MAX_CHARS = int(os.environ.get('READ_FILE_DEFAULT_MAX_CHARS', '40000'))
+
+# How many tool-calling rounds the agent gets per turn before it's forced to
+# give a final answer. Was 10 — too few to fully paginate through a large
+# document (detect_file_type + several read_file page calls + a domain tool
+# + write_xlsx can easily exceed that), which meant the agent sometimes gave
+# up mid-task rather than truly running out of things to do.
+AI_MAX_TOOL_ROUNDS = int(os.environ.get('AI_MAX_TOOL_ROUNDS', '25'))
+
 # ── Django Channels ───────────────────────────────────────────────────────────
 # Uses Redis as the channel layer backend.
 # Falls back to in-memory layer when REDIS_URL is not set (dev/testing only —

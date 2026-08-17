@@ -368,3 +368,55 @@ class OrgIsolationTests(TestCase):
         self.client.force_authenticate(user=self.admin_b)
         resp = self.client.get(f"/api/uploads/batches/{self.batch.pk}/summary/")
         self.assertEqual(resp.status_code, 404)
+
+
+class PdfIngestionIsNeverTruncatedTests(TestCase):
+    """
+    _extract_pdf_pages used to silently fall back to a 2,000,000-character
+    cap ("MAX_CHARS") whenever a caller passed max_chars=None intending "no
+    limit" — which is exactly what the normal ingest path (_extract_text,
+    extract_file_text_task) always did. Any PDF whose full text exceeded
+    that was permanently truncated in storage with no way for read_file's
+    pagination or tools/services.py's chunking to ever recover the missing
+    tail, since it was never saved in the first place. This must never
+    truncate regardless of document size when max_chars is None.
+    """
+
+    def _mock_pdf(self, page_texts):
+        pages = []
+        for text in page_texts:
+            page = MagicMock()
+            page.extract_text.return_value = text
+            pages.append(page)
+        pdf = MagicMock()
+        pdf.pages = pages
+        pdf.__enter__.return_value = pdf
+        pdf.__exit__.return_value = False
+        return pdf
+
+    def test_full_document_over_two_million_chars_is_not_truncated(self):
+        from uploads.services import _extract_pdf_pages
+
+        # Three pages, each well over 700_000 chars — total > 2_100_000,
+        # comfortably past the old silent cap.
+        page_texts = ["x" * 700_001, "y" * 700_001, "z" * 700_001]
+        fake_pdf = self._mock_pdf(page_texts)
+
+        with patch("pdfplumber.open", return_value=fake_pdf):
+            text = _extract_pdf_pages("fake.pdf", page_from=1, page_to=None, max_chars=None)
+
+        self.assertNotIn("truncated at", text)
+        for page_text in page_texts:
+            self.assertIn(page_text, text)
+        self.assertGreater(len(text), 2_100_000)
+
+    def test_explicit_max_chars_still_caps_a_single_call(self):
+        """A real per-call cap (e.g. read_file's paginated reads) must still
+        work — only the None-means-unbounded ingest path changed."""
+        from uploads.services import _extract_pdf_pages
+
+        fake_pdf = self._mock_pdf(["a" * 500])
+        with patch("pdfplumber.open", return_value=fake_pdf):
+            text = _extract_pdf_pages("fake.pdf", page_from=1, page_to=None, max_chars=100)
+
+        self.assertIn("truncated at 100 characters", text)
