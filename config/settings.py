@@ -248,7 +248,6 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 # prompt-level truncation remains the place for token budgeting, not ingestion.
 UNSTRUCTURED_API_KEY  = os.environ.get('UNSTRUCTURED_API_KEY', '')
 UNSTRUCTURED_API_URL  = os.environ.get('UNSTRUCTURED_API_URL', 'https://api.unstructured.io/general/v0/general')
-UNSTRUCTURED_MAX_CHARS = int(os.environ.get('UNSTRUCTURED_MAX_CHARS', '2000000'))
 
 # ── Grok / xAI ────────────────────────────────────────────────────────────────
 XAI_API_KEY  = os.environ.get('XAI_API_KEY', os.environ.get('GROK_API_KEY', ''))
@@ -260,6 +259,26 @@ GROK_API_URL = os.environ.get('GROK_API_URL', 'https://api.x.ai/v1')
 # anything but a small file, causing large datasets to be silently cut down
 # to a handful of rows even when the input side wasn't truncated.
 PROMPT_TRANSFORM_MAX_TOKENS = int(os.environ.get('PROMPT_TRANSFORM_MAX_TOKENS', '12000'))
+
+# Output token budget for the main chat/tool-calling agent loop's own
+# completions (ToolService.run) — every round, including the final prose
+# answer. Was also a hardcoded, unconfigured 4096 literal — the same bug
+# class as PROMPT_TRANSFORM_MAX_TOKENS above, just on the primary agent
+# loop instead of the prompt_transform tool path.
+AI_MAX_TOKENS = int(os.environ.get('AI_MAX_TOKENS', '12000'))
+
+# Default per-call size of a read_file() chunk (raised from 12 000 — still a
+# real per-call cap so a single tool result stays a bounded chunk of the
+# agent's own context window, but a bigger one means fewer page_from/page_to
+# round-trips to fully read a large document).
+READ_FILE_DEFAULT_MAX_CHARS = int(os.environ.get('READ_FILE_DEFAULT_MAX_CHARS', '40000'))
+
+# How many tool-calling rounds the agent gets per turn before it's forced to
+# give a final answer. Was 10 — too few to fully paginate through a large
+# document (detect_file_type + several read_file page calls + a domain tool
+# + write_xlsx can easily exceed that), which meant the agent sometimes gave
+# up mid-task rather than truly running out of things to do.
+AI_MAX_TOOL_ROUNDS = int(os.environ.get('AI_MAX_TOOL_ROUNDS', '25'))
 
 # ── Django Channels ───────────────────────────────────────────────────────────
 # Uses Redis as the channel layer backend.

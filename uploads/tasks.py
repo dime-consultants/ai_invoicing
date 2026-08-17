@@ -14,7 +14,7 @@ Flow
 2. Extract page-by-page (PDF) or row-by-row (spreadsheet), checkpointing
    partial progress via on_chunk so a soft-time-limit timeout still saves
    real text instead of nothing (memory-safe flush_cache for PDFs).
-3. Store a truncated preview in extracted_text (MAX_CHARS).
+3. Store the FULL extracted text in extracted_text — no truncation.
 4. Mark parse_status="parsed" (or "parse_error") and refresh batch counters.
 5. Signals (uploads/signals.py) push WS notifications so the chat UI can
    re-enable "file ready" state and the agent can proceed.
@@ -58,7 +58,6 @@ def extract_file_text_task(self, file_id: int):
         UploadService,
         _extract_pdf_pages,
         _extract_text,
-        MAX_CHARS,
     )
 
     try:

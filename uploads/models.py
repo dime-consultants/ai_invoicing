@@ -141,7 +141,8 @@ class UploadedFile(models.Model):
     parsed_at     = models.DateTimeField(null=True, blank=True)
 
     # Raw text extracted from the file (stored for AI context window injection).
-    # For large PDFs this may be a truncated preview; full content is obtained
+    # Always the FULL extracted text, regardless of document size — ingestion
+    # never truncates. Paginated access for a single tool call is available
     # via read_file(file_id, page_from=..., page_to=...).
     extracted_text = models.TextField(
         blank=True,

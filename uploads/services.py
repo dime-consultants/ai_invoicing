@@ -31,11 +31,6 @@ from .models import UploadBatch, UploadedFile
 
 logger = logging.getLogger(__name__)
 
-# Max characters stored in extracted_text before prompt-level truncation.
-# This should be generous enough to keep the full document usable for AI
-# processing; later tool calls still cap content per prompt for token budgets.
-MAX_CHARS = getattr(settings, "UNSTRUCTURED_MAX_CHARS", 2_000_000)
-
 # PDFs with more pages than this are extracted in a Celery worker
 ASYNC_PAGE_THRESHOLD = getattr(settings, "ASYNC_PAGE_THRESHOLD", 20)
 PDF_EXTRACTION_CHUNK_SIZE = getattr(settings, "PDF_EXTRACTION_CHUNK_SIZE", 50)
@@ -191,8 +186,19 @@ def _extract_pdf_pages(
     1000-page document still has real, non-empty text to save instead of
     losing everything extracted before the deadline. A checkpoint failure is
     logged and swallowed — it must never abort the extraction itself.
+
+    max_chars=None means unbounded — the whole document is extracted with no
+    cap, matching every other file type's ingestion behavior (txt/csv/xlsx
+    are never capped at ingest either). This used to silently fall back to a
+    2,000,000-character default whenever a caller passed None intending "no
+    limit" (the normal ingest path always did), which meant any PDF whose
+    full text exceeded that — rare, but real for very large documents — was
+    permanently and silently truncated in storage, with no way for any
+    downstream pagination/chunking to ever recover the missing tail since it
+    was never saved. Only pass an explicit max_chars when a real per-call cap
+    is wanted (e.g. read_file's paginated single-chunk reads).
     """
-    limit = max_chars if max_chars is not None else MAX_CHARS
+    limit = max_chars
     try:
         import pdfplumber
         parts: list[str] = []

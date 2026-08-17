@@ -199,6 +199,20 @@ class ReadFileTests(TestCase):
         self.assertTrue(res["ok"])
         self.assertEqual(res["text"], ("y" * 1000)[100:200])
 
+    def test_default_max_chars_is_the_raised_settings_value_not_12000(self):
+        """read_file's default per-call budget was raised from 12 000 to
+        settings.READ_FILE_DEFAULT_MAX_CHARS (40 000) — fewer page_from
+        round-trips needed to fully read a large document."""
+        from django.conf import settings
+
+        uf = self._file(extracted_text="x" * 50000)
+        res = read_file(file_id=uf.pk)  # no max_chars passed — uses the default
+
+        expected_default = getattr(settings, "READ_FILE_DEFAULT_MAX_CHARS", 40000)
+        self.assertEqual(expected_default, 40000)
+        self.assertEqual(len(res["text"]), expected_default)
+        self.assertNotEqual(len(res["text"]), 12000)
+
 
 class ExportFileTests(TestCase):
     """
@@ -544,6 +558,69 @@ class ChunkedMergeTests(TestCase):
         self.assertEqual(call_count["n"], res["chunk_count"],
                           "one completion per chunk, and no extra reduce completion")
 
+    @override_settings(PROMPT_TRANSFORM_MAX_CHARS=500)
+    def test_chunk_output_hitting_token_cap_is_split_further_not_dropped(self):
+        """
+        Real-world regression: a chunk correctly sized for the INPUT cap can
+        still produce more structured JSON than fits in one completion's
+        output token budget (finish_reason == "length") — e.g. a dense CSV,
+        where JSON is far more verbose per row than the source text. Confirmed
+        against the real Grok API on a 1300-row CSV: every chunk came back
+        with finish_reason="length" and unparseable truncated JSON, merging
+        to zero records even though input-side chunking worked correctly.
+
+        This must trigger a further output-side split+retry (_map_chunk_with_
+        retry), not silently contribute zero rows for that chunk.
+
+        Sizing note: _map_chunk_with_retry has a safety floor (won't split a
+        chunk <=200 chars) — 1000 chars / 500-char cap gives two 500-char
+        top-level chunks (well above the floor), and the mock's own
+        truncation threshold (260) sits between a 500-char chunk (still
+        "too big") and its ~250-char post-split half (now small enough).
+        """
+        uf = self._file("x" * 1000)  # 1000 chars / 500-char cap -> 2 top-level chunks
+        config = SimpleNamespace(
+            name="extract_invoice_data",
+            system_prompt="Extract from:\n{file_text}",
+            output_schema=self.EXTRACT_SCHEMA,
+        )
+
+        def _create(**kwargs):
+            system = kwargs["messages"][0]["content"]
+            chunk_text = system.split("Extract from:\n", 1)[1].split("\n\nThis is part", 1)[0]
+            if len(chunk_text) > 260:
+                # Simulate the model's own output getting cut off for a chunk this size.
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(
+                        message=SimpleNamespace(content='{"record_count": 1, "records": [{"id": "incomplete"'),
+                        finish_reason="length",
+                    )],
+                    usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+                )
+            return SimpleNamespace(
+                choices=[SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=json.dumps({"record_count": 1, "records": [{"id": chunk_text[:5]}]}),
+                    ),
+                    finish_reason="stop",
+                )],
+                usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+            )
+
+        client = MagicMock()
+        client.chat.completions.create.side_effect = _create
+
+        with patch("tools.services._get_grok_client", return_value=client):
+            res = _call_prompt_transform(config, {"file_id": uf.pk})
+
+        self.assertTrue(res["ok"])
+        structured = res["structured"]
+        self.assertGreater(
+            structured["record_count"], 0,
+            "every top-level chunk hit the output token cap — without the retry, this merges to zero",
+        )
+        self.assertEqual(structured["record_count"], len(structured["records"]))
+
     @override_settings(PROMPT_TRANSFORM_MAX_CHARS=80)
     def test_two_source_reconcile_chunking_covers_all_rows(self):
         big = self._file("A" * 800, name="big_a.txt")
@@ -614,6 +691,83 @@ class ChunkedMergeTests(TestCase):
         from django.conf import settings
         self.assertEqual(captured["max_tokens"], getattr(settings, "PROMPT_TRANSFORM_MAX_TOKENS", 12000))
         self.assertNotEqual(captured["max_tokens"], 4096)
+
+    def test_completeness_check_flags_undercount_mismatch(self):
+        """
+        A csv-sourced extraction that reports fewer records than the source
+        actually has (LLM silently dropped rows) must be flagged — this is
+        the objective, non-LLM cross-check that recon workflows need to
+        trust that the output represents 100% of the uploaded data.
+        """
+        text = "invoice_id,amount\n" + "\n".join(f"INV-{i},{i * 10}" for i in range(1, 11))  # 10 data rows
+        uf = self._file(text, name="invoices.csv")
+        config = SimpleNamespace(
+            name="extract_invoice_data",
+            system_prompt="Extract from:\n{file_text}",
+            output_schema=self.EXTRACT_SCHEMA,
+        )
+        client = MagicMock()
+        client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content=json.dumps(
+                    {"record_count": 7, "records": [{"id": i} for i in range(7)]},  # wrong — should be 10
+                )),
+                finish_reason="stop",
+            )],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+        )
+        with patch("tools.services._get_grok_client", return_value=client):
+            res = _call_prompt_transform(config, {"file_id": uf.pk})
+
+        self.assertEqual(res["source_record_count"], 10)
+        self.assertTrue(res["record_count_mismatch"])
+
+    def test_completeness_check_passes_when_counts_match(self):
+        text = "invoice_id,amount\n" + "\n".join(f"INV-{i},{i * 10}" for i in range(1, 11))
+        uf = self._file(text, name="invoices.csv")
+        config = SimpleNamespace(
+            name="extract_invoice_data",
+            system_prompt="Extract from:\n{file_text}",
+            output_schema=self.EXTRACT_SCHEMA,
+        )
+        client = MagicMock()
+        client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content=json.dumps(
+                    {"record_count": 10, "records": [{"id": i} for i in range(10)]},
+                )),
+                finish_reason="stop",
+            )],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+        )
+        with patch("tools.services._get_grok_client", return_value=client):
+            res = _call_prompt_transform(config, {"file_id": uf.pk})
+
+        self.assertEqual(res["source_record_count"], 10)
+        self.assertFalse(res["record_count_mismatch"])
+
+    def test_completeness_check_skipped_for_non_line_per_record_formats(self):
+        """PDFs/prose have no reliable line-per-record mapping — the check
+        must not fire (and must not crash) for them."""
+        uf = self._file("some prose extracted from a pdf", name="report.pdf")
+        config = SimpleNamespace(
+            name="extract_invoice_data",
+            system_prompt="Extract from:\n{file_text}",
+            output_schema=self.EXTRACT_SCHEMA,
+        )
+        client = MagicMock()
+        client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content='{"record_count": 1, "records": [{"id": "x"}]}'),
+                finish_reason="stop",
+            )],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+        )
+        with patch("tools.services._get_grok_client", return_value=client):
+            res = _call_prompt_transform(config, {"file_id": uf.pk})
+
+        self.assertNotIn("source_record_count", res)
+        self.assertNotIn("record_count_mismatch", res)
 
 
 class MultiFileResolutionTests(TestCase):
