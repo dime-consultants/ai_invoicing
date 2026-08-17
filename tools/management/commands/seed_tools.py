@@ -377,6 +377,19 @@ Your job:
    - IDs (invoice numbers, CU numbers, FDN): strip trailing ".0" float artefacts.
 4. Return ONLY valid JSON — no prose, no markdown fences.
 
+CRITICAL — fidelity to the source (this output feeds financial reconciliation,
+where every value matters):
+- Every record you output MUST correspond to a record that is literally present
+  in the file content below. Never invent, estimate, infer, extrapolate, or
+  fabricate a record that is not explicitly there.
+- Never omit a record that IS present, and never merge two distinct records
+  into one.
+- If a single field's value is missing, illegible, or ambiguous, set that
+  field to null — do not guess a value, and do not drop the whole record
+  because one field is unclear.
+- record_count MUST equal the exact number of records in the records array —
+  never round, estimate, or approximate it.
+
 Output format:
 {
   "document_type": "<detected type>",
@@ -536,6 +549,19 @@ Steps:
    Tolerance: differences below tolerance are "MATCH", above are "VARIANCE".
 4. List records in A with no match in B: MISSING_IN_B.
 5. List records in B with no match in A: MISSING_IN_A.
+
+CRITICAL — this comparison must be complete and faithful to the source data:
+- Every single record present in File A and every single record present in
+  File B must appear in the output "rows" array exactly once — either as one
+  side of a MATCH/VARIANCE pair, or as a standalone MISSING_IN_B/MISSING_IN_A
+  entry. Do not silently drop a record from the comparison for any reason.
+- Never invent, estimate, or fabricate a record, on either side, that is not
+  literally present in that file's content below.
+- count_a and count_b MUST equal the exact number of records you found in
+  each file — never round or approximate.
+- If a field needed for matching or variance (join key, amount) is missing on
+  a given record, still include that record with the missing field as null —
+  do not drop it from the output.
 
 Return ONLY valid JSON — no prose, no markdown.
 
@@ -700,6 +726,17 @@ Apply the requested cleaning operations:
 - normalise_numbers: strip commas/spaces from numeric strings, convert to numbers
 
 Operations requested: {arguments}
+
+CRITICAL — fidelity to the source:
+- A record may ONLY be removed or merged if an explicitly requested operation
+  (strip_empty or deduplicate) justifies it. Never drop, invent, or fabricate
+  a record for any other reason.
+- Every field value that isn't touched by a requested normalisation operation
+  must be carried through unchanged from the source — do not "improve",
+  guess, or rewrite values beyond what was explicitly requested.
+- original_count MUST equal the exact number of records found in the source
+  content below, before any operation is applied.
+- cleaned_count + removed_count MUST equal original_count.
 
 Return ONLY valid JSON — no prose, no markdown.
 

@@ -71,7 +71,7 @@ class ReportBuildService:
                     ins.job_id, ins.get_insight_type_display(), ins.severity,
                     ins.title, ins.detail, ins.created_at.isoformat(),
                 ]
-                for ins in qs.order_by("-created_at")[:5000]
+                for ins in qs.order_by("-created_at")
             ]
             return headers, rows
 
@@ -122,7 +122,7 @@ class ReportBuildService:
                 uf.original_filename, uf.batch.label, uf.detected_type or "", uf.parse_status,
                 uf.file_size_bytes, uf.uploaded_at.isoformat(),
             ]
-            for uf in qs.order_by("-uploaded_at")[:5000]
+            for uf in qs.order_by("-uploaded_at")
         ]
         return headers, rows
 

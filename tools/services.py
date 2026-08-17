@@ -246,11 +246,13 @@ def _resolve_file_text(file_id, *, max_chars: int, page_from=None, page_to=None)
     """
     text: str = ""
     meta: dict = {}
+    extension: str = ""
     try:
         from uploads.models import UploadedFile
         uf   = UploadedFile.objects.get(pk=file_id)
         text = uf.extracted_text or ""
-        if not text and (uf.extension or "").lower() == "pdf" and uf.file:
+        extension = (uf.extension or "").lower()
+        if not text and extension == "pdf" and uf.file:
             try:
                 from uploads.services import extract_pdf_page_range
                 # Honour an explicit range from the caller; otherwise read the
@@ -285,7 +287,7 @@ def _resolve_file_text(file_id, *, max_chars: int, page_from=None, page_to=None)
             f"say so in your answer and do not present totals as complete.]"
         )
     return {"text": text, "full_length": full_length,
-            "truncated": truncated, "meta": meta}
+            "truncated": truncated, "meta": meta, "extension": extension}
 
 
 def _resolve_batch_text(batch_id, *, max_chars: int) -> dict:
@@ -417,9 +419,10 @@ def _merge_structured_chunks(structured_list: list, output_schema: dict | None) 
 def _map_chunk(
     client, model, chunk_system_prompt_base: str, chunk: str, placeholder: str,
     i: int, total: int, output_schema: dict | None,
-) -> tuple[str, dict | None, int, int]:
+) -> tuple[str, dict | None, int, int, str]:
     """Run one chunk's completion. Shared by the single- and two-source
-    chunked paths. Returns (raw_text, structured_or_None, in_tokens, out_tokens)."""
+    chunked paths. Returns (raw_text, structured_or_None, in_tokens,
+    out_tokens, finish_reason)."""
     chunk_system_prompt = chunk_system_prompt_base + (
         f"\n\nThis is part {i + 1} of {total} of one larger document, split "
         "only because it was too long for a single request. Analyze just "
@@ -442,17 +445,80 @@ def _map_chunk(
             max_tokens=getattr(settings, "PROMPT_TRANSFORM_MAX_TOKENS", 12000),
         )
         raw = response.choices[0].message.content or ""
+        finish_reason = getattr(response.choices[0], "finish_reason", None)
         structured = _parse_json_response(raw) if output_schema else None
         return (
             raw, structured,
             getattr(response.usage, "prompt_tokens", 0),
             getattr(response.usage, "completion_tokens", 0),
+            finish_reason,
         )
     except Exception as exc:
         logger.warning(
             "prompt_transform: chunk %d/%d failed: %s", i + 1, total, exc,
         )
-        return (f"[Part {i + 1} could not be processed: {exc}]", {} if output_schema else None, 0, 0)
+        return (f"[Part {i + 1} could not be processed: {exc}]", {} if output_schema else None, 0, 0, "error")
+
+
+# How many times a single chunk may be recursively split when the MODEL'S OWN
+# OUTPUT (not the input) hits its token cap — up to 2**_MAX_CHUNK_SPLIT_DEPTH
+# pieces for one original chunk in the worst case.
+_MAX_CHUNK_SPLIT_DEPTH = 4
+
+
+def _split_chunk_on_line_boundary(chunk: str) -> tuple[str, str]:
+    """Split a chunk roughly in half, preferring a nearby newline so a single
+    CSV/table row is never cut across the two halves."""
+    mid = len(chunk) // 2
+    split_at = chunk.rfind("\n", 0, mid)
+    if split_at <= 0:
+        split_at = chunk.find("\n", mid)
+    if split_at <= 0:
+        split_at = mid
+    return chunk[:split_at], chunk[split_at:]
+
+
+def _map_chunk_with_retry(
+    client, model, build_prompt_fn, chunk: str, placeholder: str,
+    i: int, total: int, output_schema: dict | None, depth: int = 0,
+) -> tuple[str, dict | None, int, int]:
+    """
+    Run one chunk, and if the model's own OUTPUT hit its token cap
+    (finish_reason == "length") — meaning this piece of the document produced
+    more structured JSON than fits in one completion, not that the input side
+    was too big — split this chunk again and recurse until it fits (or we hit
+    _MAX_CHUNK_SPLIT_DEPTH).
+
+    This is the output-side counterpart to the input chunking above: splitting
+    the input alone doesn't guarantee the resulting JSON fits a fixed output
+    budget, since JSON is often more verbose than the source text (e.g. a
+    compact CSV row expands into a multi-key JSON object per record). Without
+    this, a chunk sized correctly for the INPUT cap could still come back with
+    truncated, unparseable JSON — silently contributing zero rows to the merge
+    even though chunking itself worked.
+    """
+    raw, structured, in_tok, out_tok, finish_reason = _map_chunk(
+        client, model, build_prompt_fn(chunk), chunk, placeholder, i, total, output_schema,
+    )
+    if finish_reason == "length" and depth < _MAX_CHUNK_SPLIT_DEPTH and len(chunk) > 200:
+        logger.warning(
+            "prompt_transform: chunk %d/%d output hit the token cap at split-depth %d "
+            "(%d input chars) — splitting further, no data dropped",
+            i + 1, total, depth, len(chunk),
+        )
+        left, right = _split_chunk_on_line_boundary(chunk)
+        raw_l, structured_l, in_l, out_l = _map_chunk_with_retry(
+            client, model, build_prompt_fn, left, placeholder, i, total, output_schema, depth + 1,
+        )
+        raw_r, structured_r, in_r, out_r = _map_chunk_with_retry(
+            client, model, build_prompt_fn, right, placeholder, i, total, output_schema, depth + 1,
+        )
+        merged = (
+            _merge_structured_chunks([structured_l, structured_r], output_schema)
+            if output_schema else None
+        )
+        return (raw_l + "\n" + raw_r, merged, in_l + in_r, out_l + out_r)
+    return raw, structured, in_tok, out_tok
 
 
 def _run_chunked_prompt_transform(
@@ -498,15 +564,18 @@ def _run_chunked_prompt_transform(
     max_workers = min(len(chunks), getattr(settings, "PROMPT_TRANSFORM_MAX_PARALLEL_CHUNKS", 6))
 
     def _map_one(i: int, chunk: str):
-        chunk_system_prompt_base = _safe_prompt_substitute(
-            config.system_prompt or "",
-            arguments="{}",
-            file_text=chunk if placeholder == "file_text" else "",
-            file_a_text=chunk if placeholder == "file_a_text" else "",
-            file_b_text=chunk if placeholder == "file_b_text" else "",
-            batch_text=chunk if placeholder == "batch_text" else "",
+        def build_prompt(c: str) -> str:
+            return _safe_prompt_substitute(
+                config.system_prompt or "",
+                arguments="{}",
+                file_text=c if placeholder == "file_text" else "",
+                file_a_text=c if placeholder == "file_a_text" else "",
+                file_b_text=c if placeholder == "file_b_text" else "",
+                batch_text=c if placeholder == "batch_text" else "",
+            )
+        return _map_chunk_with_retry(
+            client, model, build_prompt, chunk, placeholder, i, len(chunks), output_schema,
         )
-        return _map_chunk(client, model, chunk_system_prompt_base, chunk, placeholder, i, len(chunks), output_schema)
 
     raw_results: list[str] = [""] * len(chunks)
     structured_results: list = [None] * len(chunks)
@@ -531,7 +600,7 @@ def _run_chunked_prompt_transform(
             f"--- Part {i + 1}/{len(chunks)} ---\n{r}" for i, r in enumerate(raw_results)
         )
 
-    return {
+    result = {
         "ok":                True,
         "result":            result_text,
         "structured":        merged,
@@ -543,6 +612,9 @@ def _run_chunked_prompt_transform(
         "chunked":           True,
         "chunk_count":       len(chunks),
     }
+    return _attach_completeness_check(
+        result, tool_name, [(full.get("extension", ""), full["text"])],
+    )
 
 
 def _run_chunked_two_source_prompt_transform(
@@ -584,15 +656,18 @@ def _run_chunked_two_source_prompt_transform(
     max_workers = min(len(chunks), getattr(settings, "PROMPT_TRANSFORM_MAX_PARALLEL_CHUNKS", 6))
 
     def _map_one(i: int, chunk: str):
-        chunk_system_prompt_base = _safe_prompt_substitute(
-            config.system_prompt or "",
-            arguments="{}",
-            file_text="",
-            file_a_text=chunk if chunked_placeholder == "file_a_text" else full_other["text"],
-            file_b_text=chunk if chunked_placeholder == "file_b_text" else full_other["text"],
-            batch_text="",
+        def build_prompt(c: str) -> str:
+            return _safe_prompt_substitute(
+                config.system_prompt or "",
+                arguments="{}",
+                file_text="",
+                file_a_text=c if chunked_placeholder == "file_a_text" else full_other["text"],
+                file_b_text=c if chunked_placeholder == "file_b_text" else full_other["text"],
+                batch_text="",
+            )
+        return _map_chunk_with_retry(
+            client, model, build_prompt, chunk, chunked_placeholder, i, len(chunks), output_schema,
         )
-        return _map_chunk(client, model, chunk_system_prompt_base, chunk, chunked_placeholder, i, len(chunks), output_schema)
 
     raw_results: list[str] = [""] * len(chunks)
     structured_results: list = [None] * len(chunks)
@@ -628,7 +703,7 @@ def _run_chunked_two_source_prompt_transform(
                 merged[unchunked_count_key] = s[unchunked_count_key]
                 break
 
-    return {
+    result = {
         "ok":                True,
         "result":            json.dumps(merged, indent=2),
         "structured":        merged,
@@ -639,6 +714,82 @@ def _run_chunked_two_source_prompt_transform(
         "chunked":           True,
         "chunk_count":       len(chunks),
     }
+    return _attach_completeness_check(
+        result, tool_name,
+        [(full_chunked.get("extension", ""), full_chunked["text"]),
+         (full_other.get("extension", ""), full_other["text"])],
+    )
+
+
+# Extensions whose extracted text is one line per source record (a plain or
+# tab-joined line per row) — line-counting them gives an objective, non-LLM
+# cross-check on how many records a prompt_transform tool SHOULD have found,
+# independent of whatever count the model itself reports. PDFs and
+# unstructured/prose formats have no such guarantee, so they're deliberately
+# excluded rather than producing a misleading comparison.
+_LINE_PER_RECORD_EXTENSIONS = {"csv", "xlsx", "xls"}
+
+# Which field(s) in a tool's own structured output represent "how many source
+# records did you find" — used to cross-check against the deterministic line
+# count above. A tool not listed here gets no check.
+_SOURCE_COUNT_FIELDS_BY_TOOL = {
+    "extract_invoice_data": ("record_count",),
+    "clean_dataset":        ("original_count",),
+    "reconcile_datasets":   ("count_a", "count_b"),
+}
+
+
+def _count_source_lines(text: str) -> int:
+    """Non-empty line count — a proxy for row count in line-per-record
+    formats (csv/xlsx/xls)."""
+    return sum(1 for line in text.splitlines() if line.strip())
+
+
+def _attach_completeness_check(result: dict, tool_name: str, sources: list[tuple[str, str]]) -> dict:
+    """
+    Best-effort, non-LLM cross-check that a prompt_transform tool's reported
+    record count matches the source file(s) it was actually given — catches
+    silent under/over-extraction (fabricated or dropped rows) that a prompt
+    instruction alone can't guarantee. `sources` is a list of
+    (extension, full_text) pairs for every file this call resolved.
+
+    Never raises and never changes "ok"/"structured" — attaches
+    "source_record_count" and "record_count_mismatch" as purely informational
+    fields so a caller (chat agent, recon UI) can surface a data-quality
+    warning instead of blindly trusting the model's self-reported count.
+    """
+    count_fields = _SOURCE_COUNT_FIELDS_BY_TOOL.get(tool_name)
+    structured = result.get("structured")
+    if not count_fields or not isinstance(structured, dict):
+        return result
+
+    non_empty = [(ext, text) for ext, text in sources if text]
+    if not non_empty or any(ext not in _LINE_PER_RECORD_EXTENSIONS for ext, _ in non_empty):
+        # No source, or at least one source isn't a line-per-record format
+        # (e.g. a PDF) — the comparison wouldn't be meaningful, skip it.
+        return result
+
+    expected = sum(max(0, _count_source_lines(text) - 1) for _, text in non_empty)  # -1 for the header row
+    if expected <= 0:
+        # A single-line (or empty) "source" gives an unreliable expectation
+        # from this line-counting heuristic alone — e.g. a header-only file,
+        # or content that merely has a .csv name without real row structure.
+        # Skip rather than raise a false-positive mismatch.
+        return result
+
+    reported = sum(
+        v for f in count_fields
+        if isinstance(v := structured.get(f), (int, float))
+    )
+    result["source_record_count"]   = expected
+    result["record_count_mismatch"] = expected != reported
+    if expected != reported:
+        logger.warning(
+            "prompt_transform: '%s' reported %s records but the source has "
+            "%s lines (minus header) — possible fabricated or dropped rows",
+            tool_name, reported, expected,
+        )
+    return result
 
 
 def _call_prompt_transform(config, arguments: dict) -> dict:
@@ -692,6 +843,7 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
     per_source = max(1, max_file_chars // max(1, len(wanted)))
 
     resolved: dict[str, str] = {}
+    extensions: dict[str, str] = {}
     file_meta: dict = {}
     full_lengths: dict[str, int] = {}
     total_full_length = 0
@@ -708,6 +860,7 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
                 page_to=arguments.get("page_to"),
             )
         resolved[placeholder] = got["text"]
+        extensions[placeholder] = got.get("extension", "")
         full_lengths[placeholder] = got["full_length"]
         total_full_length += got["full_length"]
         any_truncated = any_truncated or got["truncated"]
@@ -825,7 +978,7 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
                 # Best effort — return raw text alongside the parse failure note
                 structured = {"parse_error": "Response was not valid JSON", "raw": s[:1000]}
 
-        return {
+        result = {
             "ok":         True,
             "result":     raw_text,
             "structured": structured,
@@ -837,6 +990,9 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
             "input_full_length": file_full_length,
             **file_meta,
         }
+        tool_name = getattr(config, "name", "?")
+        sources = [(extensions.get(ph, ""), resolved.get(ph, "")) for ph, _, _ in wanted]
+        return _attach_completeness_check(result, tool_name, sources)
 
     except Exception as exc:
         logger.exception("prompt_transform dispatch failed: %s", exc)
@@ -879,7 +1035,7 @@ class ToolService:
         """
         client      = _get_grok_client()
         model       = getattr(settings, "GROK_MODEL",         "grok-3")
-        max_tokens  = getattr(settings, "AI_MAX_TOKENS",       4096)
+        max_tokens  = getattr(settings, "AI_MAX_TOKENS",       12000)
         max_rounds  = getattr(settings, "AI_MAX_TOOL_ROUNDS",  25)
 
         tool_schemas = _load_tool_schemas(tool_names, organization=organization)
