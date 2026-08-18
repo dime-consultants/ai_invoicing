@@ -54,7 +54,7 @@ jobs:
       - name: Generate Docker Image Tag
         id: tag
         run: |
-          IMAGE_NAME="notification_bus"
+          IMAGE_NAME="ai_invoicing"
           TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
           ENV_NAME="${{ steps.env.outputs.env }}"
 
