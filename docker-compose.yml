@@ -1,266 +1,62 @@
-services:
+version: "3.9"
 
-  # ── PostgreSQL ──────────────────────────────────────────────────────────────
-  db:
-    image: postgres:16-alpine
-    container_name: invoicing-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB:       ${DB_NAME}
-      POSTGRES_USER:     ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - invoicing-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+x-django-env: &django-env
+  DJANGO_DEBUG: false
+  DJANGO_SETTINGS_MODULE: notify.settings
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
 
-  # ── Redis ───────────────────────────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: invoicing-redis
-    restart: unless-stopped
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
-    volumes:
-      - redis_data:/data
-    networks:
-      - invoicing-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    deploy:
-      resources:
-        limits:
-          memory: 320M
+  DATABASE_DB: ${DATABASE_DB}
+  DATABASE_USER: ${DATABASE_USER}
+  DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+  DATABASE_HOST: ${DATABASE_HOST}
+  DATABASE_PORT: ${DATABASE_PORT}
 
-  # ── Migrations + seed (one-shot, runs then exits) ───────────────────────────
-  #
-  # Runs in order:
-  #   1. migrate          — apply any pending Django migrations
-  #   2. seed_tools       — upsert builtin + prompt_transform ToolDefinitions
-  #                         and write /app/tools_export.json for the frontend
-  #   3. collectstatic    — gather static assets into /app/staticfiles
-  #
-  # register_tools and sync_tools_to_ui are removed — seed_tools replaces both.
-  # seed_tools is idempotent: re-running on deploy only updates changed rows.
-  migrate:
-    image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
-    container_name: invoicing-migrate
-    restart: "no"
-    env_file: .env
-    environment:
-      DB_HOST:   db
-      REDIS_URL: redis://redis:6379/0
-    depends_on:
-      db:
-        condition: service_healthy
-    networks:
-      - invoicing-network
-    volumes:
-      - tools_export:/app  # shares tools_export.json with app container
-    command: >
-      sh -c "
-        echo '[migrate] Applying migrations...' &&
-        python manage.py migrate --noinput &&
-        echo '[migrate] Seeding tools...' &&
-        python manage.py seed_tools --export /app/tools_export.json &&
-        echo '[migrate] Collecting static files...' &&
-        python manage.py collectstatic --noinput &&
-        echo '[migrate] Done.'
-      "
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL}
 
-  # ── Django / Daphne (web) ───────────────────────────────────────────────────
-  app:
-    image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
-    container_name: invoicing-app
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      DB_HOST:            db
-      REDIS_URL:          redis://redis:6379/0
-      DEBUG:              "False"
-      # Entrypoint skips startup tasks — migrate service handled them
-      RUN_STARTUP_TASKS:  "false"
-    volumes:
-      - static_files:/app/staticfiles
-      - media_files:/app/media
-      - outputs_files:/app/outputs
-      - tools_export:/app/tools_export_shared  # read tools_export.json if needed
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    networks:
-      - invoicing-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
+  SYSTEM_BASE_URL: https://notify.lipasync.com
 
-  # ── Celery worker (extraction + default queues) ────────────────────────────
-  #
-  # Shares media_files and outputs_files with `app`:
-  #   - reads uploaded files from /app/media (written by the web process)
-  #   - writes extracted xlsx/csv to /app/outputs/converted/ (read back by web
-  #     process when persisting ChatMessageAttachment records)
-  #
-  # Handles the "extraction" queue (large PDF/spreadsheet text extraction,
-  # up to 15-25 min soft time limits) and "default" (AI analysis jobs). Chat
-  # turns are routed to the separate `worker-chat` service below so a burst of
-  # large-file processing here can never delay a plain chat message.
-  #
-  # Does NOT run startup tasks — migrations + seeding happen in `migrate`.
-  worker:
-    image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
-    container_name: invoicing-worker
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      DB_HOST:   db
-      REDIS_URL: redis://redis:6379/0
-      DEBUG:     "False"
-    volumes:
-      - media_files:/app/media
-      - outputs_files:/app/outputs
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    networks:
-      - invoicing-network
-    # --autoscale=MAX,MIN (not a fixed --concurrency) — the pool grows up to
-    # MAX worker processes when several large files queue up at once and
-    # shrinks back to MIN when idle, instead of a fixed pool either sitting
-    # idle most of the time or being too small during a burst.
-    command: >
-      celery -A config worker
-      -Q extraction,default
-      --loglevel=info
-      --autoscale=4,2
-      --max-tasks-per-child=20
-    healthcheck:
-      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-    deploy:
-      resources:
-        limits:
-          memory: 512M
+x-app-image: &app-image ${IMAGE_TAG}
 
-  # ── Celery worker (chat queue only) ─────────────────────────────────────────
-  #
-  # Dedicated to chat.tasks.run_chat_turn_task. Kept separate from the
-  # extraction/default worker above so a large PDF extraction or AI job can
-  # never queue a no-attachment chat reply behind it — chat turns are short
-  # (soft_time_limit 8 min, typically seconds) and users are actively waiting
-  # on them in real time.
-  worker-chat:
-    image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
-    container_name: invoicing-worker-chat
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      DB_HOST:   db
-      REDIS_URL: redis://redis:6379/0
-      DEBUG:     "False"
-    volumes:
-      - media_files:/app/media
-      - outputs_files:/app/outputs
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    networks:
-      - invoicing-network
-    # Higher ceiling than the extraction/default pool — this queue now
-    # carries every REST chat send too (chat/views.py:_run_turn_via_worker),
-    # not just WebSocket-originated turns, and needs headroom for concurrent
-    # users rather than for any single slow task.
-    command: >
-      celery -A config worker
-      -Q chat
-      --loglevel=info
-      --autoscale=8,2
-      --max-tasks-per-child=50
-    healthcheck:
-      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-    deploy:
-      resources:
-        limits:
-          memory: 384M
-
-  # ── Flower (Celery monitoring) ───────────────────────────────────────────────
-  # Web UI at http://<host>:5555 — safe to remove once things are stable.
-  flower:
-    image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
-    container_name: invoicing-flower
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      REDIS_URL: redis://redis:6379/0
-    depends_on:
-      redis:
-        condition: service_healthy
-    networks:
-      - invoicing-network
-    command: celery -A config flower --port=5555
-    ports:
-      - "5555:5555"
-
-  # ── Nginx ───────────────────────────────────────────────────────────────────
-  nginx:
-    image: nginx:alpine
-    container_name: invoicing-nginx
-    restart: unless-stopped
-    ports:
-      - "8000:80"
-    volumes:
-      - ./nginx/invoicing.conf:/etc/nginx/conf.d/default.conf:ro
-      - static_files:/var/www/static:ro
-      - media_files:/var/www/media:ro
-    depends_on:
-      app:
-        condition:
-         service_healthy
-    networks:
-      - invoicing-network
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/api/health/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
-volumes:
-  postgres_data:
-  redis_data:
-  static_files:
-  media_files:
-  outputs_files:
-  tools_export:     # carries tools_export.json from migrate → app
+x-common-labels: &common-labels
+  observability.app: notification-bus
+  observability.environment: ${SHARED_ENV}
 
 networks:
-  invoicing-network:
-    driver: bridge
+  default:
+    name: ${SHARED_NETWORK}
+    external: true
+
+services:
+  notify:
+    image: *app-image
+    container_name: ${SHARED_ENV}_notify_app
+    labels:
+      <<: *common-labels
+      observability.component: api
+    environment:
+      <<: *django-env
+    ports:
+      - "${API_PORT}:8000"
+    restart: always
+
+  celery_worker:
+    image: *app-image
+    container_name: ${SHARED_ENV}_notify_celery_worker
+    labels:
+      <<: *common-labels
+      observability.component: celery-worker
+    command: celery -A notify worker -l INFO
+    environment:
+      <<: *django-env
+    restart: always
+
+  celery_beat:
+    image: *app-image
+    container_name: ${SHARED_ENV}_notify_celery_beat
+    labels:
+      <<: *common-labels
+      observability.component: celery-beat
+    command: celery -A notify beat -l INFO
+    environment:
+      <<: *django-env
+    restart: always
