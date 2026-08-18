@@ -2,7 +2,7 @@ version: "3.9"
 
 x-django-env: &django-env
   DJANGO_DEBUG: false
-  DJANGO_SETTINGS_MODULE: notify.settings
+  DJANGO_SETTINGS_MODULE: ai_invoicing.settings
   DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
 
   DATABASE_DB: ${DATABASE_DB}
@@ -27,9 +27,9 @@ networks:
     external: true
 
 services:
-  notify:
+  invoicing:
     image: *app-image
-    container_name: ${SHARED_ENV}_notify_app
+    container_name: ${SHARED_ENV}_invoicing_app
     labels:
       <<: *common-labels
       observability.component: api
@@ -41,7 +41,7 @@ services:
 
   celery_worker:
     image: *app-image
-    container_name: ${SHARED_ENV}_notify_celery_worker
+    container_name: ${SHARED_ENV}_invoicing_celery_worker
     labels:
       <<: *common-labels
       observability.component: celery-worker
@@ -52,11 +52,11 @@ services:
 
   celery_beat:
     image: *app-image
-    container_name: ${SHARED_ENV}_notify_celery_beat
+    container_name: ${SHARED_ENV}_invoicing_celery_beat
     labels:
       <<: *common-labels
       observability.component: celery-beat
-    command: celery -A notify beat -l INFO
+    command: celery -A ai_invoicing beat -l INFO
     environment:
       <<: *django-env
     restart: always
