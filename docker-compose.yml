@@ -18,7 +18,7 @@ x-django-env: &django-env
 x-app-image: &app-image ${IMAGE_TAG}
 
 x-common-labels: &common-labels
-  observability.app: notification-bus
+  observability.app: ai-invoicing
   observability.environment: ${SHARED_ENV}
 
 networks:
