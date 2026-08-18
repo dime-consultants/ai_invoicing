@@ -19,6 +19,7 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
+
 def _get_layer():
     try:
         from channels.layers import get_channel_layer
