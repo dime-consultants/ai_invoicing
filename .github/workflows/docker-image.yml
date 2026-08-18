@@ -1,7 +1,7 @@
 name: Build Image & Trigger Deployment
 on:
   push:
-    branches: [ "main", "develop" ]
+    branches: ["master", "main","develop" ]
 jobs:
   test:
     runs-on: ubuntu-latest
