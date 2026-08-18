@@ -159,6 +159,7 @@ jobs:
           token: ${{ secrets.INFRA_PAT }}
           repository: dime-consultants/infrastructure
           event-type: deploy-app
+
           client-payload: |
             {
               "app_repo": "${{ github.repository }}",
