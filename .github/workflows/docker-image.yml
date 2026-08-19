@@ -26,6 +26,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Run migrations
+        run: |
+          python manage.py migrate --noinput
+
+      - name: Collect static files
+        run: |
+          python manage.py collectstatic --noinput --clear
+
       - name: Run tests
         run: |
           python manage.py test
@@ -150,10 +158,15 @@ jobs:
             '.[$key] = $value')
 
           COMPACT=$(echo "$JSON" | jq -c '.')
+          ESCAPED=$(printf '%s' "$COMPACT" | jq -Rs '.')
+          ENCODED=$(printf '%s' "$COMPACT" | base64 -w 0)
 
           {
-            echo "secrets_json<<EOF"
-            echo "$COMPACT"
+            echo "secrets_json_string<<EOF"
+            echo "$ESCAPED"
+            echo "EOF"
+            echo "secrets_json_b64<<EOF"
+            echo "$ENCODED"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -181,5 +194,7 @@ jobs:
               "sha": "${{ github.sha }}",
               "image_tag": "${{ steps.tag.outputs.image_tag }}",
               "docker_compose_b64": "${{ steps.compose.outputs.b64 }}",
-              "env_secrets": ${{ steps.prepare_secrets.outputs.secrets_json }}
+              "env_secrets": ${{ steps.prepare_secrets.outputs.secrets_json_string }},
+              "env_secrets_b64": "${{ steps.prepare_secrets.outputs.secrets_json_b64 }}",
+              "env_secrets_encoding": "base64-json"
             }
