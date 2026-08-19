@@ -102,7 +102,19 @@ jobs:
               '.DJANGO_SECRET_KEY = $value')
           fi
 
-          SECRETS_JSON=$(echo "$SECRETS_JSON" | jq -c '.')
+          if [[ "${{ steps.env.outputs.env }}" == "stage" ]]; then
+            SYSTEM_BASE_URL="stage-invoicing.dimeconsultants.africa"
+          else
+            SYSTEM_BASE_URL="invoicing.dimeconsultants.africa"
+          fi
+
+          JSON=$(echo "$JSON" | jq \
+            --arg key "SYSTEM_BASE_URL" \
+            --arg value "$SYSTEM_BASE_URL" \
+            '.[$key] = $value')
+
+          COMPACT=$(echo "$JSON" | jq -c '.')
+
 
 
           # Outputs
