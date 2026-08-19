@@ -165,7 +165,6 @@ jobs:
             echo "Error: INFRA_PAT is missing."
             exit 1
           fi
-
           echo "Infra PAT is configured."
 
       - name: Trigger deployment in Infra repository
