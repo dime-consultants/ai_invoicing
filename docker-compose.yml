@@ -13,7 +13,7 @@ x-django-env: &django-env
 
   CELERY_BROKER_URL: ${CELERY_BROKER_URL}
 
-  SYSTEM_BASE_URL: invoicing.dimeconsultants.africa
+  SYSTEM_BASE_URL: ${SYSTEM_BASE_URL:-invoicing.dimeconsultants.africa}
 
 x-app-image: &app-image ${IMAGE_TAG}
 
