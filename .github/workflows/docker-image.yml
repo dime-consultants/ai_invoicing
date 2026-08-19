@@ -158,15 +158,46 @@ jobs:
             '.[$key] = $value')
 
           COMPACT=$(echo "$JSON" | jq -c '.')
-          ESCAPED=$(printf '%s' "$COMPACT" | jq -Rs '.')
-          ENCODED=$(printf '%s' "$COMPACT" | base64 -w 0)
 
           {
-            echo "secrets_json_string<<EOF"
-            echo "$ESCAPED"
+            echo "secrets_json<<EOF"
+            echo "$COMPACT"
             echo "EOF"
-            echo "secrets_json_b64<<EOF"
-            echo "$ENCODED"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Prepare deployment payload
+        id: payload
+        shell: bash
+        env:
+          APP_REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          ENV_NAME: ${{ steps.env.outputs.env }}
+          SHA: ${{ github.sha }}
+          IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
+          DOCKER_COMPOSE_B64: ${{ steps.compose.outputs.b64 }}
+          ENV_SECRETS_JSON: ${{ steps.prepare_secrets.outputs.secrets_json }}
+        run: |
+          PAYLOAD=$(jq -nc \
+            --arg app_repo "$APP_REPO" \
+            --arg branch "$BRANCH" \
+            --arg env "$ENV_NAME" \
+            --arg sha "$SHA" \
+            --arg image_tag "$IMAGE_TAG" \
+            --arg docker_compose_b64 "$DOCKER_COMPOSE_B64" \
+            --argjson env_secrets "$ENV_SECRETS_JSON" \
+            '{
+              app_repo: $app_repo,
+              branch: $branch,
+              env: $env,
+              sha: $sha,
+              image_tag: $image_tag,
+              docker_compose_b64: $docker_compose_b64,
+              env_secrets: $env_secrets
+            }')
+
+          {
+            echo "client_payload<<EOF"
+            echo "$PAYLOAD"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -186,15 +217,4 @@ jobs:
           token: ${{ secrets.INFRA_PAT }}
           repository: dime-consultants/infrastructure
           event-type: deploy-app
-          client-payload: |
-            {
-              "app_repo": "${{ github.repository }}",
-              "branch": "${{ github.ref_name }}",
-              "env": "${{ steps.env.outputs.env }}",
-              "sha": "${{ github.sha }}",
-              "image_tag": "${{ steps.tag.outputs.image_tag }}",
-              "docker_compose_b64": "${{ steps.compose.outputs.b64 }}",
-              "env_secrets": ${{ steps.prepare_secrets.outputs.secrets_json_string }},
-              "env_secrets_b64": "${{ steps.prepare_secrets.outputs.secrets_json_b64 }}",
-              "env_secrets_encoding": "base64-json"
-            }
+          client-payload: ${{ steps.payload.outputs.client_payload }}

@@ -11,7 +11,6 @@ def main():
             "This project requires Python 3.12 or newer. "
             f"You are using Python {sys.version_info.major}.{sys.version_info.minor}."
         )
-
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
     try:
         from django.core.management import execute_from_command_line
