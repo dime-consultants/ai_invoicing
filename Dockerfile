@@ -16,7 +16,7 @@ COPY . .
 RUN python manage.py collectstatic --noinput --clear
 
 
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /usr/src/app
 
@@ -33,10 +33,7 @@ RUN useradd -m -r appuser && \
 
 USER appuser
 
-EXPOSE 6000
+EXPOSE 8000
 
 CMD ["sh", "-c", "python manage.py migrate && \
-                  gunicorn ai_invoicing.wsgi:application \
-                  --bind 0.0.0.0:6000 \
-                  --workers 1 \
-                  --timeout 120"]
+                  daphne -b 0.0.0.0 -p 8000 config.asgi:application"]

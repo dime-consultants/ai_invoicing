@@ -1,15 +1,15 @@
 version: "3.9"
 
 x-django-env: &django-env
-  DJANGO_DEBUG: false
-  DJANGO_SETTINGS_MODULE: ai_invoicing.settings
-  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+  DEBUG: "False"
+  DJANGO_SETTINGS_MODULE: config.settings
+  SECRET_KEY: ${DJANGO_SECRET_KEY}
 
-  DATABASE_DB: ${DATABASE_DB}
-  DATABASE_USER: ${DATABASE_USER}
-  DATABASE_PASSWORD: ${DATABASE_PASSWORD}
-  DATABASE_HOST: ${DATABASE_HOST}
-  DATABASE_PORT: ${DATABASE_PORT}
+  DB_NAME: ${DATABASE_DB}
+  DB_USER: ${DATABASE_USER}
+  DB_PASSWORD: ${DATABASE_PASSWORD}
+  DB_HOST: ${DATABASE_HOST}
+  DB_PORT: ${DATABASE_PORT}
 
   CELERY_BROKER_URL: ${CELERY_BROKER_URL}
 
@@ -45,7 +45,7 @@ services:
     labels:
       <<: *common-labels
       observability.component: celery-worker
-    command: celery -A notify worker -l INFO
+    command: celery -A config worker -l INFO
     environment:
       <<: *django-env
     restart: always
@@ -56,7 +56,7 @@ services:
     labels:
       <<: *common-labels
       observability.component: celery-beat
-    command: celery -A ai_invoicing beat -l INFO
+    command: celery -A config beat -l INFO
     environment:
       <<: *django-env
     restart: always

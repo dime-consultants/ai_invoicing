@@ -226,6 +226,9 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3001",
     "http://127.0.0.1:3001",
     "https://guardian.dimeconsultants.africa",
+    "https://stage-guardian.dimeconsultants.africa",
+    "https://invoicing.dimeconsultants.africa",
+    "https://stage-invoicing.dimeconsultants.africa",
 ]
 
 CSRF_COOKIE_HTTPONLY = False
