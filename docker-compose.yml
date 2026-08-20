@@ -49,7 +49,6 @@ services:
     environment:
       <<: *django-env
     restart: always
-
   celery_beat:
     image: *app-image
     container_name: ${SHARED_ENV}_invoicing_celery_beat
