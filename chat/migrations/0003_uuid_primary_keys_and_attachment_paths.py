@@ -14,25 +14,53 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.AddField(
+            model_name="chatconversation",
+            name="public_id",
+            field=models.UUIDField(blank=True, editable=False, null=True),
+        ),
+        migrations.AddField(
+            model_name="chatmessage",
+            name="public_id",
+            field=models.UUIDField(blank=True, editable=False, null=True),
+        ),
+        migrations.AddField(
+            model_name="chatmessageattachment",
+            name="public_id",
+            field=models.UUIDField(blank=True, editable=False, null=True),
+        ),
+        migrations.AddField(
+            model_name="workflow",
+            name="public_id",
+            field=models.UUIDField(blank=True, editable=False, null=True),
+        ),
+        migrations.RunPython(
+            lambda apps, schema_editor: [
+                (setattr(obj, "public_id", uuid.uuid4()), obj.save(update_fields=["public_id"]))
+                for model_name in ("ChatConversation", "ChatMessage", "ChatMessageAttachment", "Workflow")
+                for obj in apps.get_model("chat", model_name).objects.filter(public_id__isnull=True)
+            ],
+            migrations.RunPython.noop,
+        ),
         migrations.AlterField(
             model_name="chatconversation",
-            name="id",
-            field=models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
+            name="public_id",
+            field=models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, unique=True),
         ),
         migrations.AlterField(
             model_name="chatmessage",
-            name="id",
-            field=models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
+            name="public_id",
+            field=models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, unique=True),
         ),
         migrations.AlterField(
             model_name="chatmessageattachment",
-            name="id",
-            field=models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
+            name="public_id",
+            field=models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, unique=True),
         ),
         migrations.AlterField(
             model_name="workflow",
-            name="id",
-            field=models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
+            name="public_id",
+            field=models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, unique=True),
         ),
         migrations.AlterField(
             model_name="chatmessageattachment",

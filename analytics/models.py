@@ -38,7 +38,7 @@ class Report(models.Model):
         ("csv",  "CSV"),
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     name        = models.CharField(max_length=255)
     report_type = models.CharField(max_length=20, choices=REPORT_TYPE_CHOICES, default="custom")
     status      = models.CharField(max_length=15, choices=STATUS_CHOICES, default="generating")

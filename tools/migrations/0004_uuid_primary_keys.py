@@ -12,19 +12,42 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.AddField(
+            model_name="tooldefinition",
+            name="public_id",
+            field=models.UUIDField(blank=True, editable=False, null=True),
+        ),
+        migrations.AddField(
+            model_name="toolcall",
+            name="public_id",
+            field=models.UUIDField(blank=True, editable=False, null=True),
+        ),
+        migrations.AddField(
+            model_name="usertoolconfig",
+            name="public_id",
+            field=models.UUIDField(blank=True, editable=False, null=True),
+        ),
+        migrations.RunPython(
+            lambda apps, schema_editor: [
+                (setattr(obj, "public_id", uuid.uuid4()), obj.save(update_fields=["public_id"]))
+                for model_name in ("ToolDefinition", "ToolCall", "UserToolConfig")
+                for obj in apps.get_model("tools", model_name).objects.filter(public_id__isnull=True)
+            ],
+            migrations.RunPython.noop,
+        ),
         migrations.AlterField(
             model_name="tooldefinition",
-            name="id",
-            field=models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
+            name="public_id",
+            field=models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, unique=True),
         ),
         migrations.AlterField(
             model_name="toolcall",
-            name="id",
-            field=models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
+            name="public_id",
+            field=models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, unique=True),
         ),
         migrations.AlterField(
             model_name="usertoolconfig",
-            name="id",
-            field=models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
+            name="public_id",
+            field=models.UUIDField(db_index=True, default=uuid.uuid4, editable=False, unique=True),
         ),
     ]

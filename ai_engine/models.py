@@ -42,7 +42,7 @@ class AIAnalysisJob(models.Model):
         ("error",    "Error"),
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     # ── Relationships ─────────────────────────────────────────────────────────
     batch = models.ForeignKey(
         "uploads.UploadBatch",
@@ -153,7 +153,7 @@ class AIInsight(models.Model):
         ("critical", "Critical"),
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     job = models.ForeignKey(
         AIAnalysisJob,
         on_delete=models.CASCADE,

@@ -12,7 +12,7 @@ class ReportSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Report
         fields = [
-            "id", "name", "type", "status", "format",
+            "id", "public_id", "name", "type", "status", "format",
             "fileSize", "generatedAt", "created_at",
         ]
         read_only_fields = fields

@@ -21,7 +21,7 @@ class ChatConversation(models.Model):
     user and holds an ordered list of messages.  The assistant reads the
     last N messages as context on every turn.
     """
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -66,7 +66,7 @@ class ChatMessage(models.Model):
         ("system",    "System"),
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     conversation = models.ForeignKey(
         ChatConversation,
         on_delete=models.CASCADE,
@@ -121,7 +121,7 @@ class ChatMessageAttachment(models.Model):
         ("assistant_output", "Assistant Output"),
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     message = models.ForeignKey(
         ChatMessage,
         on_delete=models.CASCADE,
@@ -185,7 +185,7 @@ class Workflow(models.Model):
         ("custom",              "Custom Workflow"),
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     name          = models.CharField(max_length=150)
     description   = models.TextField(blank=True)
     workflow_type = models.CharField(max_length=30, choices=WORKFLOW_TYPE_CHOICES)

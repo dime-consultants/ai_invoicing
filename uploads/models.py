@@ -13,7 +13,7 @@ def _batch_upload_path(instance, filename):
         "uploads",
         str(now.year),
         f"{now.month:02d}",
-        str(instance.batch.id) if instance.batch_id else "unassigned",
+        str(getattr(instance.batch, "public_id", instance.batch_id)) if instance.batch_id else "unassigned",
         f"{uuid.uuid4()}-{safe_name}",
     )
 
@@ -36,7 +36,7 @@ class UploadBatch(models.Model):
         ("failed",     "Failed"),        # all jobs failed
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     label = models.CharField(
         max_length=200,
         help_text="Human-readable name for this batch, e.g. 'April 2026 URA Receipts'.",
@@ -106,7 +106,7 @@ class UploadedFile(models.Model):
         ("skipped",     "Skipped"),
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     batch = models.ForeignKey(
         UploadBatch,
         on_delete=models.CASCADE,

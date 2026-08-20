@@ -27,7 +27,7 @@ class ToolDefinition(models.Model):
         ("utility",        "Utility"),            # helpers (date parse, fx lookup, etc.)
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     name = models.CharField(
         max_length=80,
         unique=True,
@@ -146,7 +146,7 @@ class ToolCall(models.Model):
         ("skipped",  "Skipped"),   # tool disabled or unsafe — not executed
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     # The job that triggered this call (nullable so tools can be called standalone)
     job = models.ForeignKey(
         "ai_engine.AIAnalysisJob",
@@ -204,7 +204,7 @@ class ToolCall(models.Model):
 
 
 class UserToolConfig(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     tool = models.OneToOneField(
         ToolDefinition,
         on_delete=models.CASCADE,

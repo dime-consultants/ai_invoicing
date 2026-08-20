@@ -82,7 +82,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model  = User
         fields = [
-            "id", "username", "email",
+            "id", "public_id", "username", "email",
             "first_name", "last_name", "name", "full_name",
             "role", "role_display",
             "status", "lastActive",
@@ -110,11 +110,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model  = User
         fields = [
-            "id", "username", "email",
+            "id", "public_id", "username", "email",
             "first_name", "last_name",
             "department", "phone", "email_verified",
         ]
-        read_only_fields = ["id", "username", "email_verified"]
+        read_only_fields = ["id", "public_id", "username", "email_verified"]
 
 
 class UserAdminSerializer(serializers.ModelSerializer):
@@ -131,11 +131,11 @@ class UserAdminSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "id", "username", "email", "first_name", "last_name",
+            "id", "public_id", "username", "email", "first_name", "last_name",
             "role", "department", "phone", "is_active",
             "organization", "password", "created_at",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = ["id", "public_id", "created_at"]
 
     def create(self, validated_data):
         password = validated_data.pop("password", None)
