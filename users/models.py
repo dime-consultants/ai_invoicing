@@ -124,10 +124,12 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 
 class EmailOTP(models.Model):
+    PURPOSE_LOGIN = "login"
     PURPOSE_EMAIL_VERIFICATION = "email_verification"
     PURPOSE_PASSWORD_RESET = "password_reset"
 
     PURPOSE_CHOICES = [
+        (PURPOSE_LOGIN, "Login"),
         (PURPOSE_EMAIL_VERIFICATION, "Email Verification"),
         (PURPOSE_PASSWORD_RESET, "Password Reset"),
     ]

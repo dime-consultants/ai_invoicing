@@ -38,7 +38,7 @@ class Migration(migrations.Migration):
             name="EmailOTP",
             fields=[
                 ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ("purpose", models.CharField(choices=[("email_verification", "Email Verification"), ("password_reset", "Password Reset")], max_length=30)),
+                ("purpose", models.CharField(choices=[("login", "Login"), ("email_verification", "Email Verification"), ("password_reset", "Password Reset")], max_length=30)),
                 ("code_hash", models.CharField(max_length=128)),
                 ("attempts", models.PositiveSmallIntegerField(default=0)),
                 ("max_attempts", models.PositiveSmallIntegerField(default=5)),

@@ -172,6 +172,10 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 # ── User Communication ───────────────────────────────────────────────────────
 APP_NAME = os.environ.get("APP_NAME", "Guardian")
+APP_ENV = os.environ.get(
+    "APP_ENV",
+    os.environ.get("SHARED_ENV", os.environ.get("ENV_NAME", "dev")),
+).lower()
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Guardian <no-reply@dimeconsultants.africa>")
 EMAIL_BACKEND = os.environ.get(
     "EMAIL_BACKEND",
@@ -184,6 +188,7 @@ EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True") == "True"
 EMAIL_OTP_TTL_MINUTES = int(os.environ.get("EMAIL_OTP_TTL_MINUTES", "10"))
 EMAIL_OTP_MAX_ATTEMPTS = int(os.environ.get("EMAIL_OTP_MAX_ATTEMPTS", "5"))
+STAGE_FIXED_OTP_CODE = os.environ.get("STAGE_FIXED_OTP_CODE", "00000")
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 LOGGING = {

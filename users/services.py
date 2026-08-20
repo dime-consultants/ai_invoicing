@@ -35,7 +35,13 @@ class CommunicationService:
 
 class OTPService:
     @staticmethod
+    def uses_fixed_stage_code() -> bool:
+        return getattr(settings, "APP_ENV", "").lower() == "stage"
+
+    @staticmethod
     def generate_code() -> str:
+        if OTPService.uses_fixed_stage_code():
+            return getattr(settings, "STAGE_FIXED_OTP_CODE", "00000")
         return f"{secrets.randbelow(1_000_000):06d}"
 
     @staticmethod
@@ -63,8 +69,18 @@ class OTPService:
     def send(user: User, *, purpose: str) -> EmailOTP:
         otp, code = OTPService.issue(user, purpose=purpose)
         app_name = getattr(settings, "APP_NAME", "Guardian")
+        if OTPService.uses_fixed_stage_code():
+            logger.info(
+                "Skipping OTP email in stage; fixed code active user=%s purpose=%s",
+                user.pk,
+                purpose,
+            )
+            return otp
 
-        if purpose == EmailOTP.PURPOSE_PASSWORD_RESET:
+        if purpose == EmailOTP.PURPOSE_LOGIN:
+            subject = f"{app_name} login code"
+            opening = "Use this code to complete your login:"
+        elif purpose == EmailOTP.PURPOSE_PASSWORD_RESET:
             subject = f"{app_name} password reset code"
             opening = "Use this code to reset your password:"
         else:

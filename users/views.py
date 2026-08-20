@@ -20,6 +20,7 @@ from .serializers import (
     ChangePasswordSerializer,
     EmailOTPRequestSerializer,
     EmailOTPVerifySerializer,
+    LoginOTPVerifySerializer,
     PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer,
 )
@@ -29,6 +30,32 @@ from .services import OTPService
 
 
 logger = logging.getLogger(__name__)
+
+
+def _stage_otp_message(default: str, purpose: str) -> str:
+    if getattr(settings, "APP_ENV", "").lower() == "stage":
+        return f"Use staging {purpose} code 00000."
+    return default
+
+
+def _auth_response_for_user(user, *, message: str) -> Response:
+    refresh = RefreshToken.for_user(user)
+    access_token = str(refresh.access_token)
+
+    response = Response({
+        "message": message,
+        "token": access_token,
+        "user": UserSerializer(user).data,
+    })
+    response.set_cookie(
+        key="refresh_token",
+        value=str(refresh),
+        httponly=True,
+        secure=not settings.DEBUG,
+        samesite="Lax",
+        max_age=7 * 24 * 60 * 60,
+    )
+    return response
 
 
 # ── Register ──────────────────────────────────────────────────────────────────
@@ -47,7 +74,10 @@ class RegisterView(generics.CreateAPIView):
 
         return Response(
             {
-                "message": "Account created successfully. Check your email for the verification code.",
+                "message": _stage_otp_message(
+                    "Account created successfully. Check your email for the verification code.",
+                    "verification",
+                ),
                 "requires_email_verification": True,
                 "user": UserSerializer(user).data,
             },
@@ -77,28 +107,36 @@ class LoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        refresh = RefreshToken.for_user(user)
-        access_token = str(refresh.access_token)
-
-        response = Response({
-            "message": f"Welcome back {user.username}",
-            "token": access_token,
-            "user": UserSerializer(user).data,
+        OTPService.send(user, purpose=EmailOTP.PURPOSE_LOGIN)
+        logger.info("Login OTP sent user=%s", user.pk)
+        return Response({
+            "message": _stage_otp_message("We sent a login code to your email.", "login"),
+            "requires_otp": True,
+            "email": user.email,
         })
 
-        response.set_cookie(
-            key="refresh_token",
-            value=str(refresh),
-            httponly=True,
-            # Secure only outside DEBUG: a Secure cookie is never sent over plain
-            # http://localhost, which would break /api/auth/refresh/ in local dev
-            # and silently log the user out on token expiry / page refresh.
-            secure=not settings.DEBUG,
-            samesite="Lax",
-            max_age=7 * 24 * 60 * 60,
-        )
 
-        return response
+class VerifyLoginOTPView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = LoginOTPVerifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = User.objects.filter(email__iexact=serializer.validated_data["email"]).first()
+        if not user or not user.is_active:
+            return Response({"detail": "Invalid code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        ok, message = OTPService.verify(
+            user,
+            purpose=EmailOTP.PURPOSE_LOGIN,
+            code=serializer.validated_data["code"],
+        )
+        if not ok:
+            return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
+
+        logger.info("Login OTP verified user=%s", user.pk)
+        return _auth_response_for_user(user, message=f"Welcome back {user.username}")
 
 
 class RequestEmailOTPView(APIView):
@@ -119,7 +157,12 @@ class RequestEmailOTPView(APIView):
             OTPService.send(user, purpose=EmailOTP.PURPOSE_EMAIL_VERIFICATION)
             logger.info("Email verification OTP requested user=%s", user.pk)
 
-        return Response({"message": "If that account exists, a verification code has been sent."})
+        return Response({
+            "message": _stage_otp_message(
+                "If that account exists, a verification code has been sent.",
+                "verification",
+            ),
+        })
 
 
 class VerifyEmailOTPView(APIView):
@@ -164,7 +207,12 @@ class PasswordResetRequestView(APIView):
             OTPService.send(user, purpose=EmailOTP.PURPOSE_PASSWORD_RESET)
             logger.info("Password reset OTP requested user=%s", user.pk)
 
-        return Response({"message": "If that account exists, a reset code has been sent."})
+        return Response({
+            "message": _stage_otp_message(
+                "If that account exists, a reset code has been sent.",
+                "reset",
+            ),
+        })
 
 
 class PasswordResetConfirmView(APIView):
@@ -231,7 +279,7 @@ class RefreshTokenView(APIView):
                 key="refresh_token",
                 value=serializer.validated_data["refresh"],
                 httponly=True,
-                secure=True,  # True in production
+                secure=not settings.DEBUG,
                 samesite="Lax",
                 max_age=7 * 24 * 60 * 60,
             )

@@ -181,7 +181,12 @@ class EmailOTPRequestSerializer(serializers.Serializer):
 
 class EmailOTPVerifySerializer(serializers.Serializer):
     email = serializers.EmailField(required=False, allow_blank=True)
-    code = serializers.CharField(min_length=6, max_length=6)
+    code = serializers.CharField(min_length=5, max_length=6)
+
+
+class LoginOTPVerifySerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField(min_length=5, max_length=6)
 
 
 class PasswordResetRequestSerializer(serializers.Serializer):
@@ -190,5 +195,5 @@ class PasswordResetRequestSerializer(serializers.Serializer):
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
     email = serializers.EmailField()
-    code = serializers.CharField(min_length=6, max_length=6)
+    code = serializers.CharField(min_length=5, max_length=6)
     password = serializers.CharField(write_only=True, validators=[validate_password])
