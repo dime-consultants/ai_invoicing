@@ -1,3 +1,5 @@
+import uuid
+
 # users/models.py
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
@@ -53,6 +55,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         ("viewer", "Viewer"),
     ]
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     username = models.CharField(max_length=150, unique=True, blank=True, null=True)
 
     role = models.CharField(
@@ -67,6 +70,10 @@ class User(AbstractBaseUser, PermissionsMixin):
     last_name = models.CharField(max_length=50, blank=True)
     department = models.CharField(max_length=100, blank=True)
     phone = models.CharField(max_length=20, blank=True)
+    email_verified = models.BooleanField(
+        default=False,
+        help_text="True after the user confirms an email OTP.",
+    )
 
     organization = models.ForeignKey(
         "organizations.Organization", on_delete=models.SET_NULL,
@@ -114,3 +121,45 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self) -> str:
         return f"{self.email} ({self.get_role_display()})"
+
+
+class EmailOTP(models.Model):
+    PURPOSE_EMAIL_VERIFICATION = "email_verification"
+    PURPOSE_PASSWORD_RESET = "password_reset"
+
+    PURPOSE_CHOICES = [
+        (PURPOSE_EMAIL_VERIFICATION, "Email Verification"),
+        (PURPOSE_PASSWORD_RESET, "Password Reset"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="email_otps",
+    )
+    purpose = models.CharField(max_length=30, choices=PURPOSE_CHOICES)
+    code_hash = models.CharField(max_length=128)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    max_attempts = models.PositiveSmallIntegerField(default=5)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "purpose", "consumed_at"]),
+            models.Index(fields=["expires_at"]),
+        ]
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() >= self.expires_at
+
+    @property
+    def is_consumed(self) -> bool:
+        return self.consumed_at is not None
+
+    def __str__(self) -> str:
+        return f"{self.user.email} {self.purpose} OTP"

@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 from django.utils.text import slugify
 
@@ -7,6 +9,7 @@ class Organization(models.Model):
     A partner organization / tenant. Deliberately minimal — this is a
     scoping boundary for data isolation, not a billing/plan SaaS entity.
     """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=150, unique=True)
     slug = models.SlugField(max_length=160, unique=True, blank=True)
     is_active = models.BooleanField(default=True)

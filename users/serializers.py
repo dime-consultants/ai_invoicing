@@ -88,7 +88,7 @@ class UserSerializer(serializers.ModelSerializer):
             "status", "lastActive",
             "department", "phone",
             "organization", "organization_name",
-            "is_active",
+            "is_active", "email_verified",
             "created_at",
         ]
         read_only_fields = fields
@@ -112,9 +112,9 @@ class UserProfileSerializer(serializers.ModelSerializer):
         fields = [
             "id", "username", "email",
             "first_name", "last_name",
-            "department", "phone",
+            "department", "phone", "email_verified",
         ]
-        read_only_fields = ["id", "username"]
+        read_only_fields = ["id", "username", "email_verified"]
 
 
 class UserAdminSerializer(serializers.ModelSerializer):
@@ -173,3 +173,22 @@ class ChangePasswordSerializer(serializers.Serializer):
         user.set_password(self.validated_data["new_password"])
         user.save(update_fields=["password"])
         return user
+
+
+class EmailOTPRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=False, allow_blank=True)
+
+
+class EmailOTPVerifySerializer(serializers.Serializer):
+    email = serializers.EmailField(required=False, allow_blank=True)
+    code = serializers.CharField(min_length=6, max_length=6)
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField(min_length=6, max_length=6)
+    password = serializers.CharField(write_only=True, validators=[validate_password])

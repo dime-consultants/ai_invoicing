@@ -2,6 +2,7 @@ from django.conf import settings
 from django.contrib.auth import logout
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+import logging
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -17,8 +18,17 @@ from .serializers import (
     UserProfileSerializer,
     UserAdminSerializer,
     ChangePasswordSerializer,
+    EmailOTPRequestSerializer,
+    EmailOTPVerifySerializer,
+    PasswordResetRequestSerializer,
+    PasswordResetConfirmSerializer,
 )
 from .permissions import IsOrgAdmin
+from .models import EmailOTP
+from .services import OTPService
+
+
+logger = logging.getLogger(__name__)
 
 
 # ── Register ──────────────────────────────────────────────────────────────────
@@ -32,10 +42,13 @@ class RegisterView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
 
         user = serializer.save()
+        OTPService.send(user, purpose=EmailOTP.PURPOSE_EMAIL_VERIFICATION)
+        logger.info("Registered user=%s email=%s", user.pk, user.email)
 
         return Response(
             {
-                "message": "Account created successfully.",
+                "message": "Account created successfully. Check your email for the verification code.",
+                "requires_email_verification": True,
                 "user": UserSerializer(user).data,
             },
             status=status.HTTP_201_CREATED,
@@ -52,6 +65,17 @@ class LoginView(APIView):
         serializer.is_valid(raise_exception=True)
 
         user = serializer.validated_data["user"]
+        if not user.email_verified:
+            OTPService.send(user, purpose=EmailOTP.PURPOSE_EMAIL_VERIFICATION)
+            logger.info("Login blocked pending email verification user=%s", user.pk)
+            return Response(
+                {
+                    "detail": "Please verify your email address. We sent you a new code.",
+                    "requires_email_verification": True,
+                    "email": user.email,
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         refresh = RefreshToken.for_user(user)
         access_token = str(refresh.access_token)
@@ -75,6 +99,98 @@ class LoginView(APIView):
         )
 
         return response
+
+
+class RequestEmailOTPView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = EmailOTPRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data.get("email") or getattr(request.user, "email", "")
+        user = None
+        if request.user.is_authenticated and not email:
+            user = request.user
+        elif email:
+            user = User.objects.filter(email__iexact=email).first()
+
+        if user:
+            OTPService.send(user, purpose=EmailOTP.PURPOSE_EMAIL_VERIFICATION)
+            logger.info("Email verification OTP requested user=%s", user.pk)
+
+        return Response({"message": "If that account exists, a verification code has been sent."})
+
+
+class VerifyEmailOTPView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = EmailOTPVerifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data.get("email") or getattr(request.user, "email", "")
+        user = None
+        if request.user.is_authenticated and not email:
+            user = request.user
+        elif email:
+            user = User.objects.filter(email__iexact=email).first()
+
+        if not user:
+            return Response({"detail": "Invalid code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        ok, message = OTPService.verify(
+            user,
+            purpose=EmailOTP.PURPOSE_EMAIL_VERIFICATION,
+            code=serializer.validated_data["code"],
+        )
+        if not ok:
+            return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.email_verified = True
+        user.save(update_fields=["email_verified"])
+        return Response({"message": "Email verified successfully."})
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = User.objects.filter(email__iexact=serializer.validated_data["email"]).first()
+        if user:
+            OTPService.send(user, purpose=EmailOTP.PURPOSE_PASSWORD_RESET)
+            logger.info("Password reset OTP requested user=%s", user.pk)
+
+        return Response({"message": "If that account exists, a reset code has been sent."})
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = User.objects.filter(email__iexact=serializer.validated_data["email"]).first()
+        if not user:
+            return Response({"detail": "Invalid code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        ok, message = OTPService.verify(
+            user,
+            purpose=EmailOTP.PURPOSE_PASSWORD_RESET,
+            code=serializer.validated_data["code"],
+        )
+        if not ok:
+            return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(serializer.validated_data["password"])
+        user.email_verified = True
+        user.save(update_fields=["password", "email_verified"])
+        logger.info("Password reset completed user=%s", user.pk)
+        return Response({"message": "Password reset successfully. You can now log in."})
 
 
 # ── Refresh ───────────────────────────────────────────────────────────────────

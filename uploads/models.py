@@ -1,17 +1,20 @@
 import os
+import uuid
 from django.db import models
 from django.utils import timezone
+from django.utils.text import get_valid_filename
 
 
 def _batch_upload_path(instance, filename):
     """Store files under  media/uploads/<year>/<month>/<batch_id>/<filename>"""
     now = timezone.now()
+    safe_name = get_valid_filename(os.path.basename(filename))
     return os.path.join(
         "uploads",
         str(now.year),
         f"{now.month:02d}",
         str(instance.batch.id) if instance.batch_id else "unassigned",
-        filename,
+        f"{uuid.uuid4()}-{safe_name}",
     )
 
 
@@ -33,6 +36,7 @@ class UploadBatch(models.Model):
         ("failed",     "Failed"),        # all jobs failed
     ]
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     label = models.CharField(
         max_length=200,
         help_text="Human-readable name for this batch, e.g. 'April 2026 URA Receipts'.",
@@ -102,6 +106,7 @@ class UploadedFile(models.Model):
         ("skipped",     "Skipped"),
     ]
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     batch = models.ForeignKey(
         UploadBatch,
         on_delete=models.CASCADE,
@@ -110,6 +115,12 @@ class UploadedFile(models.Model):
     file = models.FileField(upload_to=_batch_upload_path)
     original_filename = models.CharField(max_length=255)
     file_size_bytes   = models.PositiveBigIntegerField(default=0)
+    checksum_sha256   = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+        help_text="SHA-256 checksum of the uploaded binary for audit and deduplication.",
+    )
     mime_type         = models.CharField(max_length=100, blank=True)
     extension         = models.CharField(
         max_length=20,

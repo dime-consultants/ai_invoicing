@@ -1,4 +1,6 @@
 # tools/models.py
+import uuid
+
 from django.db import models
 from django.utils import timezone
 
@@ -25,6 +27,7 @@ class ToolDefinition(models.Model):
         ("utility",        "Utility"),            # helpers (date parse, fx lookup, etc.)
     ]
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(
         max_length=80,
         unique=True,
@@ -143,6 +146,7 @@ class ToolCall(models.Model):
         ("skipped",  "Skipped"),   # tool disabled or unsafe — not executed
     ]
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # The job that triggered this call (nullable so tools can be called standalone)
     job = models.ForeignKey(
         "ai_engine.AIAnalysisJob",
@@ -200,6 +204,7 @@ class ToolCall(models.Model):
 
 
 class UserToolConfig(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tool = models.OneToOneField(
         ToolDefinition,
         on_delete=models.CASCADE,

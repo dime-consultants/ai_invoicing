@@ -1,6 +1,16 @@
 # chat/models.py
+import uuid
+
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
+from django.utils.text import get_valid_filename
+
+
+def chat_attachment_upload_path(instance, filename):
+    now = timezone.now()
+    safe_name = get_valid_filename(filename)
+    return f"chat/attachments/{now.year}/{now.month:02d}/{uuid.uuid4()}-{safe_name}"
 
 
 class ChatConversation(models.Model):
@@ -11,6 +21,7 @@ class ChatConversation(models.Model):
     user and holds an ordered list of messages.  The assistant reads the
     last N messages as context on every turn.
     """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -55,6 +66,7 @@ class ChatMessage(models.Model):
         ("system",    "System"),
     ]
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     conversation = models.ForeignKey(
         ChatConversation,
         on_delete=models.CASCADE,
@@ -109,12 +121,13 @@ class ChatMessageAttachment(models.Model):
         ("assistant_output", "Assistant Output"),
     ]
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     message = models.ForeignKey(
         ChatMessage,
         on_delete=models.CASCADE,
         related_name="attachments",
     )
-    file            = models.FileField(upload_to="chat/attachments/%Y/%m/")
+    file            = models.FileField(upload_to=chat_attachment_upload_path)
     filename        = models.CharField(max_length=255)
     file_type       = models.CharField(max_length=20, blank=True)   # extension, e.g. "xlsx"
     attachment_type = models.CharField(max_length=20, choices=ATTACHMENT_TYPE_CHOICES)
@@ -172,6 +185,7 @@ class Workflow(models.Model):
         ("custom",              "Custom Workflow"),
     ]
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name          = models.CharField(max_length=150)
     description   = models.TextField(blank=True)
     workflow_type = models.CharField(max_length=30, choices=WORKFLOW_TYPE_CHOICES)

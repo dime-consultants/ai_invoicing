@@ -24,7 +24,7 @@ class UploadedFileSerializer(serializers.ModelSerializer):
         model  = UploadedFile
         fields = [
             "id", "name", "type", "size",
-            "extension", "detected_type", "detection_confidence",
+            "extension", "checksum_sha256", "detected_type", "detection_confidence",
             "status", "parse_error",
             "pageCount", "extractionDeferred",
             "uploadedAt", "uploadedBy",

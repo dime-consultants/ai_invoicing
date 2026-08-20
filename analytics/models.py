@@ -8,6 +8,8 @@ All metrics are computed on-the-fly from existing models:
 
 A Report model is included here to support the /api/reports/ contract.
 """
+import uuid
+
 from django.db import models
 
 
@@ -36,6 +38,7 @@ class Report(models.Model):
         ("csv",  "CSV"),
     ]
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name        = models.CharField(max_length=255)
     report_type = models.CharField(max_length=20, choices=REPORT_TYPE_CHOICES, default="custom")
     status      = models.CharField(max_length=15, choices=STATUS_CHOICES, default="generating")
