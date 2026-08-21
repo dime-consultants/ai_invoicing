@@ -1,17 +1,20 @@
 import os
+import uuid
 from django.db import models
 from django.utils import timezone
+from django.utils.text import get_valid_filename
 
 
 def _batch_upload_path(instance, filename):
     """Store files under  media/uploads/<year>/<month>/<batch_id>/<filename>"""
     now = timezone.now()
+    safe_name = get_valid_filename(os.path.basename(filename))
     return os.path.join(
         "uploads",
         str(now.year),
         f"{now.month:02d}",
-        str(instance.batch.id) if instance.batch_id else "unassigned",
-        filename,
+        str(getattr(instance.batch, "public_id", instance.batch_id)) if instance.batch_id else "unassigned",
+        f"{uuid.uuid4()}-{safe_name}",
     )
 
 
@@ -33,6 +36,7 @@ class UploadBatch(models.Model):
         ("failed",     "Failed"),        # all jobs failed
     ]
 
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     label = models.CharField(
         max_length=200,
         help_text="Human-readable name for this batch, e.g. 'April 2026 URA Receipts'.",
@@ -102,6 +106,7 @@ class UploadedFile(models.Model):
         ("skipped",     "Skipped"),
     ]
 
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     batch = models.ForeignKey(
         UploadBatch,
         on_delete=models.CASCADE,
@@ -110,6 +115,12 @@ class UploadedFile(models.Model):
     file = models.FileField(upload_to=_batch_upload_path)
     original_filename = models.CharField(max_length=255)
     file_size_bytes   = models.PositiveBigIntegerField(default=0)
+    checksum_sha256   = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+        help_text="SHA-256 checksum of the uploaded binary for audit and deduplication.",
+    )
     mime_type         = models.CharField(max_length=100, blank=True)
     extension         = models.CharField(
         max_length=20,
@@ -187,29 +198,3 @@ class UploadedFile(models.Model):
             and self.page_count is not None
             and self.page_count > threshold
         )
-
-class PipelineEvent(models.Model):
-    """Append-only event log. One row per milestone. Source of truth for
-    real-time push AND for clients to catch up after a dropped connection."""
-
-    EVENT_TYPES = [
-        ("file.received",        "File received"),
-        ("file.stored",          "File stored"),
-        ("file.queued",          "Extraction queued"),
-        ("file.extracting",      "Extraction in progress"),   # carries % in payload
-        ("file.parsed",          "Extraction complete"),
-        ("file.parse_error",     "Extraction failed"),
-        ("file.detected",        "Type detected"),
-        ("batch.progress",       "Batch counters updated"),
-        ("batch.completed",      "Batch finished"),
-    ]
-
-    batch      = models.ForeignKey(UploadBatch, on_delete=models.CASCADE, related_name="events")
-    file       = models.ForeignKey(UploadedFile, on_delete=models.CASCADE, null=True, blank=True, related_name="events")
-    event_type = models.CharField(max_length=30, choices=EVENT_TYPES)
-    payload    = models.JSONField(default=dict, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["created_at"]
-        indexes = [models.Index(fields=["batch", "created_at"])]

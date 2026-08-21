@@ -19,7 +19,7 @@ class AIInsightSerializer(serializers.ModelSerializer):
     class Meta:
         model  = AIInsight
         fields = [
-            "id",
+            "id", "public_id",
             "insight_type", "insight_type_display",
             "severity",     "severity_display",
             "reference_key",
@@ -66,7 +66,7 @@ class AIAnalysisJobListSerializer(serializers.ModelSerializer):
     class Meta:
         model  = AIAnalysisJob
         fields = [
-            "id",
+            "id", "public_id",
             "task_type", "task_type_display",
             "status",    "status_display",
             "batch", "batch_label",
