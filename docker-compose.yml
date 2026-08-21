@@ -26,16 +26,18 @@ networks:
     name: ${SHARED_NETWORK}
     external: true
 
-services:
+  invoicing-network:
+    driver: bridge
 
+services:
   # ── PostgreSQL ──────────────────────────────────────────────────────────────
   db:
     image: postgres:16-alpine
     container_name: invoicing-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB:       ${DB_NAME}
-      POSTGRES_USER:     ${DB_USER}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -83,7 +85,7 @@ services:
     restart: "no"
     env_file: .env
     environment:
-      DB_HOST:   db
+      DB_HOST: db
       REDIS_URL: redis://redis:6379/0
     depends_on:
       db:
@@ -91,7 +93,7 @@ services:
     networks:
       - invoicing-network
     volumes:
-      - tools_export:/app  # shares tools_export.json with app container
+      - tools_export:/app # shares tools_export.json with app container
     command: >
       sh -c "
         echo '[migrate] Applying migrations...' &&
@@ -110,16 +112,16 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DB_HOST:            db
-      REDIS_URL:          redis://redis:6379/0
-      DEBUG:              "False"
+      DB_HOST: db
+      REDIS_URL: redis://redis:6379/0
+      DEBUG: "False"
       # Entrypoint skips startup tasks — migrate service handled them
-      RUN_STARTUP_TASKS:  "false"
+      RUN_STARTUP_TASKS: "false"
     volumes:
       - static_files:/app/staticfiles
       - media_files:/app/media
       - outputs_files:/app/outputs
-      - tools_export:/app/tools_export_shared  # read tools_export.json if needed
+      - tools_export:/app/tools_export_shared # read tools_export.json if needed
     depends_on:
       db:
         condition: service_healthy
@@ -155,9 +157,9 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DB_HOST:   db
+      DB_HOST: db
       REDIS_URL: redis://redis:6379/0
-      DEBUG:     "False"
+      DEBUG: "False"
     volumes:
       - media_files:/app/media
       - outputs_files:/app/outputs
@@ -181,7 +183,11 @@ services:
       --autoscale=4,2
       --max-tasks-per-child=20
     healthcheck:
-      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -204,9 +210,9 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DB_HOST:   db
+      DB_HOST: db
       REDIS_URL: redis://redis:6379/0
-      DEBUG:     "False"
+      DEBUG: "False"
     volumes:
       - media_files:/app/media
       - outputs_files:/app/outputs
@@ -230,7 +236,11 @@ services:
       --autoscale=8,2
       --max-tasks-per-child=50
     healthcheck:
-      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -271,8 +281,7 @@ services:
       - media_files:/var/www/media:ro
     depends_on:
       app:
-        condition:
-         service_healthy
+        condition: service_healthy
     networks:
       - invoicing-network
     healthcheck:
@@ -287,8 +296,5 @@ volumes:
   static_files:
   media_files:
   outputs_files:
-  tools_export:     # carries tools_export.json from migrate → app
+  tools_export: # carries tools_export.json from migrate → app
 
-networks:
-  invoicing-network:
-    driver: bridge

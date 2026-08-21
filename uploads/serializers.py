@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import UploadBatch, UploadedFile
+from .models import UploadBatch, UploadedFile, PipelineEvent
 
 
 def _get_user_display(user):
@@ -77,3 +77,20 @@ class UploadBatchListSerializer(serializers.ModelSerializer):
 class FileUploadSerializer(serializers.Serializer):
     file = serializers.FileField()
     type = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class PipelineEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PipelineEvent
+        fields = (
+            "id",
+            "batch",
+            "file",
+            "event_type",
+            "payload",
+            "created_at",
+        )
+        read_only_fields = (
+            "id",
+            "created_at",
+        )

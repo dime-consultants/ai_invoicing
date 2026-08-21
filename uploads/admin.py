@@ -2,7 +2,7 @@
 from django.contrib import admin, messages
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
-
+from .models import PipelineEvent
 from .models import UploadBatch, UploadedFile
 
 
@@ -334,3 +334,50 @@ class UploadedFileAdmin(admin.ModelAdmin):
             f"Marked {updated} file(s) as skipped.",
             messages.SUCCESS,
         )
+
+
+@admin.register(PipelineEvent)
+class PipelineEventAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "event_type",
+        "batch",
+        "file",
+        "created_at",
+    )
+
+    list_filter = (
+        "event_type",
+        "created_at",
+    )
+
+    search_fields = (
+        "event_type",
+        "batch__id",
+        "file__id",
+    )
+
+    readonly_fields = (
+        "batch",
+        "file",
+        "event_type",
+        "payload",
+        "created_at",
+    )
+
+    ordering = ("-created_at",)
+
+    date_hierarchy = "created_at"
+
+    list_select_related = (
+        "batch",
+        "file",
+    )
+
+    def has_add_permission(self, request):
+        """Pipeline events should only be created by the application."""
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        """Prevent deletion to preserve the append-only event log."""
+        return False

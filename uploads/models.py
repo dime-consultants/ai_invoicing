@@ -187,3 +187,29 @@ class UploadedFile(models.Model):
             and self.page_count is not None
             and self.page_count > threshold
         )
+
+class PipelineEvent(models.Model):
+    """Append-only event log. One row per milestone. Source of truth for
+    real-time push AND for clients to catch up after a dropped connection."""
+
+    EVENT_TYPES = [
+        ("file.received",        "File received"),
+        ("file.stored",          "File stored"),
+        ("file.queued",          "Extraction queued"),
+        ("file.extracting",      "Extraction in progress"),   # carries % in payload
+        ("file.parsed",          "Extraction complete"),
+        ("file.parse_error",     "Extraction failed"),
+        ("file.detected",        "Type detected"),
+        ("batch.progress",       "Batch counters updated"),
+        ("batch.completed",      "Batch finished"),
+    ]
+
+    batch      = models.ForeignKey(UploadBatch, on_delete=models.CASCADE, related_name="events")
+    file       = models.ForeignKey(UploadedFile, on_delete=models.CASCADE, null=True, blank=True, related_name="events")
+    event_type = models.CharField(max_length=30, choices=EVENT_TYPES)
+    payload    = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [models.Index(fields=["batch", "created_at"])]
