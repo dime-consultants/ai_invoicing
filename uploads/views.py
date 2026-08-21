@@ -15,6 +15,8 @@ from .serializers import (
 )
 from .services import UploadService
 from users.permissions import CanUploadOrRunJobs as CanUpload
+from .tasks import pipeline_ingest_task
+from asgiref.sync import sync_to_async
 
 
 def _user_owns_or_is_admin(request, uploaded_file: UploadedFile) -> bool:
@@ -116,42 +118,49 @@ class FileListView(generics.ListAPIView):
 
 
 class FileUploadView(APIView):
-    """
-    POST /api/files/upload
-    Upload a single file. Creates a new batch and runs (or queues) extraction.
-    Large PDFs return immediately with status=pending / extractionDeferred=true.
-    """
     permission_classes = [CanUpload]
-    parser_classes     = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser]
 
-    def post(self, request):
-        serializer = FileUploadSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        uploaded  = serializer.validated_data["file"]
-        file_type = serializer.validated_data.get("type", "")
-
-        batch = UploadService.create_batch(
+    async def post(self, request):
+        serializer = FileUploadSerializer(
+            data=request.data
+        )
+        serializer.is_valid(
+            raise_exception=True
+        )
+        uploaded = serializer.validated_data["file"]
+        file_type = serializer.validated_data.get(
+            "type",
+            "",
+        )
+        batch = await sync_to_async(
+            UploadService.create_batch,
+            thread_sensitive=True,
+        )(
             label=uploaded.name,
             user=request.user,
         )
-        uf = UploadService.ingest_file(batch, uploaded)
-
-        if file_type and not uf.detected_type:
-            uf.detected_type = file_type
-            uf.save(update_fields=["detected_type"])
-
-        return Response({
-            "id":                  uf.pk,
-            "name":                uf.original_filename,
-            "type":                uf.mime_type,
-            "size":                uf.file_size_bytes,
-            "status":              uf.parse_status,
-            "pageCount":           uf.page_count,
-            "extractionDeferred":  uf.extraction_deferred,
-            "uploadedAt":          uf.uploaded_at,
-        }, status=status.HTTP_200_OK)
-
+        uf = await sync_to_async(
+            UploadService.receive_file,
+            thread_sensitive=True,
+        )(
+            batch,
+            uploaded,
+            detected_type_hint=file_type,
+        )
+        pipeline_ingest_task.delay(
+            uf.pk
+        )
+        return Response(
+            {
+                "id": uf.public_id,
+                "batchId": batch.public_id,
+                "name": uf.original_filename,
+                "size": uf.file_size_bytes,
+                "status": "queued",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 class FileDownloadView(APIView):
     """GET /api/files/<id>/download — stream the file."""

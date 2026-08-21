@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import UploadBatch, UploadedFile
+from .models import UploadBatch, UploadedFile, PipelineEvent
 
 
 def _get_user_display(user):

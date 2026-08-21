@@ -1,20 +1,43 @@
 """
-UploadService — handles file ingestion into an UploadBatch.
+UploadService — persistence and file-state operations for uploaded files.
 
-Design for large files (chat-app friendly)
------------------------------------------
-1. Always save the file to media storage first (fast path).
-2. For PDFs: cheaply count pages with pdfplumber (no full extract).
-3. If page_count > ASYNC_PAGE_THRESHOLD (default 20):
-     - set parse_status = "pending", extraction_deferred = True
-     - queue extract_file_text_task (Celery) — returns immediately
-4. Otherwise: extract text inline (small files / non-PDFs).
-5. The agent never waits on large PDFs. It calls read_file(file_id,
-   page_from, page_to) which extracts on-demand ranges from the raw PDF
-   even while the background job is still running (or after it finishes).
+Architecture
+------------
 
-This keeps HTTP / WebSocket chat turns responsive and lets Grok process
-hundreds of pages across multiple tool calls.
+HTTP
+  ↓
+UploadService.receive_file()
+  ↓
+pipeline_ingest_task
+  ↓
+extract_file_text_task
+
+Important:
+-----------
+UploadService NEVER performs text extraction during an HTTP request.
+
+All files — regardless of size, extension, page count, or complexity —
+must go through Celery.
+
+The service layer is responsible for:
+
+- creating batches
+- persisting uploaded files
+- providing extraction helpers used by Celery/tools
+- updating extraction state
+- refreshing batch counters
+- providing PDF page-range extraction for read_file/tool usage
+
+The Celery task layer is responsible for:
+
+- checksum calculation
+- MIME detection
+- PDF page counting
+- extraction orchestration
+- extraction progress
+- retries
+- timeouts
+- completion/failure events
 """
 
 from __future__ import annotations
@@ -24,7 +47,6 @@ import mimetypes
 import hashlib
 from pathlib import Path
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -32,18 +54,12 @@ from .models import UploadBatch, UploadedFile
 
 logger = logging.getLogger(__name__)
 
-# PDFs with more pages than this are extracted in a Celery worker
-ASYNC_PAGE_THRESHOLD = getattr(settings, "ASYNC_PAGE_THRESHOLD", 20)
-PDF_EXTRACTION_CHUNK_SIZE = getattr(settings, "PDF_EXTRACTION_CHUNK_SIZE", 50)
 
-# Any file (regardless of extension) bigger than this is also deferred to a
-# Celery worker rather than extracted inline. The PDF page-count check above
-# only ever caught PDFs; a huge .xlsx/.csv/unstructured-parsed file had no
-# size guard at all and always extracted inline, however large, blocking
-# whichever request or worker triggered ingestion.
-ASYNC_SIZE_THRESHOLD_BYTES = getattr(settings, "ASYNC_SIZE_THRESHOLD_BYTES", 5 * 1024 * 1024)  # 5MB
-SPREADSHEET_CHECKPOINT_ROWS = getattr(settings, "SPREADSHEET_CHECKPOINT_ROWS", 5000)
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
 
+PDF_EXTRACTION_CHUNK_SIZE = 50
 
 def _uploaded_file_checksum(uploaded_file) -> str:
     hasher = hashlib.sha256()
@@ -81,9 +97,9 @@ def _count_pdf_pages(file_path: str) -> int | None:
         return None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ===========================================================================
 # Text extraction helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# ===========================================================================
 
 def _extract_text(
     file_path: str,
@@ -93,95 +109,253 @@ def _extract_text(
     on_chunk=None,
 ) -> str:
     """
-    Extract plain text from a file for AI context / type detection.
+    Extract text from a file.
 
-    By default we keep the full extracted text in the database so the model can
-    inspect the whole document; prompt-level tool calls still cap how much is
-    injected into a single request.
+    This function does NOT run during HTTP upload processing.
 
-    on_chunk(text_so_far), if given, is invoked periodically for the PDF and
-    spreadsheet branches (every SPREADSHEET_CHECKPOINT_ROWS rows for xlsx/xls)
-    so a caller running under a Celery soft time limit can checkpoint partial
-    progress — see _extract_pdf_pages for the PDF version of the same
-    contract. txt/csv/unstructured reads are single-shot and don't chunk.
+    It is intended to be called by:
+        extract_file_text_task
+        read_file / other background tooling
+
+    Args:
+        file_path:
+            Absolute path to the stored file.
+
+        extension:
+            Lowercase file extension without ".".
+
+        max_chars:
+            Optional character limit.
+
+        on_chunk:
+            Optional callback receiving text accumulated so far.
+
+    Returns:
+        Extracted text.
     """
+
     limit = max_chars if max_chars is not None else None
+
+    # ------------------------------------------------------------------
+    # TXT / CSV
+    # ------------------------------------------------------------------
 
     if extension in ("txt", "csv"):
         try:
-            with open(file_path, "r", encoding="utf-8", errors="replace") as fh:
+            with open(
+                file_path,
+                "r",
+                encoding="utf-8",
+                errors="replace",
+            ) as fh:
                 text = fh.read()
-                return text if limit is None else text[:limit]
+
+            if limit is not None:
+                return text[:limit]
+
+            return text
+
         except Exception as exc:
-            logger.warning("Plain text read failed for %s: %s", file_path, exc)
+            logger.warning(
+                "Plain text read failed for %s: %s",
+                file_path,
+                exc,
+            )
             return ""
 
+    # ------------------------------------------------------------------
+    # PDF
+    # ------------------------------------------------------------------
+
     if extension == "pdf":
-        return _extract_pdf_pages(file_path, page_from=1, page_to=None, max_chars=limit, on_chunk=on_chunk)
+        return _extract_pdf_pages(
+            file_path,
+            page_from=1,
+            page_to=None,
+            max_chars=limit,
+            on_chunk=on_chunk,
+        )
+
+    # ------------------------------------------------------------------
+    # XLSX / XLS
+    # ------------------------------------------------------------------
 
     if extension in ("xlsx", "xls"):
+
         checkpoint_every = SPREADSHEET_CHECKPOINT_ROWS
+
         try:
-            parts, total = [], 0
+            parts: list[str] = []
+            total = 0
             row_num = 0
 
-            def _maybe_checkpoint():
-                if on_chunk is not None and row_num % checkpoint_every == 0:
+            def _maybe_checkpoint() -> None:
+                if (
+                    on_chunk is not None
+                    and row_num % checkpoint_every == 0
+                ):
                     try:
                         on_chunk("\n".join(parts))
                     except Exception:
-                        logger.warning("_extract_text: on_chunk checkpoint failed", exc_info=True)
+                        logger.warning(
+                            "_extract_text: "
+                            "on_chunk checkpoint failed",
+                            exc_info=True,
+                        )
+
+            # ----------------------------------------------------------
+            # XLSX
+            # ----------------------------------------------------------
 
             if extension == "xlsx":
+
                 import openpyxl
-                wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
-                for ws in wb.worksheets:
-                    for row in ws.iter_rows(values_only=True):
-                        row_num += 1
-                        line = "\t".join("" if c is None else str(c) for c in row)
-                        if line.strip():
-                            parts.append(line)
-                            total += len(line)
-                        _maybe_checkpoint()
-                        if limit is not None and total >= limit:
+
+                wb = openpyxl.load_workbook(
+                    file_path,
+                    data_only=True,
+                    read_only=True,
+                )
+
+                try:
+                    for ws in wb.worksheets:
+
+                        for row in ws.iter_rows(
+                            values_only=True
+                        ):
+                            row_num += 1
+
+                            line = "\t".join(
+                                ""
+                                if cell is None
+                                else str(cell)
+                                for cell in row
+                            )
+
+                            if line.strip():
+                                parts.append(line)
+                                total += len(line)
+
+                            _maybe_checkpoint()
+
+                            if (
+                                limit is not None
+                                and total >= limit
+                            ):
+                                break
+
+                        if (
+                            limit is not None
+                            and total >= limit
+                        ):
                             break
-                    if limit is not None and total >= limit:
-                        break
-                wb.close()
-            else:  # xls
+
+                finally:
+                    wb.close()
+
+            # ----------------------------------------------------------
+            # XLS
+            # ----------------------------------------------------------
+
+            else:
+
                 import xlrd
+
                 book = xlrd.open_workbook(file_path)
+
                 for sheet in book.sheets():
-                    for r in range(sheet.nrows):
+
+                    for row_index in range(sheet.nrows):
+
                         row_num += 1
-                        line = "\t".join(str(c) for c in sheet.row_values(r))
+
+                        line = "\t".join(
+                            str(cell)
+                            for cell in sheet.row_values(row_index)
+                        )
+
                         if line.strip():
                             parts.append(line)
                             total += len(line)
+
                         _maybe_checkpoint()
-                        if limit is not None and total >= limit:
+
+                        if (
+                            limit is not None
+                            and total >= limit
+                        ):
                             break
-                    if limit is not None and total >= limit:
+
+                    if (
+                        limit is not None
+                        and total >= limit
+                    ):
                         break
-            return ("\n".join(parts) if limit is None else "\n".join(parts)[:limit])
+
+            text = "\n".join(parts)
+
+            if limit is not None:
+                return text[:limit]
+
+            return text
+
         except Exception as exc:
-            logger.warning("spreadsheet extraction failed for %s: %s", file_path, exc)
+            logger.warning(
+                "Spreadsheet extraction failed for %s: %s",
+                file_path,
+                exc,
+            )
+            return ""
+
+    # ------------------------------------------------------------------
+    # Other supported formats through unstructured
+    # ------------------------------------------------------------------
 
     try:
+
         from unstructured.partition.auto import partition
-        elements = partition(filename=file_path)
-        text = "\n\n".join(str(el) for el in elements if str(el).strip())
-        return text if limit is None else text[:limit]
-    except ImportError:
-        logger.warning(
-            "unstructured is not installed; '%s' files have no extracted_text. "
-            "Install with: pip install 'unstructured[all-docs]'", extension
+
+        elements = partition(
+            filename=file_path
         )
-        return ""
-    except Exception as exc:
-        logger.warning("unstructured extraction failed for %s: %s", file_path, exc)
+
+        text = "\n\n".join(
+            str(element)
+            for element in elements
+            if str(element).strip()
+        )
+
+        if limit is not None:
+            return text[:limit]
+
+        return text
+
+    except ImportError:
+
+        logger.warning(
+            "unstructured is not installed; "
+            "'%s' files have no extracted_text. "
+            "Install with: "
+            "pip install 'unstructured[all-docs]'",
+            extension,
+        )
+
         return ""
 
+    except Exception as exc:
+
+        logger.warning(
+            "unstructured extraction failed for %s: %s",
+            file_path,
+            exc,
+        )
+
+        return ""
+
+
+# ===========================================================================
+# PDF extraction
+# ===========================================================================
 
 def _extract_pdf_pages(
     file_path: str,
@@ -192,67 +366,123 @@ def _extract_pdf_pages(
     on_chunk=None,
 ) -> str:
     """
-    Extract text from a PDF page range (1-indexed, inclusive).
+    Extract text from a PDF page range.
 
-    Large PDFs are processed in page chunks and merged back together so the
-    background worker never tries to hold the entire document in one giant
-    in-memory buffer. This keeps the worker stable even for very large files.
+    Page numbers are 1-indexed and inclusive.
 
-    on_chunk(text_so_far), if given, is called after every
-    PDF_EXTRACTION_CHUNK_SIZE page group finishes, with the text merged so
-    far. Callers running under a Celery soft time limit (extract_file_text_task)
-    use this to checkpoint partial progress, so a mid-extraction timeout on a
-    1000-page document still has real, non-empty text to save instead of
-    losing everything extracted before the deadline. A checkpoint failure is
-    logged and swallowed — it must never abort the extraction itself.
-
-    max_chars=None means unbounded — the whole document is extracted with no
-    cap, matching every other file type's ingestion behavior (txt/csv/xlsx
-    are never capped at ingest either). This used to silently fall back to a
-    2,000,000-character default whenever a caller passed None intending "no
-    limit" (the normal ingest path always did), which meant any PDF whose
-    full text exceeded that — rare, but real for very large documents — was
-    permanently and silently truncated in storage, with no way for any
-    downstream pagination/chunking to ever recover the missing tail since it
-    was never saved. Only pass an explicit max_chars when a real per-call cap
-    is wanted (e.g. read_file's paginated single-chunk reads).
+    This function supports incremental extraction through `on_chunk`.
     """
+
     limit = max_chars
+
     try:
+
         import pdfplumber
+
         parts: list[str] = []
         total = 0
-        with pdfplumber.open(file_path) as pdf:
-            n = len(pdf.pages)
-            start = max(1, page_from) - 1
-            end = n if page_to is None else min(page_to, n)
-            chunk_size = max(1, PDF_EXTRACTION_CHUNK_SIZE)
 
-            for chunk_start in range(start, end, chunk_size):
-                chunk_end = min(chunk_start + chunk_size, end)
-                for idx in range(chunk_start, chunk_end):
-                    page = pdf.pages[idx]
-                    t = page.extract_text() or ""
-                    if t:
-                        header = f"--- Page {idx + 1} ---\n"
-                        parts.append(header + t)
-                        total += len(header) + len(t)
+        with pdfplumber.open(file_path) as pdf:
+
+            page_count = len(pdf.pages)
+
+            start = max(1, page_from) - 1
+
+            end = (
+                page_count
+                if page_to is None
+                else min(page_to, page_count)
+            )
+
+            chunk_size = max(
+                1,
+                PDF_EXTRACTION_CHUNK_SIZE,
+            )
+
+            for chunk_start in range(
+                start,
+                end,
+                chunk_size,
+            ):
+
+                chunk_end = min(
+                    chunk_start + chunk_size,
+                    end,
+                )
+
+                for index in range(
+                    chunk_start,
+                    chunk_end,
+                ):
+
+                    page = pdf.pages[index]
+
+                    text = page.extract_text() or ""
+
+                    if text:
+
+                        header = (
+                            f"--- Page {index + 1} ---\n"
+                        )
+
+                        parts.append(
+                            header + text
+                        )
+
+                        total += (
+                            len(header)
+                            + len(text)
+                        )
+
                     page.flush_cache()
-                    if limit and total >= limit:
-                        parts.append(f"\n[… truncated at {limit} characters …]")
+
+                    if (
+                        limit is not None
+                        and total >= limit
+                    ):
+                        parts.append(
+                            f"\n[… truncated at "
+                            f"{limit} characters …]"
+                        )
                         break
+
+                # Notify caller after every page chunk.
                 if on_chunk is not None:
+
                     try:
-                        on_chunk("\n\n".join(parts))
+                        on_chunk(
+                            "\n\n".join(parts)
+                        )
+
                     except Exception:
-                        logger.warning("_extract_pdf_pages: on_chunk checkpoint failed", exc_info=True)
-                if limit and total >= limit:
+                        logger.warning(
+                            "_extract_pdf_pages: "
+                            "on_chunk checkpoint failed",
+                            exc_info=True,
+                        )
+
+                if (
+                    limit is not None
+                    and total >= limit
+                ):
                     break
+
         return "\n\n".join(parts)
+
     except Exception as exc:
-        logger.warning("pdfplumber range extract failed for %s: %s", file_path, exc)
+
+        logger.warning(
+            "pdfplumber range extract failed for %s: %s",
+            file_path,
+            exc,
+        )
+
         return ""
 
+
+# ===========================================================================
+# Public PDF range helper
+# ===========================================================================
 
 def extract_pdf_page_range(
     file_path: str,
@@ -261,27 +491,41 @@ def extract_pdf_page_range(
     max_chars: int | None = None,
 ) -> dict:
     """
-    Public helper used by the read_file tool and Celery task.
+    Extract a specific PDF page range.
 
-    Returns:
-        {
-          "ok": True,
-          "text": str,
-          "page_from": int,
-          "page_to": int,
-          "page_count": int,
-          "chars": int,
-        }
+    Used by read_file and similar tools.
+
+    This is intentionally independent of the background ingestion pipeline.
+    It allows targeted page reads without changing the upload architecture.
     """
+
     try:
+
         import pdfplumber
+
         with pdfplumber.open(file_path) as pdf:
             page_count = len(pdf.pages)
-    except Exception as exc:
-        return {"ok": False, "error": f"Cannot open PDF: {exc}"}
 
-    start = max(1, page_from)
-    end   = page_count if page_to is None else min(max(page_to, start), page_count)
+    except Exception as exc:
+
+        return {
+            "ok": False,
+            "error": f"Cannot open PDF: {exc}",
+        }
+
+    start = max(
+        1,
+        page_from,
+    )
+
+    end = (
+        page_count
+        if page_to is None
+        else min(
+            max(page_to, start),
+            page_count,
+        )
+    )
 
     text = _extract_pdf_pages(
         file_path,
@@ -289,6 +533,7 @@ def extract_pdf_page_range(
         page_to=end,
         max_chars=max_chars,
     )
+
     return {
         "ok": True,
         "text": text,
@@ -299,48 +544,99 @@ def extract_pdf_page_range(
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ===========================================================================
 # UploadService
-# ─────────────────────────────────────────────────────────────────────────────
+# ===========================================================================
 
 class UploadService:
+    """
+    Persistence/state service for uploads.
+
+    IMPORTANT:
+
+    This class does NOT decide whether a file is small or large.
+
+    It does NOT extract text.
+
+    It does NOT queue extraction tasks.
+
+    All extraction is performed by Celery.
+    """
+
+    # ------------------------------------------------------------------
+    # Batch creation
+    # ------------------------------------------------------------------
 
     @staticmethod
     @transaction.atomic
-    def create_batch(*, label: str, description: str = "", user) -> UploadBatch:
-        """Create a new UploadBatch owned by `user`."""
+    def create_batch(
+        *,
+        label: str,
+        description: str = "",
+        user,
+    ) -> UploadBatch:
+        """
+        Create a new UploadBatch owned by `user`.
+        """
+
         return UploadBatch.objects.create(
             label=label,
             description=description,
             uploaded_by=user,
-            organization=getattr(user, "organization", None),
+            organization=getattr(
+                user,
+                "organization",
+                None,
+            ),
             status="pending",
         )
 
+    # ------------------------------------------------------------------
+    # File persistence
+    # ------------------------------------------------------------------
+
     @staticmethod
     @transaction.atomic
-    def ingest_file(batch: UploadBatch, uploaded_file) -> UploadedFile:
+    def receive_file(
+        batch: UploadBatch,
+        uploaded,
+        detected_type_hint: str = "",
+    ) -> UploadedFile:
         """
-        Save one uploaded file into `batch`.
+        Persist an uploaded file.
 
-        Large files — either a PDF with page_count > ASYNC_PAGE_THRESHOLD, or
-        ANY file (xlsx/xls/csv/unstructured-parsed) over ASYNC_SIZE_THRESHOLD_BYTES:
-          - page_count (PDFs) is recorded
-          - parse_status stays "pending", extraction_deferred=True
-          - extract_file_text_task is queued and the call returns immediately
+        This is the ONLY upload operation performed synchronously
+        from the HTTP request.
 
-        Small files:
-          - text is extracted inline and parse_status becomes "parsed"
+        Responsibilities:
 
-        Returns the UploadedFile record (may still be pending for large files).
+        1. Sanitize filename.
+        2. Determine extension.
+        3. Create UploadedFile.
+        4. Persist raw bytes.
+        5. Leave processing to pipeline_ingest_task.
+
+        No:
+
+        - checksum
+        - PDF page counting
+        - text extraction
+        - MIME inspection requiring file parsing
+        - Celery dispatch
+        - AI processing
+
+        is performed here.
         """
-        original_name = Path(uploaded_file.name).name
-        extension     = Path(original_name).suffix.lstrip(".").lower()
-        mime_type, _  = mimetypes.guess_type(original_name)
-        file_size     = (
-            uploaded_file.size
-            if hasattr(uploaded_file, "size")
-            else uploaded_file.seek(0, 2) or uploaded_file.tell()
+
+        original_name = Path(
+            uploaded.name
+        ).name
+
+        extension = (
+            Path(original_name)
+            .suffix
+            .lstrip(".")
+            .lower()
         )
         checksum = _uploaded_file_checksum(uploaded_file)
 
@@ -356,177 +652,169 @@ class UploadService:
             parse_status      = "pending",
         )
 
-        # 2. Cheap page count for PDFs
-        page_count = None
-        if extension == "pdf":
-            try:
-                saved_path = record.file.path
-                page_count = _count_pdf_pages(saved_path)
-                if page_count is not None:
-                    record.page_count = page_count
-                    record.save(update_fields=["page_count"])
-            except Exception as exc:
-                logger.warning("Page count failed for %s: %s", original_name, exc)
+        # Persist bytes into the model's configured storage.
+        #
+        # We explicitly write chunks rather than loading the complete
+        # upload into memory.
+        with open(
+            uf.file.path,
+            "wb",
+        ) as destination:
 
-        # 3. Decide sync vs async extraction
-        is_large_pdf = (
-            extension == "pdf"
-            and page_count is not None
-            and page_count > ASYNC_PAGE_THRESHOLD
+            for chunk in uploaded.chunks():
+                destination.write(chunk)
+
+        return uf
+
+    # ------------------------------------------------------------------
+    # Batch/file queries
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def get_batch_files(
+        batch: UploadBatch,
+    ) -> list[UploadedFile]:
+        """
+        Return all files belonging to a batch.
+        """
+
+        return list(
+            batch.files.order_by(
+                "uploaded_at"
+            )
         )
-        is_large_by_size = bool(file_size) and file_size > ASYNC_SIZE_THRESHOLD_BYTES
-        is_large = is_large_pdf or is_large_by_size
 
-        if is_large:
-            record.extraction_deferred = True
-            record.parse_status = "pending"
-            record.save(update_fields=["extraction_deferred", "parse_status"])
-            UploadService._refresh_batch_counters(batch)
-
-            # Queue background extraction (do not block the request).
-            #
-            # This MUST run on_commit: ingest_file is atomic (and ingest_many wraps
-            # a whole batch in one transaction), so dispatching inline races the
-            # commit — Redis delivers in milliseconds and the worker's
-            # UploadedFile.objects.get(pk=...) raises DoesNotExist, which the task
-            # reports as "file_not_found" without retrying. The file would then sit
-            # at pending/extraction_deferred forever.
-            file_pk = record.pk
-
-            def _queue_extraction():
-                from uploads.tasks import extract_file_text_task
-                try:
-                    extract_file_text_task.delay(file_pk)
-                    logger.info(
-                        "Queued async extraction for large %s file %s (%s, file_id=%s)",
-                        extension,
-                        original_name,
-                        f"{page_count} pages" if is_large_pdf else f"{file_size} bytes",
-                        file_pk,
-                    )
-                except Exception as exc:
-                    logger.exception(
-                        "Failed to queue extract_file_text_task for file %s: %s",
-                        file_pk, exc,
-                    )
-                    # Broker unreachable — fall back to inline so the file is still
-                    # usable. Re-read the row: we are past commit and outside the
-                    # original transaction.
-                    try:
-                        rec = UploadedFile.objects.select_related("batch").get(pk=file_pk)
-                    except UploadedFile.DoesNotExist:
-                        return
-                    rec.extraction_deferred = False
-                    rec.save(update_fields=["extraction_deferred"])
-                    UploadService._extract_and_save(rec)
-                    UploadService._refresh_batch_counters(rec.batch)
-
-            transaction.on_commit(_queue_extraction)
-            return record
-
-        # 4. Small file / non-PDF — extract inline
-        UploadService._extract_and_save(record)
-        UploadService._refresh_batch_counters(batch)
-        return record
+    # ------------------------------------------------------------------
+    # Batch counters
+    # ------------------------------------------------------------------
 
     @staticmethod
-    def _extract_and_save(record: UploadedFile) -> None:
-        """Run text extraction and update the UploadedFile row."""
-        try:
-            saved_path = record.file.path
-            text = _extract_text(saved_path, record.extension)
-            if not text:
-                # Extraction ran to completion and legitimately found nothing
-                # (scanned/image-only PDF, or a missing parser backend). That is
-                # a terminal outcome, not "still queued" — leaving it "pending"
-                # pins the batch at "processing" forever with nothing to re-run it.
-                logger.warning(
-                    "Extraction produced no text for %s (file_id=%s); marking parsed with empty text.",
-                    record.original_filename, record.pk,
-                )
-            record.extracted_text = text or ""
-            record.parse_status   = "parsed"
-            record.parsed_at      = timezone.now()
-            record.parse_error    = ""
-            record.save(update_fields=[
-                "extracted_text", "parse_status", "parsed_at", "parse_error",
-            ])
-        except Exception as exc:
-            logger.exception("Text extraction failed for %s: %s", record.original_filename, exc)
-            record.parse_status = "parse_error"
-            record.parse_error  = str(exc)
-            record.save(update_fields=["parse_status", "parse_error"])
-
-    @staticmethod
-    @transaction.atomic
-    def ingest_many(batch: UploadBatch, uploaded_files: list, *, user=None) -> list[UploadedFile]:
-        """Ingest a list of uploaded files into a batch. Returns saved records."""
-        records = []
-        for uf in uploaded_files:
-            try:
-                record = UploadService.ingest_file(batch, uf)
-                records.append(record)
-            except Exception as exc:
-                logger.exception(
-                    "Failed to ingest %s into batch %s: %s",
-                    getattr(uf, "name", "?"), batch.pk, exc,
-                )
-        return records
-
-    @staticmethod
-    def get_batch_files(batch: UploadBatch) -> list[UploadedFile]:
-        """Return all UploadedFile records for a batch, ordered by upload time."""
-        return list(batch.files.order_by("uploaded_at"))
-
-    @staticmethod
-    def _refresh_batch_counters(batch: UploadBatch) -> None:
+    def _refresh_batch_counters(
+        batch: UploadBatch,
+    ) -> None:
         """
-        Recount file_count, processed_count, error_count from the DB
-        and update the batch status accordingly.
+        Recalculate batch counters and status.
+
+        Called by Celery as individual files move through:
+
+            received
+              ↓
+            pending
+              ↓
+            parsing
+              ↓
+            parsed / parse_error
         """
-        files  = batch.files.all()
-        total  = files.count()
-        parsed = files.filter(parse_status="parsed").count()
-        errors = files.filter(parse_status="parse_error").count()
-        # "skipped" is terminal too. Counting it toward `total` but toward none of
-        # the outcome buckets meant a skipped file could never satisfy the
-        # "everything finished" test, pinning the batch at "processing" forever.
-        skipped = files.filter(parse_status="skipped").count()
+
+        files = batch.files.all()
+
+        total = files.count()
+
+        parsed = files.filter(
+            parse_status="parsed"
+        ).count()
+
+        errors = files.filter(
+            parse_status="parse_error"
+        ).count()
+
+        skipped = files.filter(
+            parse_status="skipped"
+        ).count()
+
         pending_or_parsing = files.filter(
-            parse_status__in=("pending", "parsing")
+            parse_status__in=(
+                "received",
+                "pending",
+                "parsing",
+            )
         ).count()
 
         if total == 0:
+
             new_status = "pending"
+
         elif errors == total:
+
             new_status = "failed"
+
         elif pending_or_parsing > 0:
-            new_status = "processing"
-        elif parsed + errors + skipped == total:
-            new_status = "completed" if errors == 0 else "partial"
-        else:
+
             new_status = "processing"
 
-        UploadBatch.objects.filter(pk=batch.pk).update(
-            file_count      = total,
-            processed_count = parsed,
-            error_count     = errors,
-            status          = new_status,
+        elif (
+            parsed
+            + errors
+            + skipped
+            == total
+        ):
+
+            new_status = (
+                "completed"
+                if errors == 0
+                else "partial"
+            )
+
+        else:
+
+            new_status = "processing"
+
+        UploadBatch.objects.filter(
+            pk=batch.pk
+        ).update(
+            file_count=total,
+            processed_count=parsed,
+            error_count=errors,
+            status=new_status,
         )
+
         batch.refresh_from_db()
 
-    # ── Helpers used by Celery task & tools ───────────────────────────────────
+    # ------------------------------------------------------------------
+    # Extraction state: parsing
+    # ------------------------------------------------------------------
 
     @staticmethod
-    def mark_parsing(file_id: int) -> UploadedFile | None:
+    def mark_parsing(
+        file_id: int,
+    ) -> UploadedFile | None:
+        """
+        Mark a file as actively being parsed.
+
+        Called by extract_file_text_task.
+        """
+
         try:
-            uf = UploadedFile.objects.select_related("batch").get(pk=file_id)
+
+            uf = (
+                UploadedFile.objects
+                .select_related("batch")
+                .get(pk=file_id)
+            )
+
         except UploadedFile.DoesNotExist:
+
             return None
+
         uf.parse_status = "parsing"
-        uf.save(update_fields=["parse_status"])
-        UploadService._refresh_batch_counters(uf.batch)
+        uf.parse_error = ""
+
+        uf.save(
+            update_fields=[
+                "parse_status",
+                "parse_error",
+            ]
+        )
+
+        UploadService._refresh_batch_counters(
+            uf.batch
+        )
+
         return uf
+
+    # ------------------------------------------------------------------
+    # Extraction state: completion/failure
+    # ------------------------------------------------------------------
 
     @staticmethod
     def complete_extraction(
@@ -537,50 +825,94 @@ class UploadService:
         error: str | None = None,
     ) -> UploadedFile | None:
         """
-        Called by the Celery task when extraction finishes (success or failure).
+        Complete an extraction operation.
+
+        Called by extract_file_text_task.
+
+        Handles both:
+
+            successful extraction
+            failed extraction
         """
+
         try:
-            uf = UploadedFile.objects.select_related("batch").get(pk=file_id)
+
+            uf = (
+                UploadedFile.objects
+                .select_related("batch")
+                .get(pk=file_id)
+            )
+
         except UploadedFile.DoesNotExist:
+
             return None
 
         if error:
+
             uf.parse_status = "parse_error"
-            uf.parse_error  = error[:2000]
+            uf.parse_error = error[:2000]
+
+            # For terminal failures, do not present stale text
+            # as successfully extracted content.
             uf.extracted_text = ""
+
         else:
-            if not text:
-                # See _extract_and_save: a completed extraction that yielded no
-                # text is terminal. "pending" would strand the file and its batch.
-                logger.warning(
-                    "Background extraction produced no text for file_id=%s; "
-                    "marking parsed with empty text.", file_id,
-                )
+
             uf.extracted_text = text or ""
-            uf.parse_status   = "parsed"
-            uf.parse_error    = ""
-            uf.parsed_at      = timezone.now()
+
+            uf.parse_status = "parsed"
+
+            uf.parse_error = ""
+
+            uf.parsed_at = timezone.now()
+
             if page_count is not None:
                 uf.page_count = page_count
 
-        uf.save(update_fields=[
-            "extracted_text", "parse_status", "parse_error",
-            "parsed_at", "page_count",
-        ])
+        update_fields = [
+            "extracted_text",
+            "parse_status",
+            "parse_error",
+            "parsed_at",
+        ]
 
-        # Detection may have run while extraction was still deferred, i.e. against
-        # empty text — that verdict is provisional and nothing else would ever
-        # recompute it. Now that real text exists, redo it. Only when the current
-        # verdict is absent or low-confidence, so a high-confidence or manually
-        # corrected label is never clobbered.
-        if not error and text and uf.detection_confidence in (None, "", "low"):
+        if page_count is not None:
+            update_fields.append(
+                "page_count"
+            )
+
+        uf.save(
+            update_fields=update_fields
+        )
+
+        # Re-run file-type detection after extraction when appropriate.
+        #
+        # Extraction may have been unavailable when an earlier detection
+        # operation ran. Do not overwrite a high-confidence/manual verdict.
+        if (
+            not error
+            and text
+            and uf.detection_confidence
+            in (None, "", "low")
+        ):
+
             try:
+
                 from tools.handlers import detect_file_type
-                detect_file_type(uf.pk)
+
+                detect_file_type(
+                    uf.pk
+                )
+
                 uf.refresh_from_db()
+
             except Exception as exc:
+
                 logger.warning(
-                    "Re-detection after extraction failed for file %s: %s", uf.pk, exc,
+                    "Re-detection after extraction failed "
+                    "for file %s: %s",
+                    uf.pk,
+                    exc,
                 )
 
         UploadService._refresh_batch_counters(uf.batch)

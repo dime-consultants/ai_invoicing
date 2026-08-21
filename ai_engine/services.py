@@ -291,8 +291,13 @@ def _collect_conversation_files(conversation) -> list:
         seen: dict = {}
         for att in attachments:
             uf = att.uploaded_file
-            if uf and uf.pk not in seen:
+            if(
+                uf
+                and uf.parse_status == "parsed"
+                and uf.pk not in seen
+            ):
                 seen[uf.pk] = uf
+                
         return list(seen.values())
     except Exception as exc:
         logger.warning(
