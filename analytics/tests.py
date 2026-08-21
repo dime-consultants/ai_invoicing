@@ -152,12 +152,13 @@ class ReportGenerationTests(TestCase):
         self.assertFalse(report.file)
 
     def test_generate_marks_error_when_broker_unavailable(self):
-        """No mock — the real dispatch() call hits an unreachable broker in
-        this test environment and must return None, which the view must
-        turn into a terminal status="error" rather than a false "queued"."""
-        resp = self.client.post("/api/reports/generate/", {
-            "type": "custom", "format": "csv", "parameters": {},
-        }, format="json")
+        """A dispatch failure must mark the report terminally errored."""
+        from unittest.mock import patch
+
+        with patch("config.dispatch.dispatch", return_value=None):
+            resp = self.client.post("/api/reports/generate/", {
+                "type": "custom", "format": "csv", "parameters": {},
+            }, format="json")
         self.assertEqual(resp.status_code, 202)
         report = Report.objects.get(pk=resp.json()["reportId"])
         self.assertEqual(report.status, "error")

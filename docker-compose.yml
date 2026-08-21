@@ -1,12 +1,41 @@
+version: "3.9"
+
+x-django-env: &django-env
+  DEBUG: "False"
+  DJANGO_SETTINGS_MODULE: config.settings
+  SECRET_KEY: ${DJANGO_SECRET_KEY}
+
+  DB_NAME: ${DATABASE_DB}
+  DB_USER: ${DATABASE_USER}
+  DB_PASSWORD: ${DATABASE_PASSWORD}
+  DB_HOST: ${DATABASE_HOST}
+  DB_PORT: ${DATABASE_PORT}
+
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+
+  SYSTEM_BASE_URL: ${SYSTEM_BASE_URL:-invoicing.dimeconsultants.africa}
+
+x-app-image: &app-image ${IMAGE_TAG}
+
+x-common-labels: &common-labels
+  observability.app: ai-invoicing
+  observability.environment: ${SHARED_ENV}
+
+networks:
+  default:
+    name: ${SHARED_NETWORK}
+    external: true
+
 services:
+
   # ── PostgreSQL ──────────────────────────────────────────────────────────────
   db:
     image: postgres:16-alpine
     container_name: invoicing-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
+      POSTGRES_DB:       ${DB_NAME}
+      POSTGRES_USER:     ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -49,16 +78,12 @@ services:
   # register_tools and sync_tools_to_ui are removed — seed_tools replaces both.
   # seed_tools is idempotent: re-running on deploy only updates changed rows.
   migrate:
-    # image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
-
+    image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
     container_name: invoicing-migrate
     restart: "no"
     env_file: .env
     environment:
-      DB_HOST: db
+      DB_HOST:   db
       REDIS_URL: redis://redis:6379/0
     depends_on:
       db:
@@ -66,7 +91,7 @@ services:
     networks:
       - invoicing-network
     volumes:
-      - tools_export:/app # shares tools_export.json with app container
+      - tools_export:/app  # shares tools_export.json with app container
     command: >
       sh -c "
         echo '[migrate] Applying migrations...' &&
@@ -80,24 +105,21 @@ services:
 
   # ── Django / Daphne (web) ───────────────────────────────────────────────────
   app:
-    # image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
     container_name: invoicing-app
     restart: unless-stopped
     env_file: .env
     environment:
-      DB_HOST: db
-      REDIS_URL: redis://redis:6379/0
-      DEBUG: "False"
+      DB_HOST:            db
+      REDIS_URL:          redis://redis:6379/0
+      DEBUG:              "False"
       # Entrypoint skips startup tasks — migrate service handled them
-      RUN_STARTUP_TASKS: "false"
+      RUN_STARTUP_TASKS:  "false"
     volumes:
       - static_files:/app/staticfiles
       - media_files:/app/media
       - outputs_files:/app/outputs
-      - tools_export:/app/tools_export_shared # read tools_export.json if needed
+      - tools_export:/app/tools_export_shared  # read tools_export.json if needed
     depends_on:
       db:
         condition: service_healthy
@@ -128,17 +150,14 @@ services:
   #
   # Does NOT run startup tasks — migrations + seeding happen in `migrate`.
   worker:
-    # image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
     container_name: invoicing-worker
     restart: unless-stopped
     env_file: .env
     environment:
-      DB_HOST: db
+      DB_HOST:   db
       REDIS_URL: redis://redis:6379/0
-      DEBUG: "False"
+      DEBUG:     "False"
     volumes:
       - media_files:/app/media
       - outputs_files:/app/outputs
@@ -162,11 +181,7 @@ services:
       --autoscale=4,2
       --max-tasks-per-child=20
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1",
-        ]
+      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -184,17 +199,14 @@ services:
   # (soft_time_limit 8 min, typically seconds) and users are actively waiting
   # on them in real time.
   worker-chat:
-    # image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
     container_name: invoicing-worker-chat
     restart: unless-stopped
     env_file: .env
     environment:
-      DB_HOST: db
+      DB_HOST:   db
       REDIS_URL: redis://redis:6379/0
-      DEBUG: "False"
+      DEBUG:     "False"
     volumes:
       - media_files:/app/media
       - outputs_files:/app/outputs
@@ -218,11 +230,7 @@ services:
       --autoscale=8,2
       --max-tasks-per-child=50
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1",
-        ]
+      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -235,10 +243,7 @@ services:
   # ── Flower (Celery monitoring) ───────────────────────────────────────────────
   # Web UI at http://<host>:5555 — safe to remove once things are stable.
   flower:
-    # image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${IMAGE_NAME:-ghcr.io/kib4n4/ai_invoicing}:${IMAGE_TAG:-latest}
     container_name: invoicing-flower
     restart: unless-stopped
     env_file: .env
@@ -266,7 +271,8 @@ services:
       - media_files:/var/www/media:ro
     depends_on:
       app:
-        condition: service_healthy
+        condition:
+         service_healthy
     networks:
       - invoicing-network
     healthcheck:
@@ -281,7 +287,7 @@ volumes:
   static_files:
   media_files:
   outputs_files:
-  tools_export: # carries tools_export.json from migrate → app
+  tools_export:     # carries tools_export.json from migrate → app
 
 networks:
   invoicing-network:
