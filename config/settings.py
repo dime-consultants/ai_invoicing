@@ -258,7 +258,6 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
-    "https://localhost:8000",
     "https://kuehne.dimeconsultants.africa",
     "https://guardian.dimeconsultants.africa",
 ]
@@ -284,7 +283,6 @@ CSRF_TRUSTED_ORIGINS = [
     "https://kuehne.dimeconsultants.africa",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
-    "http://localhost:8000",
     "https://guardian.dimeconsultants.africa",
     "https://stage-guardian.dimeconsultants.africa",
     "https://invoicing.dimeconsultants.africa",
