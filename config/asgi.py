@@ -1,49 +1,32 @@
 # config/asgi.py
-
 """
 ASGI config — serves both HTTP (Django) and WebSocket (Channels) traffic.
 
-HTTP
-    → Standard Django ASGI application
-
-WebSocket
-    → JWTAuthMiddleware
-        → URLRouter
-            → WebSocket URL patterns
+HTTP  → standard Django ASGI application
+WS    → Channels ProtocolTypeRouter
+          └─ JWTAuthMiddleware (resolves user from ?token=<jwt>)
+               └─ URLRouter (ws/notifications/, ws/chat/<id>/)
 """
-
 import os
 
 from django.core.asgi import get_asgi_application
 
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
-# Set the Django settings module
-os.environ.setdefault(
-    "DJANGO_SETTINGS_MODULE",
-    "config.settings",
-)
-
-
-# Initialize Django before importing anything that may touch Django models
+# Must call get_asgi_application() before importing anything that touches
+# Django models, so the app registry is fully populated first.
 django_asgi_app = get_asgi_application()
 
+from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
+from config.routing import websocket_urlpatterns             # noqa: E402
+from config.ws_middleware import JWTAuthMiddleware           # noqa: E402
 
-# Import Channels components after Django initialization
-from channels.routing import ProtocolTypeRouter, URLRouter
-from config.ws_middleware import JWTAuthMiddleware  
-from uploads.consumers import websocket_urlpatterns as files_websocket_urlpatterns
-from chat.consumers import websocket_urlpatterns as chat_websocket_urlpatterns
+application = ProtocolTypeRouter({
+    # Standard HTTP — handled by Django
+    "http": django_asgi_app,
 
-
-application = ProtocolTypeRouter(
-    {
-        # Standard Django HTTP traffic
-        "http": django_asgi_app,
-
-        # WebSocket traffic authenticated using JWT
-        "websocket": JWTAuthMiddleware(
-            URLRouter(files_websocket_urlpatterns + chat_websocket_urlpatterns)
-        ),
-
-    }
-)
+    # WebSocket — authenticated via JWT query-string token
+    "websocket": JWTAuthMiddleware(
+        URLRouter(websocket_urlpatterns)
+    ),
+})
