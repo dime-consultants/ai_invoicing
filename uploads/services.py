@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+import hashlib
 from pathlib import Path
 
 from django.conf import settings
@@ -42,6 +43,24 @@ PDF_EXTRACTION_CHUNK_SIZE = getattr(settings, "PDF_EXTRACTION_CHUNK_SIZE", 50)
 # whichever request or worker triggered ingestion.
 ASYNC_SIZE_THRESHOLD_BYTES = getattr(settings, "ASYNC_SIZE_THRESHOLD_BYTES", 5 * 1024 * 1024)  # 5MB
 SPREADSHEET_CHECKPOINT_ROWS = getattr(settings, "SPREADSHEET_CHECKPOINT_ROWS", 5000)
+
+
+def _uploaded_file_checksum(uploaded_file) -> str:
+    hasher = hashlib.sha256()
+    position = None
+    try:
+        position = uploaded_file.tell()
+    except Exception:
+        position = None
+
+    for chunk in uploaded_file.chunks():
+        hasher.update(chunk)
+
+    try:
+        uploaded_file.seek(position or 0)
+    except Exception:
+        pass
+    return hasher.hexdigest()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -323,6 +342,7 @@ class UploadService:
             if hasattr(uploaded_file, "size")
             else uploaded_file.seek(0, 2) or uploaded_file.tell()
         )
+        checksum = _uploaded_file_checksum(uploaded_file)
 
         # 1. Persist file to storage
         record = UploadedFile.objects.create(
@@ -330,6 +350,7 @@ class UploadService:
             file              = uploaded_file,
             original_filename = original_name,
             file_size_bytes   = file_size or 0,
+            checksum_sha256   = checksum,
             mime_type         = mime_type or "",
             extension         = extension,
             parse_status      = "pending",

@@ -1,4 +1,6 @@
 # ai_engine/models.py
+import uuid
+
 from django.db import models
 
 
@@ -40,6 +42,7 @@ class AIAnalysisJob(models.Model):
         ("error",    "Error"),
     ]
 
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     # ── Relationships ─────────────────────────────────────────────────────────
     batch = models.ForeignKey(
         "uploads.UploadBatch",
@@ -150,6 +153,7 @@ class AIInsight(models.Model):
         ("critical", "Critical"),
     ]
 
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     job = models.ForeignKey(
         AIAnalysisJob,
         on_delete=models.CASCADE,

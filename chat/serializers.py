@@ -10,7 +10,7 @@ class ChatMessageAttachmentSerializer(serializers.ModelSerializer):
     class Meta:
         model  = ChatMessageAttachment
         fields = [
-            "id", "filename", "file_type", "attachment_type",
+            "id", "public_id", "filename", "file_type", "attachment_type",
             "file_size_bytes", "created_at",
             "download_url",
             "uploaded_file",   # FK to uploads.UploadedFile — useful for UI
@@ -35,7 +35,7 @@ class ChatMessageSerializer(serializers.ModelSerializer):
     class Meta:
         model  = ChatMessage
         fields = [
-            "id", "role", "content", "created_at",
+            "id", "public_id", "role", "content", "created_at",
             "applied_workflow", "applied_workflow_name",
             "ai_job_id", "ai_job_status",
             "attachments",
@@ -47,7 +47,7 @@ class WorkflowSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Workflow
         fields = [
-            "id", "name", "description", "workflow_type", "steps",
+            "id", "public_id", "name", "description", "workflow_type", "steps",
             "enabled", "is_default", "created_at", "updated_at",
         ]
         read_only_fields = ["created_at", "updated_at"]
@@ -63,7 +63,7 @@ class ChatConversationListSerializer(serializers.ModelSerializer):
     class Meta:
         model  = ChatConversation
         fields = [
-            "id", "title", "is_active",
+            "id", "public_id", "title", "is_active",
             "related_batch", "related_batch_label",
             "message_count", "last_message",
             "created_at", "updated_at",
@@ -94,7 +94,7 @@ class ChatConversationSerializer(serializers.ModelSerializer):
     class Meta:
         model  = ChatConversation
         fields = [
-            "id", "title", "is_active",
+            "id", "public_id", "title", "is_active",
             "related_batch", "related_batch_label",
             "message_count", "messages",
             "created_at", "updated_at",

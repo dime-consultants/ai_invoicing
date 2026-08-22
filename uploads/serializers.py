@@ -23,8 +23,8 @@ class UploadedFileSerializer(serializers.ModelSerializer):
     class Meta:
         model  = UploadedFile
         fields = [
-            "id", "name", "type", "size",
-            "extension", "detected_type", "detection_confidence",
+            "id", "public_id", "name", "type", "size",
+            "extension", "checksum_sha256", "detected_type", "detection_confidence",
             "status", "parse_error",
             "pageCount", "extractionDeferred",
             "uploadedAt", "uploadedBy",
@@ -43,14 +43,14 @@ class UploadBatchSerializer(serializers.ModelSerializer):
     class Meta:
         model  = UploadBatch
         fields = [
-            "id", "label", "description", "status",
+            "id", "public_id", "label", "description", "status",
             "file_count", "processed_count", "error_count",
             "uploadedBy",
             "created_at", "updated_at",
             "files",
         ]
         read_only_fields = [
-            "id", "status", "file_count", "processed_count",
+            "id", "public_id", "status", "file_count", "processed_count",
             "error_count", "created_at", "updated_at", "files",
         ]
 
@@ -64,7 +64,7 @@ class UploadBatchListSerializer(serializers.ModelSerializer):
     class Meta:
         model  = UploadBatch
         fields = [
-            "id", "label", "description", "status",
+            "id", "public_id", "label", "description", "status",
             "file_count", "processed_count", "error_count",
             "uploadedBy", "created_at", "updated_at",
         ]
