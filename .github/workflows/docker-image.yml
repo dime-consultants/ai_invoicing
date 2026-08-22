@@ -1,4 +1,4 @@
-name: Build Image & Trigger Deployment
+name: Build Image & Trigger K3s Deployment
 
 on:
   push:
@@ -93,7 +93,7 @@ jobs:
             echo "env=stage" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Generate Docker image tag
+      - name: Generate image tag
         id: tag
         shell: bash
         env:
@@ -108,28 +108,15 @@ jobs:
           echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
           echo "timestamp=$TIMESTAMP" >> "$GITHUB_OUTPUT"
 
-          echo "Generated Docker image tag: $IMAGE_TAG"
+          echo "Generated image tag: $IMAGE_TAG"
 
-      - name: Build and push Docker image
+      - name: Build and push image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: ${{ steps.tag.outputs.image_tag }}
           platforms: linux/amd64,linux/arm64/v8
-
-      - name: Encode docker-compose file
-        id: compose
-        shell: bash
-        run: |
-          if [ ! -f docker-compose.yml ]; then
-            echo "Error: docker-compose.yml not found in repository."
-            exit 1
-          fi
-
-          COMPOSE_B64=$(base64 -w 0 docker-compose.yml)
-
-          echo "b64=$COMPOSE_B64" >> "$GITHUB_OUTPUT"
 
       - name: Prepare env_secrets payload
         id: prepare_secrets
@@ -141,7 +128,7 @@ jobs:
 
           if [ -n "$DJANGO_SECRET_KEY" ]; then
             JSON=$(echo "$JSON" | jq \
-              --arg key "DJANGO_SECRET_KEY" \
+              --arg key "SECRET_KEY" \
               --arg value "$DJANGO_SECRET_KEY" \
               '.[$key] = $value')
           fi
@@ -151,6 +138,16 @@ jobs:
           else
             SYSTEM_BASE_URL="invoicing.dimeconsultants.africa"
           fi
+
+          JSON=$(echo "$JSON" | jq \
+            --arg key "DEBUG" \
+            --arg value "False" \
+            '.[$key] = $value')
+
+          JSON=$(echo "$JSON" | jq \
+            --arg key "DJANGO_SETTINGS_MODULE" \
+            --arg value "config.settings" \
+            '.[$key] = $value')
 
           JSON=$(echo "$JSON" | jq \
             --arg key "SYSTEM_BASE_URL" \
@@ -174,7 +171,6 @@ jobs:
           ENV_NAME: ${{ steps.env.outputs.env }}
           SHA: ${{ github.sha }}
           IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
-          DOCKER_COMPOSE_B64: ${{ steps.compose.outputs.b64 }}
           ENV_SECRETS_JSON: ${{ steps.prepare_secrets.outputs.secrets_json }}
         run: |
           PAYLOAD=$(jq -nc \
@@ -183,7 +179,6 @@ jobs:
             --arg env "$ENV_NAME" \
             --arg sha "$SHA" \
             --arg image_tag "$IMAGE_TAG" \
-            --arg docker_compose_b64 "$DOCKER_COMPOSE_B64" \
             --argjson env_secrets "$ENV_SECRETS_JSON" \
             '{
               app_repo: $app_repo,
@@ -191,7 +186,6 @@ jobs:
               env: $env,
               sha: $sha,
               image_tag: $image_tag,
-              docker_compose_b64: $docker_compose_b64,
               env_secrets: $env_secrets
             }')
 
