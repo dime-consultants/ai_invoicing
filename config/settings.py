@@ -26,7 +26,7 @@ load_dotenv(BASE_DIR / ".env")
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-#1qa*2-vf$ae@bl8ci=&w+y+0%#-+r36+z+t-u-%-1c!jroka=')
+SECRET_KEY = os.environ.get('SECRET_KEY') or os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-#1qa*2-vf$ae@bl8ci=&w+y+0%#-+r36+z+t-u-%-1c!jroka=')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
@@ -112,11 +112,11 @@ else:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.environ.get('DB_NAME', ''),
-            'USER': os.environ.get('DB_USER', ''),
-            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-            'HOST': os.environ.get('DB_HOST', 'localhost'),
-            'PORT': os.environ.get('DB_PORT', '5432'),
+            'NAME': os.environ.get('DB_NAME') or os.environ.get('DATABASE_DB', ''),
+            'USER': os.environ.get('DB_USER') or os.environ.get('DATABASE_USER', ''),
+            'PASSWORD': os.environ.get('DB_PASSWORD') or os.environ.get('DATABASE_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST') or os.environ.get('DATABASE_HOST', 'localhost'),
+            'PORT': os.environ.get('DB_PORT') or os.environ.get('DATABASE_PORT', '5432'),
         }
     }
 
@@ -258,7 +258,6 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
-    "https://localhost:8000",
     "https://kuehne.dimeconsultants.africa",
     "https://guardian.dimeconsultants.africa",
 ]
@@ -284,7 +283,6 @@ CSRF_TRUSTED_ORIGINS = [
     "https://kuehne.dimeconsultants.africa",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
-    "http://localhost:8000",
     "https://guardian.dimeconsultants.africa",
     "https://stage-guardian.dimeconsultants.africa",
     "https://invoicing.dimeconsultants.africa",
