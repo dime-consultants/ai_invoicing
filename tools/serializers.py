@@ -16,7 +16,7 @@ class ToolDefinitionSerializer(serializers.ModelSerializer):
     class Meta:
         model  = ToolDefinition
         fields = [
-            "id", "name", "display_name", "description",
+            "id", "public_id", "name", "display_name", "description",
             "category", "category_display",
             "tool_type", "tool_type_display",
             "parameters_schema", "handler",
@@ -25,7 +25,7 @@ class ToolDefinitionSerializer(serializers.ModelSerializer):
             "grok_schema",
             "created_at", "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "public_id", "created_at", "updated_at"]
 
     def get_grok_schema(self, obj):
         return obj.to_grok_schema()
@@ -40,7 +40,7 @@ class ToolCallSerializer(serializers.ModelSerializer):
     class Meta:
         model  = ToolCall
         fields = [
-            "id", "tool", "tool_name", "tool_display",
+            "id", "public_id", "tool", "tool_name", "tool_display",
             "job",
             "arguments", "result", "error_message",
             "status", "status_display",
@@ -198,7 +198,7 @@ class CustomToolDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model  = ToolDefinition
         fields = [
-            "id", "name", "display_name", "description",
+            "id", "public_id", "name", "display_name", "description",
             "category", "category_display",
             "tool_type", "tool_type_display",
             "parameters_schema",

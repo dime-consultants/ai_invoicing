@@ -43,6 +43,8 @@ The Celery task layer is responsible for:
 from __future__ import annotations
 
 import logging
+import mimetypes
+import hashlib
 from pathlib import Path
 
 from django.db import transaction
@@ -59,7 +61,40 @@ logger = logging.getLogger(__name__)
 
 PDF_EXTRACTION_CHUNK_SIZE = 50
 
-SPREADSHEET_CHECKPOINT_ROWS = 5000
+def _uploaded_file_checksum(uploaded_file) -> str:
+    hasher = hashlib.sha256()
+    position = None
+    try:
+        position = uploaded_file.tell()
+    except Exception:
+        position = None
+
+    for chunk in uploaded_file.chunks():
+        hasher.update(chunk)
+
+    try:
+        uploaded_file.seek(position or 0)
+    except Exception:
+        pass
+    return hasher.hexdigest()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Page counting (PDF only, cheap)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _count_pdf_pages(file_path: str) -> int | None:
+    """
+    Return the page count of a PDF without extracting any text.
+    Used to decide whether to route to the async Celery pipeline.
+    """
+    try:
+        import pdfplumber
+        with pdfplumber.open(file_path) as pdf:
+            return len(pdf.pages)
+    except Exception as exc:
+        logger.warning("Could not count pages for %s: %s", file_path, exc)
+        return None
 
 
 # ===========================================================================
@@ -603,24 +638,18 @@ class UploadService:
             .lstrip(".")
             .lower()
         )
+        checksum = _uploaded_file_checksum(uploaded_file)
 
-        # MIME is only a lightweight filename-based hint.
-        # pipeline_ingest_task performs the authoritative metadata step.
-        mime_type = ""
-
-        uf = UploadedFile.objects.create(
-            batch=batch,
-            original_filename=original_name,
-            file_size_bytes=getattr(
-                uploaded,
-                "size",
-                0,
-            ) or 0,
-            mime_type=mime_type,
-            extension=extension,
-            parse_status="received",
-            parse_error="",
-            extracted_text="",
+        # 1. Persist file to storage
+        record = UploadedFile.objects.create(
+            batch             = batch,
+            file              = uploaded_file,
+            original_filename = original_name,
+            file_size_bytes   = file_size or 0,
+            checksum_sha256   = checksum,
+            mime_type         = mime_type or "",
+            extension         = extension,
+            parse_status      = "pending",
         )
 
         # Persist bytes into the model's configured storage.
@@ -886,8 +915,5 @@ class UploadService:
                     exc,
                 )
 
-        UploadService._refresh_batch_counters(
-            uf.batch
-        )
-
+        UploadService._refresh_batch_counters(uf.batch)
         return uf
