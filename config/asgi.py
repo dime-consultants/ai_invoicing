@@ -32,7 +32,7 @@ django_asgi_app = get_asgi_application()
 from channels.routing import ProtocolTypeRouter, URLRouter
 from config.ws_middleware import JWTAuthMiddleware  
 from uploads.consumers import websocket_urlpatterns as files_websocket_urlpatterns
-from chat.consumers import websocket_urlpatterns as chat_websocket_urlpatterns
+from chat.routing import websocket_urlpatterns as chat_websocket_urlpatterns
 
 
 application = ProtocolTypeRouter(
