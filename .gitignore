@@ -15,3 +15,6 @@ __pycache__/*
 *.pid
 *.sock
 *.sh
+
+# dev-only compose file
+docker-compose-dev.yml

@@ -20,6 +20,7 @@ django_asgi_app = get_asgi_application()
 from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
 from config.routing import websocket_urlpatterns             # noqa: E402
 from config.ws_middleware import JWTAuthMiddleware           # noqa: E402
+from uploads.consumers import websocket_urlpatterns as files_websocket_urlpatterns  # noqa: E402
 
 application = ProtocolTypeRouter({
     # Standard HTTP — handled by Django
@@ -27,6 +28,6 @@ application = ProtocolTypeRouter({
 
     # WebSocket — authenticated via JWT query-string token
     "websocket": JWTAuthMiddleware(
-        URLRouter(websocket_urlpatterns)
+        URLRouter(websocket_urlpatterns + files_websocket_urlpatterns)
     ),
 })
