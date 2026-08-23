@@ -9,7 +9,9 @@ __pycache__/*
 *.db
 *.sqlite3
 /outputs/*
-.env
+.env*
+.env.dev
+docker-compose.dev.yml
 #server files
 *.log
 *.pid
