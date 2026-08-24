@@ -9,9 +9,14 @@ __pycache__/*
 *.db
 *.sqlite3
 /outputs/*
-.env
+.env*
+.env.dev
+docker-compose.dev.yml
 #server files
 *.log
 *.pid
 *.sock
 *.sh
+
+# dev-only compose file
+docker-compose-dev.yml

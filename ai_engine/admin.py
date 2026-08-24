@@ -5,8 +5,6 @@ from django.utils.html import format_html
 from .models import AIAnalysisJob, AIInsight
 
 
-# ── Inlines ───────────────────────────────────────────────────────────────────
-
 class AIInsightInline(admin.TabularInline):
     model   = AIInsight
     extra   = 0

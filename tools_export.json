@@ -1,0 +1,803 @@
+[
+  {
+    "id": 10,
+    "name": "flag_anomalies",
+    "display_name": "Flag Anomalies",
+    "description": "Scan a set of invoice or transaction records for anomalies: duplicate IDs, zero values, unusually large amounts, missing tax on taxable amounts, round-number estimates. Pass a file_id or a JSON array of already-extracted records.",
+    "category": "analysis",
+    "tool_type": "prompt_transform",
+    "is_safe": true,
+    "version": 1,
+    "grok_schema": {
+      "type": "function",
+      "function": {
+        "name": "flag_anomalies",
+        "description": "Scan a set of invoice or transaction records for anomalies: duplicate IDs, zero values, unusually large amounts, missing tax on taxable amounts, round-number estimates. Pass a file_id or a JSON array of already-extracted records.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_id": {
+              "type": "integer",
+              "description": "PK of the UploadedFile to scan."
+            },
+            "records": {
+              "type": "array",
+              "description": "Optional: pass already-extracted records instead of a file. Each item must have at least an 'id' and 'total' field.",
+              "default": []
+            }
+          }
+        }
+      }
+    },
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "file_id": {
+          "type": "integer",
+          "description": "PK of the UploadedFile to scan."
+        },
+        "records": {
+          "type": "array",
+          "description": "Optional: pass already-extracted records instead of a file. Each item must have at least an 'id' and 'total' field.",
+          "default": []
+        }
+      }
+    },
+    "has_prompt": true,
+    "is_custom": false
+  },
+  {
+    "id": 12,
+    "name": "summarise_batch",
+    "display_name": "Summarise Batch",
+    "description": "Produce a plain-English and structured summary of an upload batch: file count, types, parse status breakdown, errors, and high-level overview of the data inside. Accepts batch_id.",
+    "category": "analysis",
+    "tool_type": "prompt_transform",
+    "is_safe": true,
+    "version": 1,
+    "grok_schema": {
+      "type": "function",
+      "function": {
+        "name": "summarise_batch",
+        "description": "Produce a plain-English and structured summary of an upload batch: file count, types, parse status breakdown, errors, and high-level overview of the data inside. Accepts batch_id.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "batch_id": {
+              "type": "integer",
+              "description": "PK of the UploadBatch to summarise."
+            }
+          },
+          "required": [
+            "batch_id"
+          ]
+        }
+      }
+    },
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "batch_id": {
+          "type": "integer",
+          "description": "PK of the UploadBatch to summarise."
+        }
+      },
+      "required": [
+        "batch_id"
+      ]
+    },
+    "has_prompt": true,
+    "is_custom": false
+  },
+  {
+    "id": 9,
+    "name": "extract_invoice_data",
+    "display_name": "Extract Invoice Data",
+    "description": "Extract structured invoice data from any file \u2014 URA/KRA fiscal receipts, Safaricom bills, ACON exports, or generic invoices. Reads the file, identifies columns/blocks, and returns a JSON array of records. Accepts file_id and an optional context hint.",
+    "category": "extraction",
+    "tool_type": "prompt_transform",
+    "is_safe": true,
+    "version": 1,
+    "grok_schema": {
+      "type": "function",
+      "function": {
+        "name": "extract_invoice_data",
+        "description": "Extract structured invoice data from any file \u2014 URA/KRA fiscal receipts, Safaricom bills, ACON exports, or generic invoices. Reads the file, identifies columns/blocks, and returns a JSON array of records. Accepts file_id and an optional context hint.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_id": {
+              "type": "integer",
+              "description": "PK of the UploadedFile to extract."
+            },
+            "context": {
+              "type": "string",
+              "description": "Optional hint about what to extract, e.g. 'URA fiscal receipts', 'Safaricom billing', 'ACON export'.",
+              "default": ""
+            }
+          },
+          "required": [
+            "file_id"
+          ]
+        }
+      }
+    },
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "file_id": {
+          "type": "integer",
+          "description": "PK of the UploadedFile to extract."
+        },
+        "context": {
+          "type": "string",
+          "description": "Optional hint about what to extract, e.g. 'URA fiscal receipts', 'Safaricom billing', 'ACON export'.",
+          "default": ""
+        }
+      },
+      "required": [
+        "file_id"
+      ]
+    },
+    "has_prompt": true,
+    "is_custom": false
+  },
+  {
+    "id": 3,
+    "name": "extract_safaricom_bill",
+    "display_name": "Extract Safaricom Bill",
+    "description": "Extract a per-line telephone billing report from a Safaricom PostPay bill PDF. Joins the TAX INVOICE SUMMARY rows to each subscriber's TAX INVOICE page on invoice number, so every line gets its CU Invoice Number, then writes an .xlsx mapping telephone user \u2192 department \u2192 phone \u2192 invoice \u2192 CU number \u2192 amounts. Use this for any Safaricom bill instead of a generic extractor \u2014 the CU number and the amounts live in different sections and must be joined. Returns: record_count, headers, rows (preview), output_filename.",
+    "category": "extraction",
+    "tool_type": "builtin",
+    "is_safe": true,
+    "version": 1,
+    "grok_schema": {
+      "type": "function",
+      "function": {
+        "name": "extract_safaricom_bill",
+        "description": "Extract a per-line telephone billing report from a Safaricom PostPay bill PDF. Joins the TAX INVOICE SUMMARY rows to each subscriber's TAX INVOICE page on invoice number, so every line gets its CU Invoice Number, then writes an .xlsx mapping telephone user \u2192 department \u2192 phone \u2192 invoice \u2192 CU number \u2192 amounts. Use this for any Safaricom bill instead of a generic extractor \u2014 the CU number and the amounts live in different sections and must be joined. Returns: record_count, headers, rows (preview), output_filename.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_id": {
+              "type": "integer",
+              "description": "PK of the UploadedFile record (a Safaricom PostPay PDF)."
+            }
+          },
+          "required": [
+            "file_id"
+          ]
+        }
+      }
+    },
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "file_id": {
+          "type": "integer",
+          "description": "PK of the UploadedFile record (a Safaricom PostPay PDF)."
+        }
+      },
+      "required": [
+        "file_id"
+      ]
+    },
+    "has_prompt": false,
+    "is_custom": false
+  },
+  {
+    "id": 11,
+    "name": "reconcile_datasets",
+    "display_name": "Reconcile Datasets",
+    "description": "Compare two sets of records on a shared key and produce a variance report. Works for URA vs ACON, any two invoice exports, or any two lists with a common ID. Returns matched rows, variances, and rows missing from either side.",
+    "category": "reconciliation",
+    "tool_type": "prompt_transform",
+    "is_safe": true,
+    "version": 1,
+    "grok_schema": {
+      "type": "function",
+      "function": {
+        "name": "reconcile_datasets",
+        "description": "Compare two sets of records on a shared key and produce a variance report. Works for URA vs ACON, any two invoice exports, or any two lists with a common ID. Returns matched rows, variances, and rows missing from either side.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_id_a": {
+              "type": "integer",
+              "description": "PK of the first file."
+            },
+            "file_id_b": {
+              "type": "integer",
+              "description": "PK of the second file."
+            },
+            "join_key": {
+              "type": "string",
+              "description": "Field to join on. Default: inferred.",
+              "default": ""
+            },
+            "amount_key_a": {
+              "type": "string",
+              "description": "Amount field in file A. Default: inferred.",
+              "default": ""
+            },
+            "amount_key_b": {
+              "type": "string",
+              "description": "Amount field in file B. Default: inferred.",
+              "default": ""
+            },
+            "tolerance": {
+              "type": "number",
+              "description": "Variance tolerance. Default 1.0.",
+              "default": 1.0
+            }
+          },
+          "required": [
+            "file_id_a",
+            "file_id_b"
+          ]
+        }
+      }
+    },
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "file_id_a": {
+          "type": "integer",
+          "description": "PK of the first file."
+        },
+        "file_id_b": {
+          "type": "integer",
+          "description": "PK of the second file."
+        },
+        "join_key": {
+          "type": "string",
+          "description": "Field to join on. Default: inferred.",
+          "default": ""
+        },
+        "amount_key_a": {
+          "type": "string",
+          "description": "Amount field in file A. Default: inferred.",
+          "default": ""
+        },
+        "amount_key_b": {
+          "type": "string",
+          "description": "Amount field in file B. Default: inferred.",
+          "default": ""
+        },
+        "tolerance": {
+          "type": "number",
+          "description": "Variance tolerance. Default 1.0.",
+          "default": 1.0
+        }
+      },
+      "required": [
+        "file_id_a",
+        "file_id_b"
+      ]
+    },
+    "has_prompt": true,
+    "is_custom": false
+  },
+  {
+    "id": 4,
+    "name": "reconcile_ura_vs_acon",
+    "display_name": "Reconcile URA/KRA vs ACON",
+    "description": "Reconcile a URA/KRA fiscal sales file against an ACON export and write a variance workpaper (.xlsx). Joins on the FISCAL number \u2014 the URA/KRA FDN or CU Invoice Number matched against ACON's statutory column ('Statutory Item No(For Download VAT)' for Kenya, 'FDN' for Uganda) \u2014 NOT ACON's internal Item Number. Identifiers are normalised before matching, so values Excel stored as '12345.0' still match '12345'. Use this in preference to the generic reconcile_datasets whenever both sides are a fiscal file and an ACON export. Returns: matched_count, variance_count, missing_in_acon, missing_in_ura, output_filename.",
+    "category": "reconciliation",
+    "tool_type": "builtin",
+    "is_safe": true,
+    "version": 1,
+    "grok_schema": {
+      "type": "function",
+      "function": {
+        "name": "reconcile_ura_vs_acon",
+        "description": "Reconcile a URA/KRA fiscal sales file against an ACON export and write a variance workpaper (.xlsx). Joins on the FISCAL number \u2014 the URA/KRA FDN or CU Invoice Number matched against ACON's statutory column ('Statutory Item No(For Download VAT)' for Kenya, 'FDN' for Uganda) \u2014 NOT ACON's internal Item Number. Identifiers are normalised before matching, so values Excel stored as '12345.0' still match '12345'. Use this in preference to the generic reconcile_datasets whenever both sides are a fiscal file and an ACON export. Returns: matched_count, variance_count, missing_in_acon, missing_in_ura, output_filename.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "ura_file_id": {
+              "type": "integer",
+              "description": "PK of the URA/KRA fiscal file (.txt periodical report or .xls/.xlsx sales table)."
+            },
+            "acon_file_id": {
+              "type": "integer",
+              "description": "PK of the ACON export (.xlsx)."
+            }
+          },
+          "required": [
+            "ura_file_id",
+            "acon_file_id"
+          ]
+        }
+      }
+    },
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "ura_file_id": {
+          "type": "integer",
+          "description": "PK of the URA/KRA fiscal file (.txt periodical report or .xls/.xlsx sales table)."
+        },
+        "acon_file_id": {
+          "type": "integer",
+          "description": "PK of the ACON export (.xlsx)."
+        }
+      },
+      "required": [
+        "ura_file_id",
+        "acon_file_id"
+      ]
+    },
+    "has_prompt": false,
+    "is_custom": false
+  },
+  {
+    "id": 6,
+    "name": "export_file",
+    "display_name": "Export File",
+    "description": "Convert an already-uploaded file's FULL content into a different downloadable format (xlsx, csv, json, or txt) by file_id \u2014 no re-upload needed, and not limited by your own context window. Use this instead of write_xlsx whenever the user asks to get a file back in another format (e.g. 'give me that as an Excel file', 'export this as CSV') \u2014 it reads the stored extraction directly and writes it byte-faithfully, rather than you having to re-type the data as headers/rows yourself. Works for a file from any earlier turn in this conversation, not just one attached to the current message \u2014 check the file listing in your context for the right file_id. Returns: output_filename (absolute path), format, chars.",
+    "category": "report",
+    "tool_type": "builtin",
+    "is_safe": true,
+    "version": 1,
+    "grok_schema": {
+      "type": "function",
+      "function": {
+        "name": "export_file",
+        "description": "Convert an already-uploaded file's FULL content into a different downloadable format (xlsx, csv, json, or txt) by file_id \u2014 no re-upload needed, and not limited by your own context window. Use this instead of write_xlsx whenever the user asks to get a file back in another format (e.g. 'give me that as an Excel file', 'export this as CSV') \u2014 it reads the stored extraction directly and writes it byte-faithfully, rather than you having to re-type the data as headers/rows yourself. Works for a file from any earlier turn in this conversation, not just one attached to the current message \u2014 check the file listing in your context for the right file_id. Returns: output_filename (absolute path), format, chars.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_id": {
+              "type": "integer",
+              "description": "PK of the UploadedFile record to export."
+            },
+            "target_format": {
+              "type": "string",
+              "enum": [
+                "xlsx",
+                "csv",
+                "json",
+                "txt"
+              ],
+              "description": "Output format. Default 'xlsx'.",
+              "default": "xlsx"
+            }
+          },
+          "required": [
+            "file_id"
+          ]
+        }
+      }
+    },
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "file_id": {
+          "type": "integer",
+          "description": "PK of the UploadedFile record to export."
+        },
+        "target_format": {
+          "type": "string",
+          "enum": [
+            "xlsx",
+            "csv",
+            "json",
+            "txt"
+          ],
+          "description": "Output format. Default 'xlsx'.",
+          "default": "xlsx"
+        }
+      },
+      "required": [
+        "file_id"
+      ]
+    },
+    "has_prompt": false,
+    "is_custom": false
+  },
+  {
+    "id": 5,
+    "name": "write_xlsx",
+    "display_name": "Write XLSX",
+    "description": "Build a downloadable .xlsx spreadsheet from headers and rows. Call this after a prompt_transform tool has produced structured data and the user wants a formatted file. Returns: output_filename (absolute path), record_count.",
+    "category": "report",
+    "tool_type": "builtin",
+    "is_safe": true,
+    "version": 1,
+    "grok_schema": {
+      "type": "function",
+      "function": {
+        "name": "write_xlsx",
+        "description": "Build a downloadable .xlsx spreadsheet from headers and rows. Call this after a prompt_transform tool has produced structured data and the user wants a formatted file. Returns: output_filename (absolute path), record_count.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "filename": {
+              "type": "string",
+              "description": "Output filename, e.g. 'ura_report.xlsx'."
+            },
+            "headers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Column header labels."
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "array"
+              },
+              "description": "List of row arrays."
+            },
+            "sheet_name": {
+              "type": "string",
+              "description": "Worksheet tab name. Default 'Sheet1'.",
+              "default": "Sheet1"
+            }
+          },
+          "required": [
+            "filename",
+            "headers",
+            "rows"
+          ]
+        }
+      }
+    },
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "filename": {
+          "type": "string",
+          "description": "Output filename, e.g. 'ura_report.xlsx'."
+        },
+        "headers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Column header labels."
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "array"
+          },
+          "description": "List of row arrays."
+        },
+        "sheet_name": {
+          "type": "string",
+          "description": "Worksheet tab name. Default 'Sheet1'.",
+          "default": "Sheet1"
+        }
+      },
+      "required": [
+        "filename",
+        "headers",
+        "rows"
+      ]
+    },
+    "has_prompt": false,
+    "is_custom": false
+  },
+  {
+    "id": 13,
+    "name": "clean_dataset",
+    "display_name": "Clean Dataset",
+    "description": "Normalise and clean any tabular dataset: strip empty rows, standardise date formats, fix float artefacts on IDs, deduplicate, and return clean JSON records ready for downstream processing or write_xlsx.",
+    "category": "transformation",
+    "tool_type": "prompt_transform",
+    "is_safe": true,
+    "version": 1,
+    "grok_schema": {
+      "type": "function",
+      "function": {
+        "name": "clean_dataset",
+        "description": "Normalise and clean any tabular dataset: strip empty rows, standardise date formats, fix float artefacts on IDs, deduplicate, and return clean JSON records ready for downstream processing or write_xlsx.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_id": {
+              "type": "integer",
+              "description": "PK of the UploadedFile to clean."
+            },
+            "operations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Cleaning operations to apply. Options: strip_empty, deduplicate, normalise_dates, fix_ids, normalise_numbers. Default: all.",
+              "default": [
+                "strip_empty",
+                "deduplicate",
+                "normalise_dates",
+                "fix_ids",
+                "normalise_numbers"
+              ]
+            }
+          },
+          "required": [
+            "file_id"
+          ]
+        }
+      }
+    },
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "file_id": {
+          "type": "integer",
+          "description": "PK of the UploadedFile to clean."
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Cleaning operations to apply. Options: strip_empty, deduplicate, normalise_dates, fix_ids, normalise_numbers. Default: all.",
+          "default": [
+            "strip_empty",
+            "deduplicate",
+            "normalise_dates",
+            "fix_ids",
+            "normalise_numbers"
+          ]
+        }
+      },
+      "required": [
+        "file_id"
+      ]
+    },
+    "has_prompt": true,
+    "is_custom": false
+  },
+  {
+    "id": 8,
+    "name": "call_webhook",
+    "display_name": "Call Webhook",
+    "description": "Make an HTTP POST or GET request to an external URL and return the JSON response. Use when the user wants to push data to or pull data from an external system. REQUIRES USER CONFIRMATION before execution.",
+    "category": "utility",
+    "tool_type": "builtin",
+    "is_safe": false,
+    "version": 1,
+    "grok_schema": {
+      "type": "function",
+      "function": {
+        "name": "call_webhook",
+        "description": "Make an HTTP POST or GET request to an external URL and return the JSON response. Use when the user wants to push data to or pull data from an external system. REQUIRES USER CONFIRMATION before execution.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "Endpoint URL."
+            },
+            "payload": {
+              "type": "object",
+              "description": "Request body (POST) or query params (GET).",
+              "default": {}
+            },
+            "method": {
+              "type": "string",
+              "description": "'POST' or 'GET'. Default 'POST'.",
+              "default": "POST"
+            },
+            "headers": {
+              "type": "object",
+              "description": "Extra HTTP headers.",
+              "default": {}
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "description": "Timeout in seconds (1\u2013120). Default 30.",
+              "default": 30
+            }
+          },
+          "required": [
+            "url"
+          ]
+        }
+      }
+    },
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Endpoint URL."
+        },
+        "payload": {
+          "type": "object",
+          "description": "Request body (POST) or query params (GET).",
+          "default": {}
+        },
+        "method": {
+          "type": "string",
+          "description": "'POST' or 'GET'. Default 'POST'.",
+          "default": "POST"
+        },
+        "headers": {
+          "type": "object",
+          "description": "Extra HTTP headers.",
+          "default": {}
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "description": "Timeout in seconds (1\u2013120). Default 30.",
+          "default": 30
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "has_prompt": false,
+    "is_custom": false
+  },
+  {
+    "id": 2,
+    "name": "detect_file_type",
+    "display_name": "Detect File Type",
+    "description": "Inspect an uploaded file and determine its type using extension + content sniff. Always call this first when you don't know what kind of file you're dealing with. Persists the result to the file record so subsequent tools can branch on it. Returns: detected_type, confidence.",
+    "category": "utility",
+    "tool_type": "builtin",
+    "is_safe": true,
+    "version": 1,
+    "grok_schema": {
+      "type": "function",
+      "function": {
+        "name": "detect_file_type",
+        "description": "Inspect an uploaded file and determine its type using extension + content sniff. Always call this first when you don't know what kind of file you're dealing with. Persists the result to the file record so subsequent tools can branch on it. Returns: detected_type, confidence.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_id": {
+              "type": "integer",
+              "description": "PK of the UploadedFile record."
+            }
+          },
+          "required": [
+            "file_id"
+          ]
+        }
+      }
+    },
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "file_id": {
+          "type": "integer",
+          "description": "PK of the UploadedFile record."
+        }
+      },
+      "required": [
+        "file_id"
+      ]
+    },
+    "has_prompt": false,
+    "is_custom": false
+  },
+  {
+    "id": 1,
+    "name": "read_file",
+    "display_name": "Read File",
+    "description": "Open an uploaded file and return its text content \u2014 for ANY file type (PDF, CSV, XLSX, DOCX, TXT, etc), not just PDFs. Use this before any prompt_transform tool that needs to analyse file content. For a large file, pass page_from (and page_to for PDFs) to read it in chunks \u2014 this works even while background extraction is still running. For PDFs, page_from/page_to select actual document pages. For every other file type, page_from selects one max_chars-sized chunk of the full text (page_to is ignored for non-PDFs \u2014 call again with page_from+1 to get the next chunk). Check 'truncated' and 'page_count' to see whether more content remains, and keep paging (incrementing page_from) until page_from reaches page_count before drawing conclusions from a large document \u2014 never assume a single call has the whole document just because it returned ok=true. Returns ok=false if the file has no readable text (e.g. a scanned image-only PDF) \u2014 in that case say so rather than inferring the contents.",
+    "category": "utility",
+    "tool_type": "builtin",
+    "is_safe": true,
+    "version": 1,
+    "grok_schema": {
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "description": "Open an uploaded file and return its text content \u2014 for ANY file type (PDF, CSV, XLSX, DOCX, TXT, etc), not just PDFs. Use this before any prompt_transform tool that needs to analyse file content. For a large file, pass page_from (and page_to for PDFs) to read it in chunks \u2014 this works even while background extraction is still running. For PDFs, page_from/page_to select actual document pages. For every other file type, page_from selects one max_chars-sized chunk of the full text (page_to is ignored for non-PDFs \u2014 call again with page_from+1 to get the next chunk). Check 'truncated' and 'page_count' to see whether more content remains, and keep paging (incrementing page_from) until page_from reaches page_count before drawing conclusions from a large document \u2014 never assume a single call has the whole document just because it returned ok=true. Returns ok=false if the file has no readable text (e.g. a scanned image-only PDF) \u2014 in that case say so rather than inferring the contents.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_id": {
+              "type": "integer",
+              "description": "PK of the UploadedFile record."
+            },
+            "max_chars": {
+              "type": "integer",
+              "description": "How much text this single call returns (default 40000). Not a hard limit on the document \u2014 keep paging with page_from to read all of it.",
+              "default": 40000
+            },
+            "page_from": {
+              "type": "integer",
+              "description": "PDF: first page to read (1-indexed, inclusive). Non-PDF: which max_chars-sized chunk to read (1-indexed). Omit to read from the start."
+            },
+            "page_to": {
+              "type": "integer",
+              "description": "Last PDF page to read (1-indexed, inclusive). PDFs only \u2014 ignored for every other file type, which return one chunk per call regardless. Omit to read to the end (PDFs)."
+            }
+          },
+          "required": [
+            "file_id"
+          ]
+        }
+      }
+    },
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "file_id": {
+          "type": "integer",
+          "description": "PK of the UploadedFile record."
+        },
+        "max_chars": {
+          "type": "integer",
+          "description": "How much text this single call returns (default 40000). Not a hard limit on the document \u2014 keep paging with page_from to read all of it.",
+          "default": 40000
+        },
+        "page_from": {
+          "type": "integer",
+          "description": "PDF: first page to read (1-indexed, inclusive). Non-PDF: which max_chars-sized chunk to read (1-indexed). Omit to read from the start."
+        },
+        "page_to": {
+          "type": "integer",
+          "description": "Last PDF page to read (1-indexed, inclusive). PDFs only \u2014 ignored for every other file type, which return one chunk per call regardless. Omit to read to the end (PDFs)."
+        }
+      },
+      "required": [
+        "file_id"
+      ]
+    },
+    "has_prompt": false,
+    "is_custom": false
+  },
+  {
+    "id": 7,
+    "name": "run_python",
+    "display_name": "Run Python Snippet",
+    "description": "Execute a Python snippet in a restricted sandbox. Use for numeric calculations, regex extraction, or data reshaping that is too complex for a prompt. The snippet must set result['ok'] = True and populate any other keys. Allowed stdlib: re, json, csv, math, statistics, datetime, decimal, collections, itertools, pathlib, io, string, textwrap. No file I/O, no network, no subprocess. REQUIRES USER CONFIRMATION before execution.",
+    "category": "utility",
+    "tool_type": "builtin",
+    "is_safe": false,
+    "version": 1,
+    "grok_schema": {
+      "type": "function",
+      "function": {
+        "name": "run_python",
+        "description": "Execute a Python snippet in a restricted sandbox. Use for numeric calculations, regex extraction, or data reshaping that is too complex for a prompt. The snippet must set result['ok'] = True and populate any other keys. Allowed stdlib: re, json, csv, math, statistics, datetime, decimal, collections, itertools, pathlib, io, string, textwrap. No file I/O, no network, no subprocess. REQUIRES USER CONFIRMATION before execution.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "description": "Python source code to execute."
+            },
+            "context": {
+              "type": "object",
+              "description": "Values injected into the snippet namespace.",
+              "default": {}
+            }
+          },
+          "required": [
+            "code"
+          ]
+        }
+      }
+    },
+    "parameters_schema": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Python source code to execute."
+        },
+        "context": {
+          "type": "object",
+          "description": "Values injected into the snippet namespace.",
+          "default": {}
+        }
+      },
+      "required": [
+        "code"
+      ]
+    },
+    "has_prompt": false,
+    "is_custom": false
+  }
+]

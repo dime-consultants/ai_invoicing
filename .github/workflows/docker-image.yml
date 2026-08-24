@@ -1,4 +1,4 @@
-name: Build Image & Trigger Deployment
+name: Build Image & Trigger K3s Deployment
 
 on:
   push:
@@ -93,24 +93,24 @@ jobs:
             echo "env=stage" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Generate Docker image tag
+      - name: Generate image tag
         id: tag
         shell: bash
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          IMAGE_NAME="ai_invoicing"
-          TIMESTAMP=$(date -u +"%Y-%m-%d_%H-%M-%S")
+          IMAGE_NAME="invoicing"
           ENV_NAME="${{ steps.env.outputs.env }}"
+          SHORT_SHA="${GITHUB_SHA::7}"
 
-          IMAGE_TAG="${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${ENV_NAME}-${TIMESTAMP}"
+          IMAGE_TAG="${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${ENV_NAME}-${SHORT_SHA}"
 
           echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
-          echo "timestamp=$TIMESTAMP" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
 
-          echo "Generated Docker image tag: $IMAGE_TAG"
+          echo "Generated image tag: $IMAGE_TAG"
 
-      - name: Build and push Docker image
+      - name: Build and push image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -118,81 +118,24 @@ jobs:
           tags: ${{ steps.tag.outputs.image_tag }}
           platforms: linux/amd64,linux/arm64/v8
 
-      - name: Encode docker-compose file
-        id: compose
-        shell: bash
-        run: |
-          if [ ! -f docker-compose.yml ]; then
-            echo "Error: docker-compose.yml not found in repository."
-            exit 1
-          fi
-
-          COMPOSE_B64=$(base64 -w 0 docker-compose.yml)
-
-          echo "b64=$COMPOSE_B64" >> "$GITHUB_OUTPUT"
-
-      - name: Prepare env_secrets payload
-        id: prepare_secrets
-        shell: bash
-        env:
-          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-        run: |
-          JSON="{}"
-
-          if [ -n "$DJANGO_SECRET_KEY" ]; then
-            JSON=$(echo "$JSON" | jq \
-              --arg key "DJANGO_SECRET_KEY" \
-              --arg value "$DJANGO_SECRET_KEY" \
-              '.[$key] = $value')
-          fi
-
-          if [[ "${{ steps.env.outputs.env }}" == "stage" ]]; then
-            SYSTEM_BASE_URL="stage-invoicing.dimeconsultants.africa"
-          else
-            SYSTEM_BASE_URL="invoicing.dimeconsultants.africa"
-          fi
-
-          JSON=$(echo "$JSON" | jq \
-            --arg key "SYSTEM_BASE_URL" \
-            --arg value "$SYSTEM_BASE_URL" \
-            '.[$key] = $value')
-
-          COMPACT=$(echo "$JSON" | jq -c '.')
-
-          {
-            echo "secrets_json<<EOF"
-            echo "$COMPACT"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Prepare deployment payload
         id: payload
         shell: bash
         env:
           APP_REPO: ${{ github.repository }}
-          BRANCH: ${{ github.ref_name }}
           ENV_NAME: ${{ steps.env.outputs.env }}
-          SHA: ${{ github.sha }}
           IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
-          DOCKER_COMPOSE_B64: ${{ steps.compose.outputs.b64 }}
-          ENV_SECRETS_JSON: ${{ steps.prepare_secrets.outputs.secrets_json }}
         run: |
           PAYLOAD=$(jq -nc \
             --arg app_repo "$APP_REPO" \
-            --arg branch "$BRANCH" \
             --arg env "$ENV_NAME" \
-            --arg sha "$SHA" \
             --arg image_tag "$IMAGE_TAG" \
-            --arg docker_compose_b64 "$DOCKER_COMPOSE_B64" \
-            --argjson env_secrets "$ENV_SECRETS_JSON" \
+            --arg target_server "dime" \
             '{
               app_repo: $app_repo,
-              branch: $branch,
               env: $env,
-              sha: $sha,
               image_tag: $image_tag,
-              docker_compose_b64: $docker_compose_b64,
-              env_secrets: $env_secrets
+              target_server: $target_server
             }')
 
           {
