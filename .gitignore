@@ -18,5 +18,6 @@ docker-compose.dev.yml
 *.sock
 *.sh
 
-# dev-only compose file
+# dev-only configs
 docker-compose-dev.yml
+Dockerfile.dev
