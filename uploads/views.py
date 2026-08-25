@@ -15,6 +15,7 @@ from .serializers import (
 )
 from .services import UploadService
 from users.permissions import CanUploadOrRunJobs as CanUpload
+from users.decorators import org_member_required, org_admin_required, org_admin_or_finance_required
 
 
 def _user_owns_or_is_admin(request, uploaded_file: UploadedFile) -> bool:
@@ -78,7 +79,7 @@ class FileListView(generics.ListAPIView):
     GET /api/files/
     List uploaded files with pagination and optional filters.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    # permission_classes = [permissions.IsAuthenticated]
     serializer_class   = UploadedFileSerializer
 
     def get_queryset(self):
