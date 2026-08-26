@@ -45,7 +45,7 @@ services:
     labels:
       <<: *common-labels
       observability.component: celery-worker
-    command: celery -A config worker -l INFO
+    command: celery -A config worker -l INFO -Q default,chat,extraction
     environment:
       <<: *django-env
     restart: always
