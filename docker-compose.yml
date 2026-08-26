@@ -1,61 +1,431 @@
-version: "3.9"
+# version: "3.9"
 
-x-django-env: &django-env
-  DEBUG: "False"
-  DJANGO_SETTINGS_MODULE: config.settings
-  SECRET_KEY: ${DJANGO_SECRET_KEY}
+# x-django-env: &django-env
+#   DEBUG: "False"
+#   DJANGO_SETTINGS_MODULE: config.settings
+#   SECRET_KEY: ${DJANGO_SECRET_KEY}
 
-  DB_NAME: ${DATABASE_DB}
-  DB_USER: ${DATABASE_USER}
-  DB_PASSWORD: ${DATABASE_PASSWORD}
-  DB_HOST: ${DATABASE_HOST}
-  DB_PORT: ${DATABASE_PORT}
+#   DB_NAME: ${DATABASE_DB}
+#   DB_USER: ${DATABASE_USER}
+#   DB_PASSWORD: ${DATABASE_PASSWORD}
+#   DB_HOST: ${DATABASE_HOST}
+#   DB_PORT: ${DATABASE_PORT}
 
-  CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+#   CELERY_BROKER_URL: ${CELERY_BROKER_URL}
 
-  SYSTEM_BASE_URL: ${SYSTEM_BASE_URL:-invoicing.dimeconsultants.africa}
+#   SYSTEM_BASE_URL: ${SYSTEM_BASE_URL:-invoicing.dimeconsultants.africa}
 
-x-app-image: &app-image ${IMAGE_TAG}
+# x-app-image: &app-image ${IMAGE_TAG}
 
-x-common-labels: &common-labels
-  observability.app: ai-invoicing
-  observability.environment: ${SHARED_ENV}
+# x-common-labels: &common-labels
+#   observability.app: ai-invoicing
+#   observability.environment: ${SHARED_ENV}
 
-networks:
-  default:
-    name: ${SHARED_NETWORK}
-    external: true
+# networks:
+#   default:
+#     name: ${SHARED_NETWORK}
+#     external: true
+
+# services:
+#   invoicing:
+#     image: *app-image
+#     container_name: ${SHARED_ENV}_invoicing_app
+#     labels:
+#       <<: *common-labels
+#       observability.component: api
+#     environment:
+#       <<: *django-env
+#     ports:
+#       - "${API_PORT}:8000"
+#     restart: always
+
+#   celery_worker:
+#     image: *app-image
+#     container_name: ${SHARED_ENV}_invoicing_celery_worker
+#     labels:
+#       <<: *common-labels
+#       observability.component: celery-worker
+#     command: celery -A config worker -l INFO
+#     environment:
+#       <<: *django-env
+#     restart: always
+#   celery_beat:
+#     image: *app-image
+#     container_name: ${SHARED_ENV}_invoicing_celery_beat
+#     labels:
+#       <<: *common-labels
+#       observability.component: celery-beat
+#     command: celery -A config beat -l INFO
+#     environment:
+#       <<: *django-env
+#     restart: always
+
+name: ai_invoicing_dev
 
 services:
-  invoicing:
-    image: *app-image
-    container_name: ${SHARED_ENV}_invoicing_app
-    labels:
-      <<: *common-labels
-      observability.component: api
-    environment:
-      <<: *django-env
-    ports:
-      - "${API_PORT}:8000"
-    restart: always
+  db:
+    image: postgres:16-alpine
+    container_name: invoicing-dev-db
+    restart: unless-stopped
 
-  celery_worker:
-    image: *app-image
-    container_name: ${SHARED_ENV}_invoicing_celery_worker
-    labels:
-      <<: *common-labels
-      observability.component: celery-worker
-    command: celery -A config worker -l INFO -Q default,chat,extraction
+    env_file:
+      - .env
+
     environment:
-      <<: *django-env
-    restart: always
-  celery_beat:
-    image: *app-image
-    container_name: ${SHARED_ENV}_invoicing_celery_beat
-    labels:
-      <<: *common-labels
-      observability.component: celery-beat
-    command: celery -A config beat -l INFO
+      POSTGRES_DB: ${DB_NAME:-ai_invoicing}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-ai_invoicing}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    networks:
+      - invoicing-network-dev
+
+  redis:
+    image: redis:7-alpine
+    container_name: invoicing-dev-redis
+    restart: unless-stopped
+
+    command:
+      - redis-server
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
+
+    ports:
+      - "6379:6379"
+
+    volumes:
+      - redis_data_dev:/data
+
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+    networks:
+      - invoicing-network-dev
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: ai_invoicing:dev
+
+    container_name: invoicing-dev-migrate
+
+    env_file:
+      - .env
+
     environment:
-      <<: *django-env
-    restart: always
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+      redis:
+        condition: service_healthy
+
+    command:
+      - sh
+      - -c
+      - |
+        echo '[migrate] Applying migrations...' &&
+        python manage.py migrate --noinput &&
+        echo '[migrate] Seeding tools...' &&
+        python manage.py seed_tools --export /usr/src/app/tools_export.json &&
+        echo '[migrate] Collecting static files...' &&
+        python manage.py collectstatic --noinput &&
+        echo '[migrate] Done.'
+
+    volumes:
+      - .:/usr/src/app
+      - static_files_dev:/usr/src/app/staticfiles
+      - media_files_dev:/usr/src/app/media
+      - outputs_files_dev:/usr/src/app/outputs
+      - tools_export_dev:/usr/src/app/tools_export_shared
+
+    restart: "no"
+
+    networks:
+      - invoicing-network-dev
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: ai_invoicing:dev
+
+    container_name: invoicing-dev-app
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      DEBUG: "True"
+      RUN_STARTUP_TASKS: "false"
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+      redis:
+        condition: service_healthy
+
+      migrate:
+        condition: service_completed_successfully
+
+    volumes:
+      - .:/usr/src/app
+      - static_files_dev:/usr/src/app/staticfiles
+      - media_files_dev:/usr/src/app/media
+      - outputs_files_dev:/usr/src/app/outputs
+      - tools_export_dev:/usr/src/app/tools_export_shared
+
+    ports:
+      - "8001:8000"
+
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:8000/api/health/
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    networks:
+      - invoicing-network-dev
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: ai_invoicing:dev
+
+    container_name: invoicing-dev-worker
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      DEBUG: "True"
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+      redis:
+        condition: service_healthy
+
+      migrate:
+        condition: service_completed_successfully
+
+    command:
+      - celery
+      - -A
+      - config
+      - worker
+      - -Q
+      - extraction,default
+      - --loglevel=info
+      - --autoscale=4,2
+      - --max-tasks-per-child=20
+
+    volumes:
+      - .:/usr/src/app
+      - media_files_dev:/usr/src/app/media
+      - outputs_files_dev:/usr/src/app/outputs
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - celery -A config inspect ping -d celery@$$HOSTNAME || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+    networks:
+      - invoicing-network-dev
+
+  worker-chat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: ai_invoicing:dev
+
+    container_name: invoicing-dev-worker-chat
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      DEBUG: "True"
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+      redis:
+        condition: service_healthy
+
+      migrate:
+        condition: service_completed_successfully
+
+    command:
+      - celery
+      - -A
+      - config
+      - worker
+      - -Q
+      - chat
+      - --loglevel=info
+      - --autoscale=8,2
+      - --max-tasks-per-child=50
+
+    volumes:
+      - .:/usr/src/app
+      - media_files_dev:/usr/src/app/media
+      - outputs_files_dev:/usr/src/app/outputs
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - celery -A config inspect ping -d celery@$$HOSTNAME || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+    networks:
+      - invoicing-network-dev
+
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: ai_invoicing:dev
+
+    container_name: invoicing-dev-flower
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      DEBUG: "True"
+
+    depends_on:
+      redis:
+        condition: service_healthy
+
+      migrate:
+        condition: service_completed_successfully
+
+    command:
+      - celery
+      - -A
+      - config
+      - flower
+      - --port=5555
+
+    ports:
+      - "5555:5555"
+
+    volumes:
+      - .:/usr/src/app
+
+    networks:
+      - invoicing-network-dev
+
+  nginx:
+    image: nginx:alpine
+    container_name: invoicing-dev-nginx
+
+    restart: unless-stopped
+
+    depends_on:
+      app:
+        condition: service_healthy
+
+    ports:
+      - "8000:80"
+
+    volumes:
+      - ./nginx/invoicing.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_files_dev:/var/www/static:ro
+      - media_files_dev:/var/www/media:ro
+
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -qO-
+        - http://localhost/api/health/
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    networks:
+      - invoicing-network-dev
+
+networks:
+  invoicing-network-dev:
+    driver: bridge
+
+volumes:
+  postgres_data_dev:
+  redis_data_dev:
+  static_files_dev:
+  media_files_dev:
+  outputs_files_dev:
+  tools_export_dev:
