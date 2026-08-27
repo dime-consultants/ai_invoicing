@@ -101,6 +101,8 @@ ASGI_APPLICATION  = 'config.asgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+# USE_SQLITE = os.environ.get('USE_SQLITE', 'False') == 'True'
+#use sqlite for local development and testing, use postgres for production
 if DEBUG:
     DATABASES = {
         'default': {
