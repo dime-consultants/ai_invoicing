@@ -262,8 +262,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3001",
     "https://kuehne.dimeconsultants.africa",
     "https://guardian.dimeconsultants.africa",
-    "stage-guardian.dimeconsultants.africa",
-    "stage-kuehne.dimeconsultants.africa",
+    "https://stage-guardian.dimeconsultants.africa",
+    "https://stage-kuehne.dimeconsultants.africa",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
