@@ -1,98 +1,45 @@
-from django.db import models
+from rest_framework import serializers
+
+from .models import Organization, Department
 
 
-class OrganizationQuerySet(models.QuerySet):
-    """
-    Reusable Organization queryset methods.
-    """
-
-    def active(self):
-        return self.filter(
-            is_active=True
-        )
-
-    def inactive(self):
-        return self.filter(
-            is_active=False
-        )
+class OrganizationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Organization
+        fields = ["public_id", "name", "slug", "is_active", "created_at", "updated_at"]
+        read_only_fields = fields
 
 
-class OrganizationManager(models.Manager):
-    """
-    Manager for Organization.
-    """
-
-    def get_queryset(self):
-        return OrganizationQuerySet(
-            self.model,
-            using=self._db,
-        )
-
-    def active(self):
-        return self.get_queryset().active()
-
-    def inactive(self):
-        return self.get_queryset().inactive()
+class OrganizationCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=150)
+    is_active = serializers.BooleanField(required=False, default=True)
 
 
-class DepartmentQuerySet(models.QuerySet):
-    """
-    Reusable Department queryset methods.
-    """
-
-    def active(self):
-        return self.filter(
-            is_active=True,
-            organization__is_active=True,
-        )
-
-    def inactive(self):
-        return self.filter(
-            is_active=False
-        )
-
-    def for_organization(self, organization):
-        return self.filter(
-            organization=organization
-        )
-
-    def with_organization(self):
-        return self.select_related(
-            "organization"
-        )
+class OrganizationUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=150, required=False)
+    is_active = serializers.BooleanField(required=False)
 
 
-class DepartmentManager(models.Manager):
-    """
-    Manager for Department.
-    """
+class DepartmentSerializer(serializers.ModelSerializer):
+    organization = OrganizationSerializer(read_only=True)
 
-    def get_queryset(self):
-        return DepartmentQuerySet(
-            self.model,
-            using=self._db,
-        )
+    class Meta:
+        model = Department
+        fields = ["public_id", "name", "slug", "is_active", "organization", "created_at", "updated_at"]
+        read_only_fields = fields
 
-    def active(self):
-        return (
-            self.get_queryset()
-            .active()
-        )
 
-    def inactive(self):
-        return (
-            self.get_queryset()
-            .inactive()
-        )
+class DepartmentCreateSerializer(serializers.Serializer):
+    # Keyed on public_id (not pk) — resolves the incoming UUID straight to an
+    # Organization instance in validated_data, matching what
+    # DepartmentListCreateView.post already does with validated_data.pop("organization").
+    organization = serializers.SlugRelatedField(
+        slug_field="public_id", queryset=Organization.objects.all()
+    )
+    name = serializers.CharField(max_length=100)
+    is_active = serializers.BooleanField(required=False, default=True)
 
-    def for_organization(self, organization):
-        return (
-            self.get_queryset()
-            .for_organization(organization)
-        )
 
-    def with_organization(self):
-        return (
-            self.get_queryset()
-            .with_organization()
-        )
+class DepartmentUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=100, required=False)
+    is_active = serializers.BooleanField(required=False)

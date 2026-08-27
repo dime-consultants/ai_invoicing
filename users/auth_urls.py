@@ -1,32 +1,32 @@
 from django.urls import path
 
 from .views import (
-    LoginView,
-    VerifyLoginOTPView,
-    LogoutView,
-    RegisterView,
-    ProfileView,
-    RefreshTokenView,
-    RequestEmailOTPView,
-    VerifyEmailOTPView,
-    PasswordResetRequestView,
-    PasswordResetConfirmView,
+    login,
+    verify_login_otp,
+    logout,
+    register,
+    profile,
+    refresh_token,
+    request_email_otp,
+    verify_email_otp,
+    password_reset_request,
+    password_reset_confirm,
 )
 
 urlpatterns = [
-    path("signup/", RegisterView.as_view(), name="auth-signup"),
+    path("signup/", register, name="auth-signup"),
 
-    path("login/", LoginView.as_view(), name="auth-login"),
-    path("login/verify-otp/", VerifyLoginOTPView.as_view(), name="auth-login-verify-otp"),
+    path("login/", login, name="auth-login"),
+    path("login/verify-otp/", verify_login_otp, name="auth-login-verify-otp"),
 
-    path("refresh/", RefreshTokenView.as_view(), name="auth-refresh"),
+    path("refresh/", refresh_token, name="auth-refresh"),
 
-    path("logout/", LogoutView.as_view(), name="auth-logout"),
+    path("logout/", logout, name="auth-logout"),
 
-    path("me/", ProfileView.as_view(), name="auth-me"),
+    path("me/", profile, name="auth-me"),
 
-    path("email-otp/request/", RequestEmailOTPView.as_view(), name="auth-email-otp-request"),
-    path("email-otp/verify/", VerifyEmailOTPView.as_view(), name="auth-email-otp-verify"),
-    path("password-reset/request/", PasswordResetRequestView.as_view(), name="auth-password-reset-request"),
-    path("password-reset/confirm/", PasswordResetConfirmView.as_view(), name="auth-password-reset-confirm"),
+    path("email-otp/request/", request_email_otp, name="auth-email-otp-request"),
+    path("email-otp/verify/", verify_email_otp, name="auth-email-otp-verify"),
+    path("password-reset/request/", password_reset_request, name="auth-password-reset-request"),
+    path("password-reset/confirm/", password_reset_confirm, name="auth-password-reset-confirm"),
 ]

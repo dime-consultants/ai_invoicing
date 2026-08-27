@@ -1,10 +1,10 @@
 from django.urls import path
 
 from .views import (
-    OrganizationListCreateView,
-    OrganizationDetailView,
-    DepartmentListCreateView,
-    DepartmentDetailView,
+    organization_list_create,
+    organization_detail,
+    department_list_create,
+    department_detail,
 )
 
 
@@ -13,26 +13,26 @@ urlpatterns = [
     # Organizations
     path(
         "organizations/",
-        OrganizationListCreateView.as_view(),
+        organization_list_create,
         name="organization-list-create",
     ),
 
     path(
         "organizations/<uuid:public_id>/",
-        OrganizationDetailView.as_view(),
+        organization_detail,
         name="organization-detail",
     ),
 
     # Departments
     path(
         "departments/",
-        DepartmentListCreateView.as_view(),
+        department_list_create,
         name="department-list-create",
     ),
 
     path(
         "departments/<uuid:public_id>/",
-        DepartmentDetailView.as_view(),
+        department_detail,
         name="department-detail",
     ),
 ]
