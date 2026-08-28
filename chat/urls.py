@@ -1,60 +1,61 @@
 # chat/urls.py
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import path
 
 from .views import (
-    ChatConversationListCreateView,
-    ChatConversationDetailView,
-    ChatMessageSendView,
-    ChatMessageListView,
+    chat_conversation_list_create,
+    chat_conversation_detail,
+    chat_message_send,
+    chat_message_list,
     ChatInterfaceView,
-    WorkflowViewSet,
-    ChatAttachmentDownloadView,
-    ChatSimpleMessageView,
-    ChatHistoryView,
-    ChatProcessFileView,
-    ChatConvertFormatView,
-    ChatExportDataView,
+    workflow_list,
+    workflow_defaults,
+    workflow_detail,
+    chat_attachment_download,
+    chat_simple_message,
+    chat_history,
+    chat_process_file,
+    chat_convert_format,
+    chat_export_data,
 )
-
-router = DefaultRouter()
-router.register(r"workflows", WorkflowViewSet, basename="workflow")
 
 urlpatterns = [
     # Web UI
     path("", ChatInterfaceView.as_view(), name="chat_interface"),
 
-    # Workflow router
-    path("", include(router.urls)),
+    # ── Workflows ──────────────────────────────────────────────────────────────
+    # defaults/ must come before <int:pk>/ so it isn't shadowed
+    path("workflows/",         workflow_list,     name="workflow-list"),
+    path("workflows/defaults/", workflow_defaults, name="workflow-defaults"),
+    path("workflows/<int:pk>/", workflow_detail,   name="workflow-detail"),
 
     # ── Contract endpoints (/api/chat/...) ────────────────────────────────────
     # POST /api/chat/message/          stateless single-turn message
-    path("message/",        ChatSimpleMessageView.as_view(),  name="chat-message"),
+    path("message/",        chat_simple_message,  name="chat-message"),
     # POST /api/chat/process-file/     ingest + extract a file
-    path("process-file/",   ChatProcessFileView.as_view(),    name="chat-process-file"),
+    path("process-file/",   chat_process_file,    name="chat-process-file"),
     # POST /api/chat/convert-format/   convert file between formats
-    path("convert-format/", ChatConvertFormatView.as_view(),  name="chat-convert-format"),
+    path("convert-format/", chat_convert_format,  name="chat-convert-format"),
     # POST /api/chat/export-data/      serialise in-memory data to a file
-    path("export-data/",    ChatExportDataView.as_view(),     name="chat-export-data"),
+    path("export-data/",    chat_export_data,     name="chat-export-data"),
     # GET  /api/chat/history           recent conversation messages
-    path("history/",        ChatHistoryView.as_view(),        name="chat-history"),
+    path("history/",        chat_history,         name="chat-history"),
 
     # ── Conversation-scoped endpoints ─────────────────────────────────────────
     path("conversations/",
-         ChatConversationListCreateView.as_view(),
+         chat_conversation_list_create,
          name="chat_list_create"),
     path("conversations/<int:pk>/",
-         ChatConversationDetailView.as_view(),
+         chat_conversation_detail,
          name="chat_detail"),
     path("conversations/<int:conversation_id>/messages/",
-         ChatMessageListView.as_view(),
+         chat_message_list,
          name="chat_messages"),
     path("conversations/<int:conversation_id>/send/",
-         ChatMessageSendView.as_view(),
+         chat_message_send,
          name="chat_send"),
 
     # ── Attachment download ───────────────────────────────────────────────────
     path("attachments/<int:attachment_id>/download/",
-         ChatAttachmentDownloadView.as_view(),
+         chat_attachment_download,
          name="attachment_download"),
 ]

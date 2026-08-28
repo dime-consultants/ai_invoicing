@@ -1,25 +1,22 @@
 # analytics/dashboard_urls.py — mounted at /api/dashboard/
 from django.urls import path
 from .views import (
-    DashboardStatsView,
-    DashboardActivityView,
-    DashboardRecentActivityView,
-    DashboardProcessingView,
+    dashboard_stats,
+    dashboard_activity,
+    dashboard_recent_activity,
+    dashboard_processing,
 )
 
 urlpatterns = [
     # GET /api/dashboard/stats
-    path("stats/",           DashboardStatsView.as_view(),         name="dashboard-stats"),
+    path("stats/",           dashboard_stats,          name="dashboard-stats"),
 
     # GET /api/dashboard/activity?period=week
-    path("activity/",        DashboardActivityView.as_view(),      name="dashboard-activity"),
+    path("activity/",        dashboard_activity,       name="dashboard-activity"),
 
     # GET /api/dashboard/recent-activity
-    path("recent-activity/", DashboardRecentActivityView.as_view(), name="dashboard-recent-activity"),
+    path("recent-activity/", dashboard_recent_activity, name="dashboard-recent-activity"),
 
     # GET /api/dashboard/processing
-    path("processing/",      DashboardProcessingView.as_view(),      name="dashboard-processing"),
+    path("processing/",      dashboard_processing,      name="dashboard-processing"),
 ]
-
-# Add processing data endpoint if not already present
-# This should be added to urlpatterns

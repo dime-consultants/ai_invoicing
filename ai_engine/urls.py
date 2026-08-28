@@ -1,41 +1,41 @@
 # ai_engine/urls.py
 from django.urls import path
 from .views import (
-    AIAnalysisJobListCreateView,
-    AIAnalysisJobDetailView,
-    AIAnalysisJobRequeueView,
-    AIInsightListView,
-    AIInsightActionView,
-    BatchAIJobListView,
-    AIModelsView,
-    AIAnalyzeView,
-    AIRunAnalysisView,
-    AIEngineStatsView,
-    AIRecentInsightsView,
+    ai_job_list_create,
+    ai_job_detail,
+    ai_job_requeue,
+    ai_insight_list,
+    ai_insight_action,
+    batch_ai_job_list,
+    ai_models,
+    ai_analyze,
+    ai_run_analysis,
+    ai_engine_stats,
+    ai_recent_insights,
 )
 
 urlpatterns = [
     # ── Contract endpoints ────────────────────────────────────────────────────
     # GET  /api/ai/models          list available AI models
-    path("models/",   AIModelsView.as_view(),  name="ai-models"),
+    path("models/",   ai_models,  name="ai-models"),
     # POST /api/ai/analyze         run analysis on data
-    path("analyze/",  AIAnalyzeView.as_view(), name="ai-analyze"),
+    path("analyze/",  ai_analyze, name="ai-analyze"),
     # POST /api/ai/run             run a full agent analysis over uploaded files
-    path("run/",      AIRunAnalysisView.as_view(), name="ai-run"),
+    path("run/",      ai_run_analysis, name="ai-run"),
     # GET  /api/ai/stats           headline stats for the AI Engine page
-    path("stats/",    AIEngineStatsView.as_view(), name="ai-stats"),
+    path("stats/",    ai_engine_stats, name="ai-stats"),
     # GET  /api/ai/insights/recent recent insights across all jobs
-    path("insights/recent/", AIRecentInsightsView.as_view(), name="ai-insights-recent"),
+    path("insights/recent/", ai_recent_insights, name="ai-insights-recent"),
 
     # ── Jobs ──────────────────────────────────────────────────────────────────
-    path("jobs/",                    AIAnalysisJobListCreateView.as_view(), name="ai-job-list-create"),
-    path("jobs/<int:pk>/",           AIAnalysisJobDetailView.as_view(),     name="ai-job-detail"),
-    path("jobs/<int:pk>/requeue/",   AIAnalysisJobRequeueView.as_view(),    name="ai-job-requeue"),
-    path("jobs/<int:job_id>/insights/", AIInsightListView.as_view(),        name="ai-insight-list"),
+    path("jobs/",                    ai_job_list_create, name="ai-job-list-create"),
+    path("jobs/<int:pk>/",           ai_job_detail,       name="ai-job-detail"),
+    path("jobs/<int:pk>/requeue/",   ai_job_requeue,      name="ai-job-requeue"),
+    path("jobs/<int:job_id>/insights/", ai_insight_list,  name="ai-insight-list"),
 
     # ── Insights ──────────────────────────────────────────────────────────────
-    path("insights/<int:pk>/action/", AIInsightActionView.as_view(),        name="ai-insight-action"),
+    path("insights/<int:pk>/action/", ai_insight_action, name="ai-insight-action"),
 
     # ── Batch shortcut ────────────────────────────────────────────────────────
-    path("batches/<int:batch_id>/jobs/", BatchAIJobListView.as_view(),      name="ai-batch-job-list"),
+    path("batches/<int:batch_id>/jobs/", batch_ai_job_list, name="ai-batch-job-list"),
 ]

@@ -56,6 +56,11 @@ urlpatterns = [
     # ── Users — profile + admin user management ───────────────────────────────
     path("api/users/", include("users.urls")),
 
+    # ── Organizations — org + department administration ──────────────────────
+    # organizations/urls.py's own patterns already start with "organizations/"
+    # and "departments/", so this mounts at the bare api/ root.
+    path("api/", include("organizations.urls")),
+
     # ── Tools — registry + call log + direct run ──────────────────────────────
     path("api/tools/", include("tools.urls")),
 

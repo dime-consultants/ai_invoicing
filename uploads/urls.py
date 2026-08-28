@@ -1,79 +1,33 @@
 from django.urls import path
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from rest_framework import permissions
 
 from .views import (
-    UploadBatchListCreateView,
-    UploadBatchDetailView,
-    FileListView,
-    FileUploadView,
-    FileDownloadView,
-    FileDeleteView,
-    FileReextractView,
+    upload_batch_list_create,
+    upload_batch_detail,
+    upload_batch_summary,
+    file_list,
+    file_upload,
+    file_download,
+    file_delete,
+    file_reextract,
 )
-from .models import UploadBatch
-
-
-class UploadBatchSummaryView(APIView):
-    """
-    GET /api/uploads/batches/<id>/summary/
-
-    Lightweight summary used by the chat offline fallback and status intent.
-    Returns counts and per-file parse status without the full file payload.
-    """
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request, pk):
-        try:
-            batch = UploadBatch.objects.filter(
-                organization=request.user.organization
-            ).get(pk=pk)
-        except UploadBatch.DoesNotExist:
-            return Response(
-                {"error": {"code": "not_found", "message": "Batch not found.", "details": None}},
-                status=404,
-            )
-
-        files = batch.files.all()
-        return Response({
-            "id":              batch.pk,
-            "label":           batch.label,
-            "status":          batch.status,
-            "file_count":      batch.file_count,
-            "processed_count": batch.processed_count,
-            "error_count":     batch.error_count,
-            "files": [
-                {
-                    "id":                  f.pk,
-                    "name":                f.original_filename,
-                    "parse_status":        f.parse_status,
-                    "detected_type":       f.detected_type,
-                    "parse_error":         f.parse_error or None,
-                    "page_count":          f.page_count,
-                    "extraction_deferred": f.extraction_deferred,
-                }
-                for f in files.order_by("uploaded_at")
-            ],
-        })
 
 
 urlpatterns = [
     # GET  /api/uploads/batches/        list user's batches
     # POST /api/uploads/batches/        create a new batch
-    path("batches/",                UploadBatchListCreateView.as_view(), name="upload-batch-list"),
+    path("batches/",                upload_batch_list_create, name="upload-batch-list"),
 
     # GET    /api/uploads/batches/<id>/ batch detail + files
     # DELETE /api/uploads/batches/<id>/ delete batch
-    path("batches/<int:pk>/",       UploadBatchDetailView.as_view(),     name="upload-batch-detail"),
+    path("batches/<int:pk>/",       upload_batch_detail,     name="upload-batch-detail"),
 
     # GET /api/uploads/batches/<id>/summary/
-    path("batches/<int:pk>/summary/", UploadBatchSummaryView.as_view(),  name="upload-batch-summary"),
+    path("batches/<int:pk>/summary/", upload_batch_summary,  name="upload-batch-summary"),
 
     # File-level endpoints (also mountable under /api/files/)
-    path("files/",                  FileListView.as_view(),              name="file-list"),
-    path("files/upload/",           FileUploadView.as_view(),            name="file-upload"),
-    path("files/<int:pk>/download/", FileDownloadView.as_view(),         name="file-download"),
-    path("files/<int:pk>/",         FileDeleteView.as_view(),            name="file-delete"),
-    path("files/<int:pk>/reextract/", FileReextractView.as_view(),       name="file-reextract"),
+    path("files/",                  file_list,               name="file-list"),
+    path("files/upload/",           file_upload,             name="file-upload"),
+    path("files/<int:pk>/download/", file_download,          name="file-download"),
+    path("files/<int:pk>/",         file_delete,             name="file-delete"),
+    path("files/<int:pk>/reextract/", file_reextract,        name="file-reextract"),
 ]

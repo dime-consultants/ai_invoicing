@@ -29,3 +29,36 @@ class IsOrgAdmin(permissions.BasePermission):
             and request.user.role == "admin"
             and request.user.organization_id is not None
         )
+
+class IsOrgFinance(permissions.BasePermission):
+    """role  == 'finance'"""
+
+    def has_permission(self, request, view):
+        return bool(
+                        request.user
+                        and request.user.is_authenticated
+                        and request.user.role == "finance"
+                        and request.user.organization_id is not None
+        )
+
+class IsOrgAdminOrFinance(permissions.BasePermission):
+    """role == (admin , finance)"""
+
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and request.user.role in ("admin", "finance")
+            and request.user.organization_id is not None
+        )
+
+class IsOrgViewer(permissions.BasePermission):
+
+    def has_permission(self, request, view):
+        return bool (
+            request.user
+            and request.user.is_authenticated
+            and request.user.role == "finance"
+            and request.user.organization_id is not None
+        )
+
