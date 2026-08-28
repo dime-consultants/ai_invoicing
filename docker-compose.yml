@@ -264,7 +264,7 @@ services:
       - config
       - worker
       - -Q
-      - extraction,default
+      - extraction,default,chat
       - --loglevel=info
       - --autoscale=4,2
       - --max-tasks-per-child=20
