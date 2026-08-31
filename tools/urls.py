@@ -6,6 +6,7 @@ from .views import (
     tool_call_list,
     tool_call_detail,
     tool_call_output_download,
+    tool_call_report_download,
     tool_run,
     tools_convert,
     tools_clean,
@@ -37,6 +38,8 @@ urlpatterns = [
     path("calls/<int:pk>/", tool_call_detail, name="tool-call-detail"),
     # GET /api/tools/calls/<id>/output/download/  download this call's output file
     path("calls/<int:pk>/output/download/", tool_call_output_download, name="tool-call-output-download"),
+    # GET /api/tools/calls/<id>/report/?filetype=xlsx|csv|pdf|json|txt  generate+download a report from this call's result
+    path("calls/<int:pk>/report/", tool_call_report_download, name="tool-call-report-download"),
 
     # ── Direct run ────────────────────────────────────────────────────────────
     # POST /api/tools/run/    run a tool directly (all three types supported)

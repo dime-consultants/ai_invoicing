@@ -1,10 +1,11 @@
 # tools/views.py
+import json
 import logging
 from datetime import timedelta
 from pathlib import Path
 
 from django.db.models import Q
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, parser_classes
@@ -22,6 +23,20 @@ from .serializers import (
 from users.decorators import authenticated_required
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_uploaded_file_id(arguments: dict):
+    """Best-effort file_id out of a tool call's arguments, for linking the
+    resulting ToolCall back to the file it ran against (file_id_b, the
+    second slot on two-file tools, is intentionally not also recorded —
+    ToolCall only has one uploaded_file slot)."""
+    raw = arguments.get("file_id") or arguments.get("file_id_a")
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def _visible_tools_qs(user):
@@ -67,6 +82,8 @@ def tool_call_list(request):
     ).select_related("tool", "job").order_by("-created_at")
     if job_id := request.query_params.get("job"):
         qs = qs.filter(job_id=job_id)
+    if file_id := request.query_params.get("file"):
+        qs = qs.filter(uploaded_file_id=file_id)
     if tool_name := request.query_params.get("tool"):
         qs = qs.filter(tool__name=tool_name)
     if status_val := request.query_params.get("status"):
@@ -118,6 +135,105 @@ def tool_call_output_download(request, pk):
         return Response({"error": "Output file no longer exists."}, status=status.HTTP_404_NOT_FOUND)
 
     resp = FileResponse(p.open("rb"), as_attachment=True, filename=p.name)
+    return resp
+
+
+def _flatten_result_for_report(result: dict):
+    """Best-effort (headers, rows) table out of an arbitrary ToolCall.result,
+    for tools with no output file of their own (e.g. flag_anomalies) whose
+    payload is inline JSON rather than a written artifact.
+
+    Prefers `result["structured"]` (the shape _call_prompt_transform and
+    _persist_insights already agree on) over the raw top-level dict, then
+    looks for the first list-of-dicts value to use as the table body (e.g.
+    `anomalies`); falls back to a two-column Field/Value dump of whatever's
+    left when no such list exists.
+    """
+    data = result.get("structured") if isinstance(result, dict) else None
+    if not isinstance(data, dict):
+        data = result if isinstance(result, dict) else {"value": result}
+
+    list_key = None
+    for key, value in data.items():
+        if isinstance(value, list) and value and all(isinstance(item, dict) for item in value):
+            list_key = key
+            break
+
+    if list_key:
+        rows_data = data[list_key]
+        headers = []
+        for row in rows_data:
+            for k in row.keys():
+                if k not in headers:
+                    headers.append(k)
+        rows = [[row.get(h, "") for h in headers] for row in rows_data]
+        return headers, rows
+
+    headers = ["Field", "Value"]
+    rows = [
+        [k, json.dumps(v) if isinstance(v, (dict, list)) else v]
+        for k, v in data.items()
+    ]
+    return headers, rows
+
+
+@api_view(["GET"])
+@authenticated_required
+def tool_call_report_download(request, pk):
+    """
+    GET /api/tools/calls/<id>/report/?filetype=xlsx|csv|pdf|json|txt
+
+    Generates a downloadable report from a ToolCall's result on the fly —
+    unlike tool_call_output_download (which only serves a file a tool
+    handler already wrote to disk), this works for ANY successful call,
+    including inline-JSON results like flag_anomalies that never produce a
+    file at all. Table-shaped formats (xlsx/csv/pdf) go through
+    _flatten_result_for_report; json/txt just serialize the result as-is.
+
+    NOTE: the query param is named "filetype", not "format" — "format" is
+    DRF's reserved URL_FORMAT_OVERRIDE param and gets intercepted by content
+    negotiation before the view even runs, silently 404ing for any value
+    that isn't a registered renderer (xlsx/csv/pdf/txt aren't).
+    """
+    try:
+        tc = ToolCall.objects.select_related("tool").get(
+            pk=pk, organization=request.user.organization,
+        )
+    except ToolCall.DoesNotExist:
+        return Response({"error": "Tool call not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if tc.status != "success" or tc.result is None:
+        return Response({"error": "This tool call has no result to export."}, status=status.HTTP_404_NOT_FOUND)
+
+    fmt = (request.query_params.get("filetype") or "xlsx").lower()
+    if fmt not in ("xlsx", "csv", "pdf", "json", "txt"):
+        return Response({"error": f"Unsupported format '{fmt}'."}, status=status.HTTP_400_BAD_REQUEST)
+
+    title = tc.tool.display_name or tc.tool.name
+    filename = f"{tc.tool.name}_{tc.id}.{fmt}"
+
+    if fmt == "json":
+        content = json.dumps(tc.result, indent=2, default=str).encode("utf-8")
+        content_type = "application/json"
+    elif fmt == "txt":
+        content = json.dumps(tc.result, indent=2, default=str).encode("utf-8")
+        content_type = "text/plain"
+    else:
+        from analytics.services import ReportBuildService
+
+        headers, rows = _flatten_result_for_report(tc.result)
+        if fmt == "xlsx":
+            content = ReportBuildService._build_xlsx(title, headers, rows)
+            content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        elif fmt == "csv":
+            content = ReportBuildService._build_csv(headers, rows)
+            content_type = "text/csv"
+        else:
+            content = ReportBuildService._build_pdf(title, headers, rows)
+            content_type = "application/pdf"
+
+    resp = HttpResponse(content, content_type=content_type)
+    resp["Content-Disposition"] = f'attachment; filename="{filename}"'
     return resp
 
 
@@ -189,6 +305,7 @@ def tool_run(request):
         status=tc_status, error_message=error_msg,
         started_at=started_at, finished_at=finished_at,
         organization=tool_def.organization or request.user.organization,
+        uploaded_file_id=_extract_uploaded_file_id(arguments),
     )
     return Response({"tool_call_id": tc.pk, "result": result})
 
@@ -396,6 +513,7 @@ def custom_tool_test(request, pk):
         error_message=result.get("error", ""),
         started_at=started_at, finished_at=finished_at,
         organization=tool.organization or request.user.organization,
+        uploaded_file_id=_extract_uploaded_file_id(arguments),
     )
 
     return Response({

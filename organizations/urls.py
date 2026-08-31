@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    organization_token,
     organization_list_create,
     organization_detail,
     department_list_create,
@@ -9,6 +10,13 @@ from .views import (
 
 
 urlpatterns = [
+
+    # M2M token exchange — consumer key/secret in, short-lived X-Org-Token out
+    path(
+        "organizations/token/",
+        organization_token,
+        name="organization-token",
+    ),
 
     # Organizations
     path(

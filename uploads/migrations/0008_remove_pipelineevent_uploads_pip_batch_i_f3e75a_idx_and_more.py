@@ -9,12 +9,11 @@ class Migration(migrations.Migration):
         ('uploads', '0007_merge_20260825_1125'),
     ]
 
+    # No-op: this duplicated 0007_remove_pipelineevent_..._and_more's
+    # RemoveIndex/DeleteModel on a divergent branch. That branch was later
+    # merged in via 0008_merge_20260826_1044, which already applies the same
+    # deletion — replaying it a second time here broke migration state
+    # construction with KeyError('uploads', 'pipelineevent') once both
+    # branches were merged. Kept as a dependency placeholder only.
     operations = [
-        migrations.RemoveIndex(
-            model_name='pipelineevent',
-            name='uploads_pip_batch_i_f3e75a_idx',
-        ),
-        migrations.DeleteModel(
-            name='PipelineEvent',
-        ),
     ]

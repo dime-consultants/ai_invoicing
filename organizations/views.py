@@ -3,10 +3,14 @@ import logging
 from django.core.exceptions import ObjectDoesNotExist
 
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from users.decorators import org_admin_required
+from .decorators import org_admin_or_api_credential_required
+
+from .models import OrganizationAPICredential
+from .tokens import issue_org_access_token
 
 from .serializers import (
     OrganizationSerializer,
@@ -15,6 +19,7 @@ from .serializers import (
     DepartmentSerializer,
     DepartmentCreateSerializer,
     DepartmentUpdateSerializer,
+    OrganizationTokenRequestSerializer,
 )
 
 from .services import (
@@ -26,8 +31,50 @@ from .services import (
 logger = logging.getLogger(__name__)
 
 
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def organization_token(request):
+    """
+    POST /api/organizations/token/
+
+    Exchanges a consumer key/secret pair (issued when the Organization was
+    created — see organizations/signals.py, or via the admin's "rotate"
+    action) for a short-lived M2M access token. Send that token back on
+    subsequent requests via the X-Org-Token header (not Authorization —
+    this token carries no user, so DRF's normal JWT user auth doesn't apply
+    to it) to endpoints decorated with org_admin_or_api_credential_required.
+    """
+    serializer = OrganizationTokenRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    vd = serializer.validated_data
+
+    try:
+        credential = OrganizationAPICredential.objects.select_related("organization").get(
+            consumer_key=vd["consumer_key"], is_active=True,
+        )
+    except OrganizationAPICredential.DoesNotExist:
+        return Response({"detail": "Invalid consumer key."}, status=status.HTTP_401_UNAUTHORIZED)
+
+    if not credential.verify_secret(vd["consumer_secret"]):
+        return Response({"detail": "Invalid consumer secret."}, status=status.HTTP_401_UNAUTHORIZED)
+
+    if not credential.organization.is_active:
+        return Response({"detail": "Organization is inactive."}, status=status.HTTP_403_FORBIDDEN)
+
+    credential.touch()
+    token = issue_org_access_token(credential)
+
+    return Response({
+        "token": token,
+        "token_type": "X-Org-Token",
+        "expires_in": 1800,
+        "organization": OrganizationSerializer(credential.organization).data,
+    })
+
+
 @api_view(["GET", "POST"])
-@org_admin_required
+@permission_classes([AllowAny])
+@org_admin_or_api_credential_required
 def organization_list_create(request):
     """
     GET  /api/organizations/
@@ -59,7 +106,8 @@ def organization_list_create(request):
 
 
 @api_view(["GET", "PATCH", "DELETE"])
-@org_admin_required
+@permission_classes([AllowAny])
+@org_admin_or_api_credential_required
 def organization_detail(request, public_id):
     """
     GET    /api/organizations/<uuid:public_id>/
@@ -110,7 +158,8 @@ def organization_detail(request, public_id):
 
 
 @api_view(["GET", "POST"])
-@org_admin_required
+@permission_classes([AllowAny])
+@org_admin_or_api_credential_required
 def department_list_create(request):
     """
     GET  /api/departments/
@@ -174,7 +223,8 @@ def department_list_create(request):
 
 
 @api_view(["GET", "PATCH", "DELETE"])
-@org_admin_required
+@permission_classes([AllowAny])
+@org_admin_or_api_credential_required
 def department_detail(request, public_id):
     """
     GET    /api/departments/<uuid:public_id>/

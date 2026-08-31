@@ -43,3 +43,10 @@ class DepartmentCreateSerializer(serializers.Serializer):
 class DepartmentUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100, required=False)
     is_active = serializers.BooleanField(required=False)
+
+
+class OrganizationTokenRequestSerializer(serializers.Serializer):
+    """Used for POST /api/organizations/token/ — exchanges a consumer
+    key/secret pair for a short-lived M2M access token."""
+    consumer_key = serializers.CharField()
+    consumer_secret = serializers.CharField(trim_whitespace=False)
