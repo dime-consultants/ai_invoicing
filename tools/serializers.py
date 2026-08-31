@@ -41,7 +41,7 @@ class ToolCallSerializer(serializers.ModelSerializer):
         model  = ToolCall
         fields = [
             "id", "public_id", "tool", "tool_name", "tool_display",
-            "job",
+            "job", "uploaded_file",
             "arguments", "result", "error_message",
             "status", "status_display",
             "duration_ms",

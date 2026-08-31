@@ -36,10 +36,60 @@ def _period_start(period: str):
         return now - timedelta(days=1)
     if period == "week":
         return now - timedelta(weeks=1)
+    if period == "quarter":
+        return now - timedelta(weeks=13)
     if period == "year":
         return now - timedelta(days=365)
     # default: month
     return now - timedelta(days=30)
+
+
+def _bucket_plan(period: str, since, now):
+    """
+    Return [(bucket_start, bucket_end, label), ...] spanning since..now, with
+    granularity chosen by period so "monthly/quarterly/yearly" actually look
+    different from each other instead of all being the same daily-bucket
+    chart with a wider (but still 30-bucket-capped) date range:
+      - "quarter" -> weekly buckets, Monday-aligned, label "Week of Aug 17"
+      - "year"    -> calendar-month buckets, label "Aug"
+      - anything else (day/week/month) -> the original daily buckets,
+        capped at 30 points, label "Aug 23"
+    """
+    if period == "quarter":
+        start = (since - timedelta(days=since.weekday())).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        buckets = []
+        cursor = start
+        while cursor < now:
+            bucket_end = cursor + timedelta(days=7)
+            # cursor.day as a plain int, not %-d (glibc-only strftime flag —
+            # not portable on Windows dev machines).
+            buckets.append((cursor, bucket_end, f"Week of {cursor.strftime('%b')} {cursor.day}"))
+            cursor = bucket_end
+        return buckets
+
+    if period == "year":
+        start_month = since.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        buckets = []
+        cursor = start_month
+        while cursor < now:
+            if cursor.month == 12:
+                bucket_end = cursor.replace(year=cursor.year + 1, month=1)
+            else:
+                bucket_end = cursor.replace(month=cursor.month + 1)
+            buckets.append((cursor, bucket_end, cursor.strftime("%b")))
+            cursor = bucket_end
+        return buckets[-12:]
+
+    days = (now - since).days or 1
+    buckets = []
+    for i in range(min(days, 30)):
+        day_start = (now - timedelta(days=days - i - 1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        buckets.append((day_start, day_start + timedelta(days=1), day_start.strftime("%b %d")))
+    return buckets
 
 
 def _safe_import():
@@ -166,28 +216,20 @@ def dashboard_activity(request):
 
     period = request.query_params.get("period", "week")
     since  = _period_start(period)
+    now    = timezone.now()
 
-    # Build daily buckets
     data = []
-    now  = timezone.now()
-    days = (now - since).days or 1
-
-    for i in range(min(days, 30)):
-        day_start = (now - timedelta(days=days - i - 1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        day_end = day_start + timedelta(days=1)
-
+    for bucket_start, bucket_end, label in _bucket_plan(period, since, now):
         invoices  = UploadedFile.objects.filter(
-            batch__organization=org, uploaded_at__gte=day_start, uploaded_at__lt=day_end
+            batch__organization=org, uploaded_at__gte=bucket_start, uploaded_at__lt=bucket_end
         ).count()
         automated = UploadedFile.objects.filter(
-            batch__organization=org, uploaded_at__gte=day_start, uploaded_at__lt=day_end,
+            batch__organization=org, uploaded_at__gte=bucket_start, uploaded_at__lt=bucket_end,
             parse_status="parsed",
         ).count()
 
         data.append({
-            "name":      day_start.strftime("%b %d"),
+            "name":      label,
             "invoices":  invoices,
             "automated": automated,
         })
@@ -256,29 +298,21 @@ def dashboard_processing(request):
 
     period = request.query_params.get("period", "month")
     since  = _period_start(period)
+    now    = timezone.now()
 
-    # Build daily buckets for processing chart
     data = []
-    now  = timezone.now()
-    days = (now - since).days or 1
-
-    for i in range(min(days, 30)):
-        day_start = (now - timedelta(days=days - i - 1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        day_end = day_start + timedelta(days=1)
-
+    for bucket_start, bucket_end, label in _bucket_plan(period, since, now):
         # Count invoices uploaded and reconciled
         invoices  = UploadedFile.objects.filter(
-            batch__organization=org, uploaded_at__gte=day_start, uploaded_at__lt=day_end
+            batch__organization=org, uploaded_at__gte=bucket_start, uploaded_at__lt=bucket_end
         ).count()
         reconciled = UploadedFile.objects.filter(
-            batch__organization=org, uploaded_at__gte=day_start, uploaded_at__lt=day_end,
+            batch__organization=org, uploaded_at__gte=bucket_start, uploaded_at__lt=bucket_end,
             parse_status="parsed",
         ).count()
 
         data.append({
-            "name":        day_start.strftime("%b %d"),
+            "name":        label,
             "scrutinized": invoices,
             "flagged":     reconciled,
         })
@@ -308,19 +342,15 @@ def analytics_overview(request):
     ).count()
     manual_files    = total_files - automated_files
 
-    # Daily trend for processing
-    days = (now - since).days or 1
+    # Processing trend, bucketed by period granularity
+    bucket_plan = _bucket_plan(period, since, now)
     processing_trend = []
-    for i in range(min(days, 30)):
-        day_start = (now - timedelta(days=days - i - 1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        day_end = day_start + timedelta(days=1)
+    for bucket_start, bucket_end, label in bucket_plan:
         count = UploadedFile.objects.filter(
-            batch__organization=org, uploaded_at__gte=day_start, uploaded_at__lt=day_end
+            batch__organization=org, uploaded_at__gte=bucket_start, uploaded_at__lt=bucket_end
         ).count()
         processing_trend.append({
-            "date":  day_start.strftime("%Y-%m-%d"),
+            "date":  label,
             "value": count,
         })
 
@@ -341,19 +371,15 @@ def analytics_overview(request):
     prev_accuracy = round((prev_done / prev_total * 100) if prev_total else 0, 1)
 
     accuracy_trend = []
-    for i in range(min(days, 30)):
-        day_start = (now - timedelta(days=days - i - 1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        day_end = day_start + timedelta(days=1)
+    for bucket_start, bucket_end, label in bucket_plan:
         d_total = AIAnalysisJob.objects.filter(
-            organization=org, created_at__gte=day_start, created_at__lt=day_end
+            organization=org, created_at__gte=bucket_start, created_at__lt=bucket_end
         ).count()
         d_done  = AIAnalysisJob.objects.filter(
-            organization=org, created_at__gte=day_start, created_at__lt=day_end, status="done"
+            organization=org, created_at__gte=bucket_start, created_at__lt=bucket_end, status="done"
         ).count()
         accuracy_trend.append({
-            "date":  day_start.strftime("%Y-%m-%d"),
+            "date":  label,
             "value": round((d_done / d_total * 100) if d_total else 0, 1),
         })
 
@@ -404,36 +430,27 @@ def analytics_chart(request, chart_type):
     period = request.query_params.get("period", "month")
     since  = _period_start(period)
     now    = timezone.now()
-    days   = (now - since).days or 1
 
     if chart_type == "processing-trend":
         data = []
-        for i in range(min(days, 30)):
-            day_start = (now - timedelta(days=days - i - 1)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            day_end = day_start + timedelta(days=1)
+        for bucket_start, bucket_end, label in _bucket_plan(period, since, now):
             count = UploadedFile.objects.filter(
-                batch__organization=org, uploaded_at__gte=day_start, uploaded_at__lt=day_end
+                batch__organization=org, uploaded_at__gte=bucket_start, uploaded_at__lt=bucket_end
             ).count()
-            data.append({"date": day_start.strftime("%Y-%m-%d"), "value": count})
+            data.append({"date": label, "value": count})
         return Response({"chartType": chart_type, "data": data})
 
     if chart_type == "accuracy-trend":
         data = []
-        for i in range(min(days, 30)):
-            day_start = (now - timedelta(days=days - i - 1)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            day_end = day_start + timedelta(days=1)
+        for bucket_start, bucket_end, label in _bucket_plan(period, since, now):
             d_total = AIAnalysisJob.objects.filter(
-                organization=org, created_at__gte=day_start, created_at__lt=day_end
+                organization=org, created_at__gte=bucket_start, created_at__lt=bucket_end
             ).count()
             d_done  = AIAnalysisJob.objects.filter(
-                organization=org, created_at__gte=day_start, created_at__lt=day_end, status="done"
+                organization=org, created_at__gte=bucket_start, created_at__lt=bucket_end, status="done"
             ).count()
             data.append({
-                "date":  day_start.strftime("%Y-%m-%d"),
+                "date":  label,
                 "value": round((d_done / d_total * 100) if d_total else 0, 1),
             })
         return Response({"chartType": chart_type, "data": data})

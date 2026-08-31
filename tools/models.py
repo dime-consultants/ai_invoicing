@@ -155,6 +155,14 @@ class ToolCall(models.Model):
         null=True,
         blank=True,
     )
+    uploaded_file = models.ForeignKey(
+        "uploads.UploadedFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tool_calls",
+        help_text="The file this tool was run against, when applicable (direct file-manager runs).",
+    )
     tool = models.ForeignKey(
         ToolDefinition,
         on_delete=models.PROTECT,
