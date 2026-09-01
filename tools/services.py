@@ -118,6 +118,24 @@ def _load_tool_map(tool_names: list[str] | None = None, organization=None) -> di
     return {td.name: td for td in qs.select_related("user_config")}
 
 
+def _extract_uploaded_file_id(arguments: dict):
+    """Best-effort file_id out of a tool call's arguments, for linking the
+    resulting ToolCall back to the file it ran against (file_id_b, the
+    second slot on two-file tools, is intentionally not also recorded —
+    ToolCall only has one uploaded_file slot). Mirrors tools/views.py's
+    identically-named helper, used there for File Manager direct runs —
+    duplicated rather than imported to avoid a views->services reverse
+    dependency.
+    """
+    raw = arguments.get("file_id") or arguments.get("file_id_a")
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def _record_tool_call(
     tool_definition,
     arguments: dict,
@@ -140,6 +158,7 @@ def _record_tool_call(
         error_message=error_message,
         started_at=started_at,
         finished_at=finished_at,
+        uploaded_file_id=_extract_uploaded_file_id(arguments),
     )
 
 
@@ -236,7 +255,36 @@ def _call_webhook(config, arguments: dict) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
-def _resolve_file_text(file_id, *, max_chars: int, page_from=None, page_to=None) -> dict:
+_SHEET_MARKER_RE = re.compile(r"^=== Sheet: (.+?) ===$", re.MULTILINE)
+
+
+def _extract_sheet_text(full_text: str, sheet_name: str) -> str:
+    """Slice one worksheet's rows out of extracted_text produced with the
+    "=== Sheet: <name> ===" markers (uploads/services.py's xlsx/xls extract
+    branch). Used by reconcile_datasets' optional sheet_a/sheet_b arguments
+    so a single workbook holding both sides of a reconciliation as separate
+    tabs (e.g. a combined bank-ledger-and-M-Pesa-statement export) can be
+    compared against itself correctly, instead of the whole flattened text
+    being fed to both sides of the comparison.
+
+    Falls back to the full text — never an empty string — if there are no
+    markers (single-sheet file, or extracted before this marker existed) or
+    the requested name doesn't match any sheet, since silently comparing
+    nothing is worse than comparing too much.
+    """
+    matches = list(_SHEET_MARKER_RE.finditer(full_text))
+    if not matches:
+        return full_text
+    wanted = sheet_name.strip().lower()
+    for i, m in enumerate(matches):
+        if m.group(1).strip().lower() == wanted:
+            start = m.end()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(full_text)
+            return full_text[start:end].strip()
+    return full_text
+
+
+def _resolve_file_text(file_id, *, max_chars: int, page_from=None, page_to=None, sheet_name=None) -> dict:
     """
     Load the text of one UploadedFile for injection into a prompt.
 
@@ -277,6 +325,9 @@ def _resolve_file_text(file_id, *, max_chars: int, page_from=None, page_to=None)
                 )
     except Exception as exc:
         logger.warning("prompt_transform: could not load file_id=%s: %s", file_id, exc)
+
+    if sheet_name and text:
+        text = _extract_sheet_text(text, sheet_name)
 
     full_length = len(text)
     truncated   = full_length > max_chars
@@ -829,16 +880,21 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
     # the cost. Truncation is always recorded, never silent.
     max_file_chars = getattr(settings, "PROMPT_TRANSFORM_MAX_CHARS", 60_000)
 
-    # placeholder name -> (kind, argument value)
-    wanted: list[tuple[str, str, object]] = []
+    # placeholder name -> (kind, argument value, sheet name or None)
+    # sheet_a/sheet_b let reconcile_datasets compare two tabs of the SAME
+    # workbook (e.g. file_id_a == file_id_b, a combined bank-ledger-and-
+    # M-Pesa-statement export) — without them, passing the same file id
+    # twice resolves the identical flattened text on both sides and the
+    # comparison trivially matches everything against itself.
+    wanted: list[tuple[str, str, object, object]] = []
     if arguments.get("file_id") is not None:
-        wanted.append(("file_text",   "file",  arguments["file_id"]))
+        wanted.append(("file_text",   "file",  arguments["file_id"], arguments.get("sheet")))
     if arguments.get("file_id_a") is not None:
-        wanted.append(("file_a_text", "file",  arguments["file_id_a"]))
+        wanted.append(("file_a_text", "file",  arguments["file_id_a"], arguments.get("sheet_a")))
     if arguments.get("file_id_b") is not None:
-        wanted.append(("file_b_text", "file",  arguments["file_id_b"]))
+        wanted.append(("file_b_text", "file",  arguments["file_id_b"], arguments.get("sheet_b")))
     if arguments.get("batch_id") is not None:
-        wanted.append(("batch_text",  "batch", arguments["batch_id"]))
+        wanted.append(("batch_text",  "batch", arguments["batch_id"], None))
 
     per_source = max(1, max_file_chars // max(1, len(wanted)))
 
@@ -849,7 +905,7 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
     total_full_length = 0
     any_truncated     = False
 
-    for placeholder, kind, value in wanted:
+    for placeholder, kind, value, sheet_name in wanted:
         if kind == "batch":
             got = _resolve_batch_text(value, max_chars=per_source)
         else:
@@ -858,6 +914,7 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
                 max_chars=per_source,
                 page_from=arguments.get("page_from"),
                 page_to=arguments.get("page_to"),
+                sheet_name=sheet_name,
             )
         resolved[placeholder] = got["text"]
         extensions[placeholder] = got.get("extension", "")
@@ -892,7 +949,7 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
     # Single-source (one file_id, or one batch_id): map-reduce the whole
     # thing, merging chunk results in Python (see _run_chunked_prompt_transform).
     if len(wanted) == 1 and any_truncated:
-        placeholder, kind, value = wanted[0]
+        placeholder, kind, value, _sheet_name = wanted[0]
         chunked = _run_chunked_prompt_transform(
             config, client, model, output_schema, placeholder, kind, value, max_file_chars,
         )
@@ -905,10 +962,10 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
     # such tool exists in the current manifest.
     if (
         len(wanted) == 2
-        and all(kind == "file" for _, kind, _ in wanted)
+        and all(kind == "file" for _, kind, _, _ in wanted)
         and any_truncated
     ):
-        (ph_1, _, val_1), (ph_2, _, val_2) = wanted
+        (ph_1, _, val_1, _), (ph_2, _, val_2, _) = wanted
         if full_lengths.get(ph_1, 0) >= full_lengths.get(ph_2, 0):
             chunked_placeholder, chunked_value = ph_1, val_1
             other_placeholder, other_value = ph_2, val_2
@@ -991,7 +1048,7 @@ def _call_prompt_transform(config, arguments: dict) -> dict:
             **file_meta,
         }
         tool_name = getattr(config, "name", "?")
-        sources = [(extensions.get(ph, ""), resolved.get(ph, "")) for ph, _, _ in wanted]
+        sources = [(extensions.get(ph, ""), resolved.get(ph, "")) for ph, _, _, _ in wanted]
         return _attach_completeness_check(result, tool_name, sources)
 
     except Exception as exc:

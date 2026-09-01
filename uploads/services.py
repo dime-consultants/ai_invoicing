@@ -132,10 +132,19 @@ def _extract_text(
                     except Exception:
                         logger.warning("_extract_text: on_chunk checkpoint failed", exc_info=True)
 
+            # Every sheet is preceded by a "=== Sheet: <name> ===" marker line
+            # (see tools/services.py's _extract_sheet_text) — without it, a
+            # multi-sheet workbook (e.g. one xlsx holding both a bank ledger
+            # and an M-Pesa statement as separate tabs) flattens into one
+            # undifferentiated blob with no way for a downstream tool to tell
+            # where one sheet ends and the next begins.
             if extension == "xlsx":
                 import openpyxl
                 wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
                 for ws in wb.worksheets:
+                    marker = f"=== Sheet: {ws.title} ==="
+                    parts.append(marker)
+                    total += len(marker)
                     for row in ws.iter_rows(values_only=True):
                         row_num += 1
                         line = "\t".join("" if c is None else str(c) for c in row)
@@ -152,6 +161,9 @@ def _extract_text(
                 import xlrd
                 book = xlrd.open_workbook(file_path)
                 for sheet in book.sheets():
+                    marker = f"=== Sheet: {sheet.name} ==="
+                    parts.append(marker)
+                    total += len(marker)
                     for r in range(sheet.nrows):
                         row_num += 1
                         line = "\t".join(str(c) for c in sheet.row_values(r))
