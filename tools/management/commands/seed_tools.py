@@ -511,7 +511,12 @@ Records (if provided directly):
         "description": (
             "Compare two sets of records on a shared key and produce a variance report. "
             "Works for URA vs ACON, any two invoice exports, or any two lists with a common ID. "
-            "Returns matched rows, variances, and rows missing from either side."
+            "Returns matched rows, variances, and rows missing from either side. "
+            "If both sides live in ONE workbook as separate tabs (e.g. a combined bank-ledger-"
+            "and-M-Pesa-statement export), pass the SAME file id as both file_id_a and file_id_b "
+            "and set sheet_a/sheet_b to the two tab names (check read_file or detect_file_type "
+            "output for the exact sheet names first) — otherwise both sides resolve to the same "
+            "flattened text and everything trivially matches itself."
         ),
         "category": "reconciliation",
         "is_safe":  True,
@@ -520,6 +525,19 @@ Records (if provided directly):
             "properties": {
                 "file_id_a":   {"type": "integer", "description": "PK of the first file."},
                 "file_id_b":   {"type": "integer", "description": "PK of the second file."},
+                "sheet_a": {
+                    "type": "string",
+                    "description": (
+                        "Worksheet name for side A, only needed when file_id_a and file_id_b "
+                        "are the SAME workbook and the two sides are separate tabs within it."
+                    ),
+                    "default": "",
+                },
+                "sheet_b": {
+                    "type": "string",
+                    "description": "Worksheet name for side B — see sheet_a.",
+                    "default": "",
+                },
                 "join_key":    {
                     "type": "string",
                     "description": "Field to join on. Default: inferred.",
