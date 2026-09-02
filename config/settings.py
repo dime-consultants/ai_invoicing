@@ -394,8 +394,14 @@ else:
 
 
 # Celery configuration
-CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://redis:6379/0")
-CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", os.environ.get("REDIS_URL", "redis://redis:6379/0"))
+CELERY_BROKER_URL = os.environ.get(
+    "CELERY_BROKER_URL",
+    os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+)
+CELERY_RESULT_BACKEND = os.environ.get(
+    "CELERY_RESULT_BACKEND",
+    os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+)
 CELERY_TASK_TIME_LIMIT = 60 * 30        # hard kill at 30 min — a 1000-page doc should never need more
 CELERY_TASK_SOFT_TIME_LIMIT = 60 * 25   # raises a catchable exception 5 min before the hard kill
 CELERY_WORKER_MAX_TASKS_PER_CHILD = 20  # recycle worker processes periodically — caps memory creep
