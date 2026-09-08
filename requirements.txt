@@ -59,7 +59,7 @@ redis
 
 # ── Unstructured (local, no API key) ─────────────────────────────────────────
 unstructured.pytesseract==0.3.15
-
+resend==2.43.0
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv==1.2.2
 python-decouple==3.8
