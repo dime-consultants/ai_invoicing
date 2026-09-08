@@ -183,14 +183,33 @@ EMAIL_BACKEND = os.environ.get(
     "EMAIL_BACKEND",
     "django.core.mail.backends.console.EmailBackend" if DEBUG else "django.core.mail.backends.smtp.EmailBackend",
 )
-EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
-EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
-EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
-EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
-EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True") == "True"
-EMAIL_OTP_TTL_MINUTES = int(os.environ.get("EMAIL_OTP_TTL_MINUTES", "10"))
-EMAIL_OTP_MAX_ATTEMPTS = int(os.environ.get("EMAIL_OTP_MAX_ATTEMPTS", "5"))
-STAGE_FIXED_OTP_CODE = os.environ.get("STAGE_FIXED_OTP_CODE", "00000")
+# EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+# EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+# EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+# EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+# EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True") == "True"
+# EMAIL_OTP_TTL_MINUTES = int(os.environ.get("EMAIL_OTP_TTL_MINUTES", "10"))
+# EMAIL_OTP_MAX_ATTEMPTS = int(os.environ.get("EMAIL_OTP_MAX_ATTEMPTS", "5"))
+# STAGE_FIXED_OTP_CODE = os.environ.get("STAGE_FIXED_OTP_CODE", "00000")
+
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+RESEND_FROM_ADDRESS = os.environ.get(
+    "RESEND_FROM_ADDRESS",
+    "",
+)
+
+EMAIL_OTP_TTL_MINUTES = int(
+    os.environ.get("EMAIL_OTP_TTL_MINUTES", "10")
+)
+
+EMAIL_OTP_MAX_ATTEMPTS = int(
+    os.environ.get("EMAIL_OTP_MAX_ATTEMPTS", "5")
+)
+
+STAGE_FIXED_OTP_CODE = os.environ.get(
+    "STAGE_FIXED_OTP_CODE",
+    "000000",
+)
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 LOGGING = {
