@@ -5,9 +5,12 @@ Built-in tool handler primitives.
 These are the ONLY functions that belong here — domain-agnostic operations
 that genuinely require Python and cannot be expressed as a prompt:
 
-    read_file        — open an UploadedFile and return its raw text content
-    detect_file_type — sniff extension + content → type label + confidence
-    write_xlsx       — turn rows + headers into a downloadable .xlsx file
+    read_file                  — open an UploadedFile and return its raw text content
+    detect_file_type           — sniff extension + content → type label + confidence
+    write_xlsx                 — turn rows + headers into a downloadable .xlsx file
+    write_reconciliation_report — turn a reconcile_datasets result into the
+                        client's fixed "Outstanding ..." bank-reconciliation
+                        layout (deterministic, not left to the model)
     export_file      — convert an UploadedFile's full extracted text into
                         xlsx/csv/json/txt, by file_id, byte-faithfully
     run_python       — execute a user-supplied Python snippet in a sandbox
@@ -472,6 +475,100 @@ def write_xlsx(
 
     except Exception as exc:
         logger.exception("write_xlsx(%s): %s", filename, exc)
+        return {"ok": False, "error": str(exc)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3a. write_reconciliation_report
+# ─────────────────────────────────────────────────────────────────────────────
+
+def write_reconciliation_report(
+    reconciliation_result: dict,
+    filename: str,
+    file_id_a: int | None = None,
+    file_id_b: int | None = None,
+    sheet_a: str = "",
+    sheet_b: str = "",
+) -> dict:
+    """
+    Turn a reconcile_datasets result into the client's standard bank-
+    reconciliation report: four "Outstanding ..." sections (Ledger/Statement
+    x credits/debits), each with Date/Ref/Item Description/Amount columns
+    and a Total row — byte-identical to what GET
+    /api/tools/calls/<id>/report/?filetype=xlsx produces for the same data.
+
+    Call this instead of write_xlsx to finish a reconciliation job. write_xlsx
+    is a dumb rows-and-headers primitive — handing it reconcile_datasets'
+    output means the model has to invent its own column layout, which drifts
+    from the client's expected format run to run. This handler applies the
+    fixed layout deterministically instead.
+
+    Parameters
+    ----------
+    reconciliation_result : The JSON object reconcile_datasets returned
+                             (must contain a "rows" array with id/amount_a/
+                             amount_b/status per the reconcile_datasets
+                             output schema).
+    filename               : Output filename, e.g. "bank_mpesa_variance.xlsx".
+                              Extension forced to .xlsx.
+    file_id_a, file_id_b   : PKs of the two source files, used to label the
+                              report title ("Taking A is <name> and B is
+                              <name>"). Optional — falls back to "File A"/
+                              "File B" if omitted.
+    sheet_a, sheet_b       : Worksheet names, when both sides came from the
+                              same workbook (two tabs) — used as the label
+                              instead of the (shared) filename.
+
+    Returns
+    -------
+    {"ok": true, "output_filename": <abs path str>, "record_count": <int>, "summary": <str>}
+    """
+    try:
+        from django.conf import settings
+
+        from .reconciliation_report import (
+            build_reconciliation_xlsx,
+            reconciliation_sections,
+            reconciliation_title,
+        )
+
+        if not isinstance(reconciliation_result, dict):
+            return {"ok": False, "error": "reconciliation_result must be the reconcile_datasets output object."}
+
+        if file_id_a and file_id_b and file_id_a == file_id_b and (sheet_a or sheet_b):
+            label_a, label_b = sheet_a, sheet_b
+        else:
+            from uploads.models import UploadedFile
+            names = dict(
+                UploadedFile.objects.filter(pk__in=[v for v in (file_id_a, file_id_b) if v])
+                .values_list("pk", "original_filename")
+            )
+            label_a, label_b = names.get(file_id_a), names.get(file_id_b)
+
+        title = reconciliation_title(label_a, label_b)
+        sections = reconciliation_sections(reconciliation_result)
+        content = build_reconciliation_xlsx(title, sections)
+
+        out_dir = Path(settings.BASE_DIR) / "outputs" / "converted"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        stem = Path(filename).stem
+        out_path = out_dir / f"{stem}.xlsx"
+        out_path.write_bytes(content)
+
+        row_count = sum(len(rows) for rows in sections.values())
+        return {
+            "ok":              True,
+            "output_filename": str(out_path),
+            "record_count":    row_count,
+            "summary": (
+                f"Wrote the outstanding-items reconciliation report ({row_count} "
+                f"unmatched rows across 4 sections) to {out_path.name}."
+            ),
+        }
+
+    except Exception as exc:
+        logger.exception("write_reconciliation_report(%s): %s", filename, exc)
         return {"ok": False, "error": str(exc)}
 
 

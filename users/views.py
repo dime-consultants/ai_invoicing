@@ -34,7 +34,8 @@ logger = logging.getLogger(__name__)
 
 def _stage_otp_message(default: str, purpose: str) -> str:
     if getattr(settings, "APP_ENV", "").lower() == "stage":
-        return f"Use staging {purpose} code 00000."
+        code = getattr(settings, "STAGE_FIXED_OTP_CODE", "00000")
+        return f"Use staging {purpose} code {code}."
     return default
 
 
