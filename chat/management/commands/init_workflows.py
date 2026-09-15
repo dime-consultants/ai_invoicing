@@ -10,7 +10,8 @@ seeded by `python manage.py seed_tools`. The agent validates available tools
 against the DB — unknown names silently produce zero tool calls.
 
 Current valid tool names (from seed_tools):
-  Builtin:          read_file, detect_file_type, write_xlsx, run_python, call_webhook
+  Builtin:          read_file, detect_file_type, write_xlsx,
+                    write_reconciliation_report, run_python, call_webhook
   Prompt transform: extract_invoice_data, flag_anomalies, reconcile_datasets,
                     summarise_batch, clean_dataset
 """
@@ -54,12 +55,15 @@ class Command(BaseCommand):
                 "read_file",
                 "extract_invoice_data",
                 "reconcile_datasets",
-                "write_xlsx",
+                "write_reconciliation_report",
             ],
             "system_prompt_prefix": (
                 "The user wants to reconcile two datasets. "
                 "Extract records from both files, then call reconcile_datasets with "
-                "file_id_a and file_id_b. Finish by writing the variance report to xlsx."
+                "file_id_a and file_id_b. Finish by calling write_reconciliation_report "
+                "with the reconcile_datasets result (as reconciliation_result) and the "
+                "same file_id_a/file_id_b — NOT write_xlsx, which would make you invent "
+                "your own column layout instead of the client's standard report format."
             ),
             "is_default": True,
         },

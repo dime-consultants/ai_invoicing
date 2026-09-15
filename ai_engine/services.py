@@ -91,6 +91,7 @@ ALL_TOOL_NAMES: list[str] = [
     "read_file",
     "detect_file_type",
     "write_xlsx",
+    "write_reconciliation_report",
     "export_file",
     "call_webhook",
     "run_python",
@@ -128,6 +129,7 @@ WORKFLOW_TOOL_NAMES: dict[str, list[str]] = {
         "extract_invoice_data",
         "reconcile_ura_vs_acon",    # use when one side is ACON — statutory join
         "reconcile_datasets",       # generic fallback for other file pairs
+        "write_reconciliation_report",  # finish reconcile_datasets with the fixed report layout
         "write_xlsx",
         "export_file",
     ],
@@ -193,6 +195,12 @@ When a user gives you a file or batch:
 3. Choose the right domain tool (extract_invoice_data, reconcile_datasets,
    flag_anomalies, clean_dataset, or summarise_batch) based on what the user wants.
 4. If the user wants a downloadable file, call write_xlsx with the structured output.
+   EXCEPTION: after reconcile_datasets (or reconcile_ura_vs_acon), do NOT call
+   write_xlsx yourself — call write_reconciliation_report with the
+   reconcile_datasets result instead. It applies the client's fixed
+   "Outstanding Ledger/Statement credits/debits" report layout deterministically;
+   write_xlsx would make you invent your own column layout, which will not match
+   what the client expects for a reconciliation/variance report.
 5. If a tool result contains more than about 25 rows/records/anomalies, do NOT
    try to enumerate them in your reply. Call write_xlsx (or export_file, if the
    data came from an already-uploaded file) to produce a downloadable file,

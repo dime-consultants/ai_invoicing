@@ -219,6 +219,56 @@ BUILTIN_TOOLS = [
         },
     },
     {
+        "name":         "write_reconciliation_report",
+        "display_name": "Write Reconciliation Report",
+        "description": (
+            "Turn a reconcile_datasets result into the client's standard bank-"
+            "reconciliation report: four 'Outstanding ...' sections (Ledger "
+            "credits/debits, Statement credits/debits), each with Date/Ref/Item "
+            "Description/Amount columns and a Total row. Call this — NOT write_xlsx — "
+            "to finish any reconciliation/variance-report task; write_xlsx would make "
+            "you invent your own column layout, which does not match what the client "
+            "expects. Pass the full JSON object reconcile_datasets returned as "
+            "reconciliation_result. "
+            "Returns: output_filename (absolute path), record_count."
+        ),
+        "category": "report",
+        "handler":  "tools.handlers.write_reconciliation_report",
+        "is_safe":  True,
+        "parameters_schema": {
+            "type": "object",
+            "properties": {
+                "reconciliation_result": {
+                    "type": "object",
+                    "description": "The JSON object returned by reconcile_datasets (must contain a 'rows' array).",
+                },
+                "filename":   {
+                    "type": "string",
+                    "description": "Output filename, e.g. 'bank_mpesa_variance.xlsx'.",
+                },
+                "file_id_a": {
+                    "type": "integer",
+                    "description": "PK of side A's source file — used to label the report title.",
+                },
+                "file_id_b": {
+                    "type": "integer",
+                    "description": "PK of side B's source file — used to label the report title.",
+                },
+                "sheet_a": {
+                    "type": "string",
+                    "description": "Worksheet name for side A, only when file_id_a == file_id_b (same workbook, two tabs).",
+                    "default": "",
+                },
+                "sheet_b": {
+                    "type": "string",
+                    "description": "Worksheet name for side B — see sheet_a.",
+                    "default": "",
+                },
+            },
+            "required": ["reconciliation_result", "filename"],
+        },
+    },
+    {
         "name":         "export_file",
         "display_name": "Export File",
         "description": (
