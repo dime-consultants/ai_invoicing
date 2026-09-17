@@ -1,431 +1,672 @@
-# version: "3.9"
+environment_name: dime
+server_name: dime
+server_aliases:
+  - invoicing
+kubernetes_namespaces:
+  - prod
+  - stage
 
-# x-django-env: &django-env
-#   DEBUG: "False"
-#   DJANGO_SETTINGS_MODULE: config.settings
-#   SECRET_KEY: ${DJANGO_SECRET_KEY}
+ssh_secret_name: INVOICING_SSH_KEY
+ssh_user_secret_name: INVOICING_SSH_USER
+public_ip_secret_name: INVOICING_PUBLIC_IP
 
-#   DB_NAME: ${DATABASE_DB}
-#   DB_USER: ${DATABASE_USER}
-#   DB_PASSWORD: ${DATABASE_PASSWORD}
-#   DB_HOST: ${DATABASE_HOST}
-#   DB_PORT: ${DATABASE_PORT}
+ansible_timeout: 15
+ssh_wait_delay: 0
+ssh_wait_timeout: 45
 
-#   CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+ansible_ssh_common_args: >-
+  -o ConnectTimeout=10
+  -o ConnectionAttempts=1
+  -o BatchMode=yes
+  -o ServerAliveInterval=30
+  -o ServerAliveCountMax=2
 
-#   SYSTEM_BASE_URL: ${SYSTEM_BASE_URL:-invoicing.dimeconsultants.africa}
+docker_setup_enabled: false
+shared_services_deploy_enabled: false
+nginx_enabled: false
 
-# x-app-image: &app-image ${IMAGE_TAG}
+migration_cleanup:
+  purge_nginx_when_k3s: true
+  stop_docker_when_k3s: false
+  disable_docker_when_k3s: false
+  uninstall_k3s_when_docker: false
+  docker_prune_when_docker: false
+  docker_prune_volumes_when_docker: false
+  docker_prune_images_when_docker: false
 
-# x-common-labels: &common-labels
-#   observability.app: ai-invoicing
-#   observability.environment: ${SHARED_ENV}
+k3s:
+  enabled: true
+  external_backend_host: 10.42.0.1
+  disable:
+    - metrics-server
+  install_helm: false
+  space_guard:
+    enabled: true
+    max_disk_use_percent: 82
+    journal_vacuum_size: 300M
+    temp_file_min_age_days: 2
+    on_boot_sec: 10m
+    on_unit_active_sec: 1h
+    randomized_delay_sec: 10m
+    run_now: true
+  traefik_acme:
+    enabled: true
+    email: stephenosiru@gmail.com
+    resolver_name: letsencrypt
+    storage: /data/acme.json
+  cert_manager:
+    enabled: false
+    install_manifest_url: https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+    cluster_issuer:
+      enabled: true
+      name: letsencrypt-prod
+      email: stephenosiru@gmail.com
+      server: https://acme-v02.api.letsencrypt.org/directory
+      private_key_secret_name: letsencrypt-prod-key
+      ingress_class: traefik
+  firewall_ports:
+    - 80
+    - 443
+    - 6443
 
-# networks:
-#   default:
-#     name: ${SHARED_NETWORK}
-#     external: true
+firewall_extra_ports: []
 
-# services:
-#   invoicing:
-#     image: *app-image
-#     container_name: ${SHARED_ENV}_invoicing_app
-#     labels:
-#       <<: *common-labels
-#       observability.component: api
-#     environment:
-#       <<: *django-env
-#     ports:
-#       - "${API_PORT}:8000"
-#     restart: always
+docker_maintenance:
+  cleanup_min_disk_use_percent: 88
+  journal_vacuum_size: 300M
 
-#   celery_worker:
-#     image: *app-image
-#     container_name: ${SHARED_ENV}_invoicing_celery_worker
-#     labels:
-#       <<: *common-labels
-#       observability.component: celery-worker
-#     command: celery -A config worker -l INFO
-#     environment:
-#       <<: *django-env
-#     restart: always
-#   celery_beat:
-#     image: *app-image
-#     container_name: ${SHARED_ENV}_invoicing_celery_beat
-#     labels:
-#       <<: *common-labels
-#       observability.component: celery-beat
-#     command: celery -A config beat -l INFO
-#     environment:
-#       <<: *django-env
-#     restart: always
+shared_services:
+  - name: postgres
+    environments:
+      prod: {}
+      stage: {}
 
-name: ai_invoicing_dev
+  - name: rabbitmq
+    environments:
+      prod:
+        domain: rabbitmq.dimeconsultants.africa
+        ingress:
+          enabled: true
+          className: traefik
+          annotations:
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            traefik.ingress.kubernetes.io/router.tls: "true"
+            traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+          tls:
+            enabled: true
+      stage: {}
 
-services:
-  db:
-    image: postgres:16-alpine
-    container_name: invoicing-dev-db
-    restart: unless-stopped
+k3s_portainer:
+  enabled: true
+  domain: portainer.dimeconsultants.africa
+  namespace: portainer
+  image: portainer/portainer-ce:2.39.0
+  storage_size: 10Gi
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
+      traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+    tls:
+      enabled: true
 
-    env_file:
-      - .env
+k3s_argocd:
+  enabled: true
+  domain: argocd.dimeconsultants.africa
+  namespace: argocd
+  install_manifest_url: https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
+      traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+    tls:
+      enabled: true
 
-    environment:
-      POSTGRES_DB: ${DB_NAME:-ai_invoicing}
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+k3s_grafana:
+  enabled: true
+  domain: grafana.dimeconsultants.africa
+  namespace: grafana
+  image: grafana/grafana-oss:11.1.4
+  storage_size: 10Gi
+  loki:
+    enabled: true
+    retention_period: 24h
+    storage_size: 10Gi
+  promtail:
+    enabled: true
+    positions_dir: /var/lib/promtail
+    namespaces:
+      - prod
+      - stage
+      - grafana
+  admin_user_secret_name: GRAFANA_PROD_USER
+  admin_password_secret_name: GRAFANA_PROD_PASSWORD
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
+      traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+    tls:
+      enabled: true
 
-    ports:
-      - "5432:5432"
-
+apps:
+  - name: invoicing
+    repo: dime-consultants/ai_invoicing
+    deployment_type: k3s
+    aliases:
+      - ai_invoicing
+      - invoicing.dimeconsultants.africa
+      - stage-invoicing.dimeconsultants.africa
+    port_env: API_PORT
+    postgres_database: invoicing
+    rabbitmq_namespace: invoicing
+    redis:
+      enabled: true
+    persistentVolumeClaims:
+      - name: invoicing-media
+        accessModes:
+          - ReadWriteOnce
+        storage: 10Gi
     volumes:
-      - postgres_data_dev:/var/lib/postgresql/data
-
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-ai_invoicing}",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-    networks:
-      - invoicing-network-dev
-
-  redis:
-    image: redis:7-alpine
-    container_name: invoicing-dev-redis
-    restart: unless-stopped
-
-    command:
-      - redis-server
-      - --maxmemory
-      - 256mb
-      - --maxmemory-policy
-      - allkeys-lru
-
-    ports:
-      - "6379:6379"
-
-    volumes:
-      - redis_data_dev:/data
-
-    healthcheck:
-      test:
-        - CMD
-        - redis-cli
-        - ping
-      interval: 10s
-      timeout: 3s
-      retries: 5
-
-    networks:
-      - invoicing-network-dev
-
-  migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
-
-    image: ai_invoicing:dev
-
-    container_name: invoicing-dev-migrate
-
-    env_file:
-      - .env
-
-    environment:
-      DB_HOST: db
-      DB_PORT: 5432
-      REDIS_URL: redis://redis:6379/0
-
-    depends_on:
-      db:
-        condition: service_healthy
-
-      redis:
-        condition: service_healthy
-
-    command:
-      - sh
-      - -c
-      - |
-        echo '[migrate] Applying migrations...' &&
-        python manage.py migrate --noinput &&
-        echo '[migrate] Seeding tools...' &&
-        python manage.py seed_tools --export /usr/src/app/tools_export.json &&
-        echo '[migrate] Collecting static files...' &&
-        python manage.py collectstatic --noinput &&
-        echo '[migrate] Done.'
-
-    volumes:
-      - .:/usr/src/app
-      - static_files_dev:/usr/src/app/staticfiles
-      - media_files_dev:/usr/src/app/media
-      - outputs_files_dev:/usr/src/app/outputs
-      - tools_export_dev:/usr/src/app/tools_export_shared
-
-    restart: "no"
-
-    networks:
-      - invoicing-network-dev
-
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-
-    image: ai_invoicing:dev
-
-    container_name: invoicing-dev-app
-
-    restart: unless-stopped
-
-    env_file:
-      - .env
-
-    environment:
-      DB_HOST: db
-      DB_PORT: 5432
-      REDIS_URL: redis://redis:6379/0
-      DEBUG: "True"
-      RUN_STARTUP_TASKS: "false"
-
-    depends_on:
-      db:
-        condition: service_healthy
-
-      redis:
-        condition: service_healthy
-
-      migrate:
-        condition: service_completed_successfully
-
-    volumes:
-      - .:/usr/src/app
-      - static_files_dev:/usr/src/app/staticfiles
-      - media_files_dev:/usr/src/app/media
-      - outputs_files_dev:/usr/src/app/outputs
-      - tools_export_dev:/usr/src/app/tools_export_shared
-
-    ports:
-      - "8001:8000"
-
-    healthcheck:
-      test:
-        - CMD
-        - curl
-        - -f
-        - http://localhost:8000/api/health/
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
-
-    networks:
-      - invoicing-network-dev
-
-  worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-
-    image: ai_invoicing:dev
-
-    container_name: invoicing-dev-worker
-
-    restart: unless-stopped
-
-    env_file:
-      - .env
-
-    environment:
-      DB_HOST: db
-      DB_PORT: 5432
-      REDIS_URL: redis://redis:6379/0
-      DEBUG: "True"
-
-    depends_on:
-      db:
-        condition: service_healthy
-
-      redis:
-        condition: service_healthy
-
-      migrate:
-        condition: service_completed_successfully
-
-    command:
-      - celery
-      - -A
-      - config
-      - worker
-      - -Q
-      - extraction,default,chat
-      - --loglevel=info
-      - --autoscale=4,2
-      - --max-tasks-per-child=20
-
-    volumes:
-      - .:/usr/src/app
-      - media_files_dev:/usr/src/app/media
-      - outputs_files_dev:/usr/src/app/outputs
-
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - celery -A config inspect ping -d celery@$$HOSTNAME || exit 1
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-
-    networks:
-      - invoicing-network-dev
-
-  worker-chat:
-    build:
-      context: .
-      dockerfile: Dockerfile
-
-    image: ai_invoicing:dev
-
-    container_name: invoicing-dev-worker-chat
-
-    restart: unless-stopped
-
-    env_file:
-      - .env
-
-    environment:
-      DB_HOST: db
-      DB_PORT: 5432
-      REDIS_URL: redis://redis:6379/0
-      DEBUG: "True"
-
-    depends_on:
-      db:
-        condition: service_healthy
-
-      redis:
-        condition: service_healthy
-
-      migrate:
-        condition: service_completed_successfully
-
-    command:
-      - celery
-      - -A
-      - config
-      - worker
-      - -Q
-      - chat
-      - --loglevel=info
-      - --autoscale=8,2
-      - --max-tasks-per-child=50
-
-    volumes:
-      - .:/usr/src/app
-      - media_files_dev:/usr/src/app/media
-      - outputs_files_dev:/usr/src/app/outputs
-
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - celery -A config inspect ping -d celery@$$HOSTNAME || exit 1
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-
-    networks:
-      - invoicing-network-dev
-
-  flower:
-    build:
-      context: .
-      dockerfile: Dockerfile
-
-    image: ai_invoicing:dev
-
-    container_name: invoicing-dev-flower
-
-    restart: unless-stopped
-
-    env_file:
-      - .env
-
-    environment:
-      DB_HOST: db
-      DB_PORT: 5432
-      REDIS_URL: redis://redis:6379/0
-      DEBUG: "True"
-
-    depends_on:
-      redis:
-        condition: service_healthy
-
-      migrate:
-        condition: service_completed_successfully
-
-    command:
-      - celery
-      - -A
-      - config
-      - flower
-      - --port=5555
-
-    ports:
-      - "5555:5555"
-
-    volumes:
-      - .:/usr/src/app
-
-    networks:
-      - invoicing-network-dev
-
-  nginx:
-    image: nginx:alpine
-    container_name: invoicing-dev-nginx
-
-    restart: unless-stopped
-
-    depends_on:
-      app:
-        condition: service_healthy
-
-    ports:
-      - "8000:80"
-
-    volumes:
-      - ./nginx/invoicing.conf:/etc/nginx/conf.d/default.conf:ro
-      - static_files_dev:/var/www/static:ro
-      - media_files_dev:/var/www/media:ro
-
-    healthcheck:
-      test:
-        - CMD
-        - wget
-        - -qO-
-        - http://localhost/api/health/
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
-    networks:
-      - invoicing-network-dev
-
-networks:
-  invoicing-network-dev:
-    driver: bridge
-
-volumes:
-  postgres_data_dev:
-  redis_data_dev:
-  static_files_dev:
-  media_files_dev:
-  outputs_files_dev:
-  tools_export_dev:
+      - name: media
+        persistentVolumeClaim:
+          claimName: invoicing-media
+    volumeMounts:
+      - name: media
+        mountPath: /usr/src/app/media
+    # Three workers now, matching docker-compose.yml's intended shape:
+    # celery-worker handles default + extraction (long-running/bulk jobs),
+    # celery-worker-chat is dedicated to the "chat" queue so chat turns are
+    # never starved behind large-file extraction or AI jobs (see the
+    # CELERY_TASK_ROUTES comment in settings.py), and celery-beat runs the
+    # scheduler. Previously celery-worker had no -Q flag, so it only ever
+    # consumed CELERY_TASK_DEFAULT_QUEUE ("default") — no worker was bound
+    # to "chat" at all, which is why chat sends returned 202 Accepted but
+    # never produced a reply.
+    workers:
+      - name: celery-worker
+        command:
+          - celery
+          - -A
+          - config
+          - worker
+          - -Q
+          - extraction,default
+          - -l
+          - INFO
+      - name: celery-worker-chat
+        command:
+          - celery
+          - -A
+          - config
+          - worker
+          - -Q
+          - chat
+          - -l
+          - INFO
+      - name: celery-beat
+        command:
+          - celery
+          - -A
+          - config
+          - beat
+          - -l
+          - INFO
+          - --schedule
+          - /tmp/celerybeat-schedule
+    secret_names:
+      SECRET_KEY: DJANGO_SECRET_KEY
+      # Was entirely absent from this mapping — XAI_API_KEY grep on the app
+      # pod came back empty, so any chat turn that reaches the Grok call
+      # will fail auth once the queue-binding fix above lets it run at all.
+      # Confirm/replace INVOICING_XAI_API_KEY with whatever this key is
+      # actually named in the secret store.
+      XAI_API_KEY: INVOICING_XAI_API_KEY
+    remove_deploy_artifacts:
+      - /root/tools/ai_invoicing/image.tar
+    compose_pull: missing
+    compose_recreate: auto
+    compose_wait_timeout: 120
+    environments:
+      prod:
+        domain: invoicing.dimeconsultants.africa
+        replicas: 2
+        nginx_managed: false
+        port: 9455
+        container_port: 9455
+        env:
+          DEBUG: "False"
+          DJANGO_SETTINGS_MODULE: config.settings
+          SYSTEM_BASE_URL: invoicing.dimeconsultants.africa
+        service:
+          type: ClusterIP
+          port: 80
+          targetPort: 9455
+        probes:
+          path: /api/health
+        ingress:
+          enabled: true
+          className: traefik
+          annotations:
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            traefik.ingress.kubernetes.io/router.tls: "true"
+            traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+          tls:
+            enabled: true
+        k3s:
+          namespace: prod
+      stage:
+        domain: stage-invoicing.dimeconsultants.africa
+        replicas: 2
+        nginx_managed: false
+        port: 6001
+        container_port: 6001
+        env:
+          DEBUG: "False"
+          DJANGO_SETTINGS_MODULE: config.settings
+          SYSTEM_BASE_URL: stage-invoicing.dimeconsultants.africa
+        service:
+          type: ClusterIP
+          port: 80
+          targetPort: 6001
+        probes:
+          path: /api/health
+        ingress:
+          enabled: true
+          className: traefik
+          annotations:
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            traefik.ingress.kubernetes.io/router.tls: "true"
+            traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+          tls:
+            enabled: true
+        k3s:
+          namespace: stage
+
+  - name: hrpayroll
+    repo: dime-consultants/hrpayroll
+    deployment_type: k3s
+    aliases:
+      - hrpayroll
+      - hr.dimeapp.co.ke
+      - stage-hr.dimeconsultants.africa
+    port_env: API_PORT
+    postgres_database: hr
+    rabbitmq_namespace: hr
+    remove_deploy_artifacts:
+      - /root/tools/hrpayroll/image.tar
+    compose_pull: missing
+    compose_recreate: auto
+    compose_wait_timeout: 120
+    environments:
+      prod:
+        domain: hr.dimeapp.co.ke
+        replicas: 2
+        nginx_managed: false
+        port: 8023
+        container_port: 8023
+        service:
+          type: ClusterIP
+          port: 80
+          targetPort: 8023
+        ingress:
+          enabled: true
+          className: traefik
+          annotations:
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            traefik.ingress.kubernetes.io/router.tls: "true"
+            traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+          tls:
+            enabled: true
+        k3s:
+          namespace: prod
+      stage:
+        domain: stage-hr.dimeconsultants.africa
+        replicas: 2
+        nginx_managed: false
+        port: 7734
+        container_port: 7734
+        service:
+          type: ClusterIP
+          port: 80
+          targetPort: 7734
+        ingress:
+          enabled: true
+          className: traefik
+          annotations:
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            traefik.ingress.kubernetes.io/router.tls: "true"
+            traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+          tls:
+            enabled: true
+        k3s:
+          namespace: stage
+
+  - name: account
+    repo: dime-consultants/dime-loans
+    deployment_type: k3s
+    aliases:
+      - dime-loans
+      - loans
+      - account.dimeconsultants.africa
+      - stage-account.dimeconsultants.africa
+    port_env: API_PORT
+    rabbitmq_namespace: account
+    remove_deploy_artifacts:
+      - /root/tools/account/image.tar
+    compose_pull: missing
+    compose_recreate: auto
+    compose_wait_timeout: 120
+    environments:
+      prod:
+        domain: account.dimeconsultants.africa
+        postgres_database: account
+        database_name: dime_loans
+        database_user: admin
+        database_password_secret_name: ACCOUNT_PROD_DATABASE_PASSWORD
+        replicas: 2
+        nginx_managed: false
+        port: 8110
+        container_port: 8110
+        service:
+          type: ClusterIP
+          port: 80
+          targetPort: 8110
+        ingress:
+          enabled: true
+          className: traefik
+          annotations:
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            traefik.ingress.kubernetes.io/router.tls: "true"
+            traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+          tls:
+            enabled: true
+        k3s:
+          namespace: prod
+      stage:
+        domain: stage-account.dimeconsultants.africa
+        postgres_database: account
+        postgres_service_env: stage
+        database_name: dime_loans_stage
+        database_user: admin
+        database_password_secret_name: ACCOUNT_STAGE_DATABASE_PASSWORD
+        replicas: 2
+        nginx_managed: false
+        port: 8111
+        container_port: 8111
+        service:
+          type: ClusterIP
+          port: 80
+          targetPort: 8111
+        ingress:
+          enabled: true
+          className: traefik
+          annotations:
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            traefik.ingress.kubernetes.io/router.tls: "true"
+            traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+          tls:
+            enabled: true
+        k3s:
+          namespace: stage
+
+  - name: payroll
+    repo: dime-consultants/hrpayrollui
+    deployment_type: k3s
+    aliases:
+      - hrpayrollui
+      - payroll.dimeapp.co.ke
+      - stage-payroll.dimeconsultants.africa
+    port_env: API_PORT
+    environments:
+      prod:
+        domain: payroll.dimeapp.co.ke
+        replicas: 2
+        nginx_managed: false
+        port: 3000
+        container_port: 3000
+        service:
+          type: ClusterIP
+          port: 80
+          targetPort: 3000
+        probes:
+          path: /
+        env:
+          HOME: /home/node
+          COREPACK_HOME: /home/node/.cache/node/corepack
+          NODE_ENV: production
+          NEXT_TELEMETRY_DISABLED: "1"
+          PORT: "3000"
+        tmpVolume:
+          enabled: false
+        volumeMounts:
+          - mountPath: /tmp
+            name: tmp
+          - mountPath: /var/tmp
+            name: var-tmp
+          - mountPath: /home/app/.cache
+            name: cache
+          - mountPath: /home/node/.cache
+            name: node-cache
+          - mountPath: /app/.next/cache
+            name: next-cache
+        volumes:
+          - name: tmp
+            emptyDir: {}
+          - name: var-tmp
+            emptyDir: {}
+          - name: cache
+            emptyDir: {}
+          - name: node-cache
+            emptyDir: {}
+          - name: next-cache
+            emptyDir: {}
+        ingress:
+          enabled: true
+          className: traefik
+          annotations:
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            traefik.ingress.kubernetes.io/router.tls: "true"
+            traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+          tls:
+            enabled: true
+        k3s:
+          namespace: prod
+          normalize_deployment_ports: true
+      stage:
+        domain: stage-payroll.dimeconsultants.africa
+        replicas: 2
+        nginx_managed: false
+        port: 3000
+        container_port: 3000
+        service:
+          type: ClusterIP
+          port: 80
+          targetPort: 3000
+        probes:
+          path: /
+        env:
+          HOME: /home/node
+          COREPACK_HOME: /home/node/.cache/node/corepack
+          NODE_ENV: production
+          NEXT_TELEMETRY_DISABLED: "1"
+          PORT: "3000"
+        tmpVolume:
+          enabled: false
+        volumeMounts:
+          - mountPath: /tmp
+            name: tmp
+          - mountPath: /var/tmp
+            name: var-tmp
+          - mountPath: /home/app/.cache
+            name: cache
+          - mountPath: /home/node/.cache
+            name: node-cache
+          - mountPath: /app/.next/cache
+            name: next-cache
+        volumes:
+          - name: tmp
+            emptyDir: {}
+          - name: var-tmp
+            emptyDir: {}
+          - name: cache
+            emptyDir: {}
+          - name: node-cache
+            emptyDir: {}
+          - name: next-cache
+            emptyDir: {}
+        ingress:
+          enabled: true
+          className: traefik
+          annotations:
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            traefik.ingress.kubernetes.io/router.tls: "true"
+            traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+          tls:
+            enabled: true
+        k3s:
+          namespace: stage
+          normalize_deployment_ports: true
+
+  - name: guardian
+    repo: dime-consultants/Guardian-Bank-UI
+    deployment_type: k3s
+    aliases:
+      - guardian
+      - dime-consultants/guardian
+      - guardian.dimeconsultants.africa
+      - stage-guardian.dimeconsultants.africa
+    port_env: API_PORT
+    environments:
+      prod:
+        domain: guardian.dimeconsultants.africa
+        replicas: 2
+        nginx_managed: false
+        port: 3000
+        container_port: 3000
+        service:
+          type: ClusterIP
+          port: 80
+          targetPort: 3000
+        probes:
+          path: /
+        env:
+          HOME: /home/node
+          COREPACK_HOME: /home/node/.cache/node/corepack
+          NODE_ENV: production
+          NEXT_TELEMETRY_DISABLED: "1"
+          PORT: "3000"
+        tmpVolume:
+          enabled: false
+        volumeMounts:
+          - mountPath: /tmp
+            name: tmp
+          - mountPath: /var/tmp
+            name: var-tmp
+          - mountPath: /home/app/.cache
+            name: cache
+          - mountPath: /home/node/.cache
+            name: node-cache
+          - mountPath: /app/.next/cache
+            name: next-cache
+        volumes:
+          - name: tmp
+            emptyDir: {}
+          - name: var-tmp
+            emptyDir: {}
+          - name: cache
+            emptyDir: {}
+          - name: node-cache
+            emptyDir: {}
+          - name: next-cache
+            emptyDir: {}
+        ingress:
+          enabled: true
+          className: traefik
+          annotations:
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            traefik.ingress.kubernetes.io/router.tls: "true"
+            traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+          tls:
+            enabled: true
+        k3s:
+          namespace: prod
+          normalize_deployment_ports: true
+      stage:
+        domain: stage-guardian.dimeconsultants.africa
+        replicas: 2
+        nginx_managed: false
+        port: 3000
+        container_port: 3000
+        service:
+          type: ClusterIP
+          port: 80
+          targetPort: 3000
+        probes:
+          path: /
+        env:
+          HOME: /home/node
+          COREPACK_HOME: /home/node/.cache/node/corepack
+          NODE_ENV: production
+          NEXT_TELEMETRY_DISABLED: "1"
+          PORT: "3000"
+        tmpVolume:
+          enabled: false
+        volumeMounts:
+          - mountPath: /tmp
+            name: tmp
+          - mountPath: /var/tmp
+            name: var-tmp
+          - mountPath: /home/app/.cache
+            name: cache
+          - mountPath: /home/node/.cache
+            name: node-cache
+          - mountPath: /app/.next/cache
+            name: next-cache
+        volumes:
+          - name: tmp
+            emptyDir: {}
+          - name: var-tmp
+            emptyDir: {}
+          - name: cache
+            emptyDir: {}
+          - name: node-cache
+            emptyDir: {}
+          - name: next-cache
+            emptyDir: {}
+        ingress:
+          enabled: true
+          className: traefik
+          annotations:
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            traefik.ingress.kubernetes.io/router.tls: "true"
+            traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+          tls:
+            enabled: true
+        k3s:
+          namespace: stage
+          normalize_deployment_ports: true
+
+extra_domains:
+  - domain: promtail.dimeconsultants.africa
+    proxy_port: 9080
+    basic_auth: true
+    ingress:
+      enabled: true
+      className: traefik
+      annotations:
+        traefik.ingress.kubernetes.io/router.entrypoints: websecure
+        traefik.ingress.kubernetes.io/router.tls: "true"
+        traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+      tls:
+        enabled: true
+
+backups:
+  enabled: false
